@@ -55,11 +55,12 @@ def test_training_step_reduces_loss():
     for _ in range(20):
         opt.zero_grad()
         out = loss_fn(model(x), y)
+        loss_val = out["loss"].detach().item()
         out["loss"].backward()
         opt.step()
         if first is None:
-            first = float(out["loss"])
-        last = float(out["loss"])
+            first = loss_val
+        last = loss_val
     assert last < first
 
 
