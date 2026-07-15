@@ -6,6 +6,13 @@ export default function RunsPanel() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<RunDetail | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // retrain form
+  const [retrainFor, setRetrainFor] = useState<string | null>(null);
+  const [retrainName, setRetrainName] = useState("");
+  const [retrainEpochs, setRetrainEpochs] = useState<number | "">("");
 
   const refresh = () => api.runs().then(setRuns).catch(() => {});
   useEffect(() => {
@@ -29,6 +36,52 @@ export default function RunsPanel() {
     };
   }, [selected, detail?.status]);
 
+  const rename = async (name: string) => {
+    const to = window.prompt(`Rename run "${name}" to:`, name);
+    if (!to || to === name) return;
+    setError(null); setMsg(null);
+    try {
+      await api.renameRun(name, to);
+      if (selected === name) { setSelected(to); setDetail(null); }
+      setMsg(`Renamed ${name} → ${to}`);
+      refresh();
+    } catch (e) { setError(String(e)); }
+  };
+
+  const remove = async (name: string) => {
+    if (!window.confirm(`Delete run "${name}"? This removes its checkpoints and metrics.`)) return;
+    setError(null); setMsg(null);
+    try {
+      await api.deleteRun(name);
+      if (selected === name) { setSelected(null); setDetail(null); }
+      setMsg(`Deleted ${name}`);
+      refresh();
+    } catch (e) { setError(String(e)); }
+  };
+
+  const openRetrain = (name: string) => {
+    setRetrainFor(name);
+    setRetrainName(`${name}-v2`);
+    setRetrainEpochs("");
+    setMsg(null); setError(null);
+  };
+
+  const submitRetrain = async () => {
+    if (!retrainFor || !retrainName) return;
+    setError(null); setMsg(null);
+    try {
+      await api.retrainRun(retrainFor, {
+        name: retrainName,
+        ...(retrainEpochs !== "" ? { epochs: Number(retrainEpochs) } : {}),
+      });
+      setMsg(`Retraining started as ${retrainName} — see it below for live metrics.`);
+      setRetrainFor(null);
+      refresh();
+      setSelected(retrainName);
+      setDetail(null);
+    } catch (e) { setError(String(e)); }
+  };
+
   const m = detail?.metrics ?? [];
   const xs = m.map((e) => e.epoch);
   const last = m[m.length - 1];
@@ -36,7 +89,9 @@ export default function RunsPanel() {
   return (
     <>
       <div className="card">
-        <h2>Runs</h2>
+        <h2>Runs (trained models)</h2>
+        {msg && <p className="muted">{msg}</p>}
+        {error && <p className="err">{error}</p>}
         <table>
           <thead>
             <tr>
@@ -45,6 +100,7 @@ export default function RunsPanel() {
               <th>epochs</th>
               <th>last val loss</th>
               <th>last F1</th>
+              <th>actions</th>
             </tr>
           </thead>
           <tbody>
@@ -59,14 +115,42 @@ export default function RunsPanel() {
                 <td>{r.epochs_done}</td>
                 <td>{r.last?.val?.loss?.toFixed(4) ?? "—"}</td>
                 <td>{r.last?.val?.f1?.toFixed(3) ?? "—"}</td>
+                <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
+                  <button className="btn ghost" onClick={() => openRetrain(r.name)} title="Retrain from this config">↻</button>{" "}
+                  <button className="btn ghost" onClick={() => rename(r.name)} title="Rename"
+                          disabled={r.status !== "done"}>✎</button>{" "}
+                  <button className="btn ghost" onClick={() => remove(r.name)} title="Delete"
+                          disabled={r.status !== "done"}>🗑</button>
+                </td>
               </tr>
             ))}
             {runs.length === 0 && (
-              <tr><td colSpan={5} className="muted">no runs yet</td></tr>
+              <tr><td colSpan={6} className="muted">no runs yet</td></tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {retrainFor && (
+        <div className="card">
+          <h2>Retrain <span className="mono">{retrainFor}</span></h2>
+          <p className="muted">Reuses the model architecture, dataset and hyperparameters of
+            <span className="mono"> {retrainFor}</span>. Override epochs if you want.</p>
+          <div className="row">
+            <div className="field">
+              <label>New run name</label>
+              <input value={retrainName} onChange={(e) => setRetrainName(e.target.value)} />
+            </div>
+            <div className="field">
+              <label>epochs (blank = same)</label>
+              <input type="number" value={retrainEpochs}
+                     onChange={(e) => setRetrainEpochs(e.target.value === "" ? "" : Number(e.target.value))} />
+            </div>
+          </div>
+          <button className="btn" onClick={submitRetrain} disabled={!retrainName}>Start retrain</button>{" "}
+          <button className="btn ghost" onClick={() => setRetrainFor(null)}>Cancel</button>
+        </div>
+      )}
 
       {detail && (
         <div className="card">

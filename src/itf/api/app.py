@@ -21,22 +21,34 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import numpy as np
 import yaml
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from PIL import Image
 
 from itf.api import settings
 from itf.api.jobs import JOBS
-from itf.api.schemas import BuildPatchRequest, SaveModelRequest, TrainRequest
+from itf.api.schemas import (
+    BuildPatchRequest,
+    PredictPathRequest,
+    RenameRunRequest,
+    RetrainRequest,
+    SaveModelRequest,
+    TrainRequest,
+)
 from itf.datasets.loader import SourceDataset
 from itf.inference.predict import load_model, predict_image
 from itf.patches.extract import PatchExtractConfig, SplitConfig, extract_dataset
 from itf.training.loop import RunConfig, train
+
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff"}
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -110,11 +122,125 @@ def _run_status(run_dir: Path) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# model cache + image serving (batch inference over folders / subsets)
+# --------------------------------------------------------------------------- #
+_MODEL_CACHE: "OrderedDict[tuple, object]" = OrderedDict()
+_MODEL_CACHE_MAX = 4
+
+
+def _get_model(run: str, checkpoint: str, device: str):
+    """Load a checkpoint, caching by (run, checkpoint, device, mtime) so batch
+    prediction over many images does not re-read the model from disk each time."""
+    ckpt = settings.RUNS_DIR / run / f"{checkpoint}.pt"
+    if not ckpt.exists():
+        raise HTTPException(404, f"checkpoint not found: {run}/{checkpoint}.pt")
+    key = (run, checkpoint, device, ckpt.stat().st_mtime_ns)
+    model = _MODEL_CACHE.get(key)
+    if model is None:
+        model = load_model(ckpt, device=device)
+        _MODEL_CACHE[key] = model
+        while len(_MODEL_CACHE) > _MODEL_CACHE_MAX:
+            _MODEL_CACHE.popitem(last=False)
+    else:
+        _MODEL_CACHE.move_to_end(key)
+    return model
+
+
+def _drop_model_cache(run: str) -> None:
+    for key in [k for k in _MODEL_CACHE if k[0] == run]:
+        _MODEL_CACHE.pop(key, None)
+
+
+def _resolve_image_path(path: str) -> Path:
+    p = Path(path)
+    if not p.is_file() or p.suffix.lower() not in IMAGE_SUFFIXES:
+        raise HTTPException(404, f"image not found: {path}")
+    return p
+
+
+def _image_response(p: Path, width: int | None) -> Response:
+    """Serve an image, optionally downscaled to ``width`` px (for thumbnails)."""
+    with Image.open(p) as im:
+        im = im.convert("L")
+        if width and width < im.width:
+            h = max(1, round(im.height * width / im.width))
+            im = im.resize((width, h))
+        buf = io.BytesIO()
+        im.save(buf, format="PNG")
+    return Response(content=buf.getvalue(), media_type="image/png")
+
+
+def _dataset_samples(dataset_id: str) -> list[dict]:
+    """Lightweight per-sample listing (index, absolute image path, size, #paragraphs)."""
+    d = _resolve_source(dataset_id)
+    ds = SourceDataset(d)
+    out = []
+    for s in ds:
+        out.append({
+            "index": s.index,
+            "name": s.image_path.name,
+            "path": str(s.image_path),
+            "width": s.width,
+            "height": s.height,
+            "num_paragraphs": len(s.blocks_of_kind(["paragraph"])),
+        })
+    return out
+
+
+def _split_map(patch_dataset: str) -> dict[int, str]:
+    """sample index -> split name ('train'|'val'|'test') for a built patch dataset."""
+    sp = settings.PATCH_DATASETS_DIR / patch_dataset / "split.json"
+    if not sp.exists():
+        raise HTTPException(404, f"split not found for patch dataset: {patch_dataset}")
+    data = json.loads(sp.read_text(encoding="utf-8"))
+    return {int(i): split for split, idxs in data.items() for i in idxs}
+
+
+def _run_source(run: str) -> tuple[str | None, str | None]:
+    """Resolve (patch_dataset_name, source_dataset_id) a run was trained on."""
+    cfg_path = settings.RUNS_DIR / run / "config.json"
+    if not cfg_path.exists():
+        return None, None
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    patch_dir = Path(cfg.get("data", ""))
+    patch_name = patch_dir.name if patch_dir.name else None
+    source_id = None
+    manifest = _read_manifest(patch_dir) if patch_dir.exists() else None
+    if manifest:
+        src = Path(manifest.get("config", {}).get("source", ""))
+        root = settings.DATASETS_ROOT
+        try:
+            source_id = src.resolve().relative_to(root).as_posix()
+        except ValueError:
+            source_id = src.name or None
+    return patch_name, source_id
+
+
+# --------------------------------------------------------------------------- #
 # datasets
 # --------------------------------------------------------------------------- #
 @app.get("/datasets")
 def list_datasets() -> list[dict]:
     return _discover_datasets()
+
+
+# NOTE: the ``/samples`` route must be declared before the greedy
+# ``{dataset_id:path}`` catch-all, or the latter would swallow ".../samples".
+@app.get("/datasets/{dataset_id:path}/samples")
+def list_dataset_samples(dataset_id: str, patch_dataset: str | None = None) -> dict:
+    """Per-sample thumbnails source. When ``patch_dataset`` is given, each sample
+    is annotated with its split (train/val/test) so subsets can be filtered."""
+    samples = _dataset_samples(dataset_id)
+    splits: dict[str, int] = {}
+    if patch_dataset:
+        smap = _split_map(patch_dataset)
+        for s in samples:
+            s["split"] = smap.get(s["index"])
+        for s in samples:
+            if s.get("split"):
+                splits[s["split"]] = splits.get(s["split"], 0) + 1
+    return {"dataset": dataset_id, "count": len(samples),
+            "splits": splits or None, "samples": samples}
 
 
 @app.get("/datasets/{dataset_id:path}")
@@ -131,6 +257,38 @@ def get_dataset(dataset_id: str) -> dict:
             "num_paragraphs": len(samples[0].blocks_of_kind(["paragraph"])),
         } if samples else None,
     }
+
+
+# --------------------------------------------------------------------------- #
+# images & folders (batch inference sources + thumbnails)
+# --------------------------------------------------------------------------- #
+@app.get("/image")
+def serve_image(path: str = Query(...), w: int | None = Query(None)) -> Response:
+    """Serve any local image by absolute path, optionally downscaled to ``w`` px."""
+    return _image_response(_resolve_image_path(path), w)
+
+
+@app.get("/folder")
+def list_folder(path: str = Query(...)) -> dict:
+    """List image files in an arbitrary local folder (non-recursive)."""
+    d = Path(path)
+    if not d.is_dir():
+        raise HTTPException(404, f"folder not found: {path}")
+    items = [
+        {"name": f.name, "path": str(f)}
+        for f in sorted(d.iterdir())
+        if f.is_file() and f.suffix.lower() in IMAGE_SUFFIXES
+    ]
+    return {"path": str(d), "count": len(items), "images": items}
+
+
+@app.get("/runs/{name}/source")
+def get_run_source(name: str) -> dict:
+    """Which patch dataset + source dataset (with subsets) a run was trained on."""
+    if not (settings.RUNS_DIR / name).exists():
+        raise HTTPException(404, f"run not found: {name}")
+    patch_dataset, source = _run_source(name)
+    return {"run": name, "patch_dataset": patch_dataset, "source": source}
 
 
 # --------------------------------------------------------------------------- #
@@ -254,6 +412,54 @@ def get_run(name: str) -> dict:
     }
 
 
+@app.patch("/runs/{name}")
+def rename_run(name: str, req: RenameRunRequest) -> dict:
+    d = settings.RUNS_DIR / name
+    if not d.exists():
+        raise HTTPException(404, f"run not found: {name}")
+    if _run_status(d) == "running":
+        raise HTTPException(409, f"cannot rename an active run: {name}")
+    target = settings.RUNS_DIR / req.new_name
+    if target.exists():
+        raise HTTPException(409, f"run already exists: {req.new_name}")
+    _drop_model_cache(name)
+    d.rename(target)
+    return {"renamed": name, "to": req.new_name}
+
+
+@app.delete("/runs/{name}")
+def delete_run(name: str, force: bool = False) -> dict:
+    d = settings.RUNS_DIR / name
+    if not d.exists():
+        raise HTTPException(404, f"run not found: {name}")
+    if _run_status(d) == "running" and not force:
+        raise HTTPException(409, f"run '{name}' looks active; pass force=true to delete it")
+    _drop_model_cache(name)
+    shutil.rmtree(d)
+    return {"deleted": name}
+
+
+@app.post("/runs/{name}/retrain")
+def retrain_run(name: str, req: RetrainRequest) -> dict:
+    """Start a new run reusing an existing run's config/model, with overrides."""
+    cfg_path = settings.RUNS_DIR / name / "config.json"
+    if not cfg_path.exists():
+        raise HTTPException(404, f"run config not found: {name}")
+    out_dir = settings.RUNS_DIR / req.name
+    if out_dir.exists():
+        raise HTTPException(409, f"run already exists: {req.name}")
+    base = json.loads(cfg_path.read_text(encoding="utf-8"))
+    overrides = {k: v for k, v in {
+        "epochs": req.epochs, "batch_size": req.batch_size, "lr": req.lr,
+        "optimizer": req.optimizer, "lambda_pos": req.lambda_pos, "device": req.device,
+    }.items() if v is not None}
+    base.update(overrides)
+    base["out"] = str(out_dir)
+    config = RunConfig.from_dict(base)
+    job = JOBS.submit("train", lambda: train(config), meta={"name": req.name})
+    return job.as_dict()
+
+
 # --------------------------------------------------------------------------- #
 # jobs
 # --------------------------------------------------------------------------- #
@@ -282,12 +488,24 @@ def predict(
     device: str = Form("cpu"),
     file: UploadFile = File(...),
 ) -> dict:
-    ckpt = settings.RUNS_DIR / run / f"{checkpoint}.pt"
-    if not ckpt.exists():
-        raise HTTPException(404, f"checkpoint not found: {run}/{checkpoint}.pt")
-    model = load_model(ckpt, device=device)
+    model = _get_model(run, checkpoint, device)
     image = np.asarray(Image.open(io.BytesIO(file.file.read())).convert("L"), dtype=np.uint8)
     result = predict_image(model, image, stride=stride, threshold=threshold, device=device)
     result["run"] = run
     result["checkpoint"] = checkpoint
+    return result
+
+
+@app.post("/predict-path")
+def predict_path(req: PredictPathRequest) -> dict:
+    """Run inference on an image already on disk (no re-upload) — used by the
+    thumbnail grid to evaluate folders / dataset subsets image by image."""
+    p = _resolve_image_path(req.path)
+    model = _get_model(req.run, req.checkpoint, req.device)
+    image = np.asarray(Image.open(p).convert("L"), dtype=np.uint8)
+    result = predict_image(model, image, stride=req.stride,
+                           threshold=req.threshold, device=req.device)
+    result["run"] = req.run
+    result["checkpoint"] = req.checkpoint
+    result["path"] = str(p)
     return result

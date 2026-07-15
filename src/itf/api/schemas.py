@@ -48,3 +48,30 @@ class TrainRequest(BaseModel):
 class SaveModelRequest(BaseModel):
     name: str
     model: ModelConfigModel
+
+
+class PredictPathRequest(BaseModel):
+    """Run inference on an image that already lives on the server's disk."""
+
+    path: str = Field(..., description="Absolute path to a local image file.")
+    run: str
+    checkpoint: str = "best"
+    threshold: float = 0.5
+    stride: int | None = None
+    device: str = "cpu"
+
+
+class RenameRunRequest(BaseModel):
+    new_name: str = Field(..., description="New run name (subdir under RUNS_DIR).")
+
+
+class RetrainRequest(BaseModel):
+    """Start a new run reusing an existing run's config, with optional overrides."""
+
+    name: str = Field(..., description="New run name for the retrained model.")
+    epochs: int | None = None
+    batch_size: int | None = None
+    lr: float | None = None
+    optimizer: str | None = None
+    lambda_pos: float | None = None
+    device: str | None = None

@@ -76,6 +76,50 @@ export interface PredictResult {
   image_size: [number, number];
   run: string;
   checkpoint: string;
+  path?: string;
+}
+
+export interface SampleItem {
+  index: number;
+  name: string;
+  path: string;
+  width: number;
+  height: number;
+  num_paragraphs: number;
+  split?: "train" | "val" | "test" | null;
+}
+
+export interface DatasetSamples {
+  dataset: string;
+  count: number;
+  splits: Record<string, number> | null;
+  samples: SampleItem[];
+}
+
+export interface FolderItem {
+  name: string;
+  path: string;
+}
+
+export interface FolderListing {
+  path: string;
+  count: number;
+  images: FolderItem[];
+}
+
+export interface RunSource {
+  run: string;
+  patch_dataset: string | null;
+  source: string | null;
+}
+
+export interface PredictPathBody {
+  path: string;
+  run: string;
+  checkpoint?: string;
+  threshold?: number;
+  stride?: number | null;
+  device?: string;
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -87,20 +131,40 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-const jsonPost = (body: unknown): RequestInit => ({
-  method: "POST",
+const jsonBody = (method: string) => (body: unknown): RequestInit => ({
+  method,
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
+const jsonPost = jsonBody("POST");
+const jsonPatch = jsonBody("PATCH");
+
+// URL to (optionally downscaled) image bytes served straight from disk.
+export const imageUrl = (path: string, w?: number) =>
+  `${BASE}/image?path=${encodeURIComponent(path)}${w ? `&w=${w}` : ""}`;
 
 export const api = {
   datasets: () => req<Dataset[]>("/datasets"),
+  datasetSamples: (id: string, patchDataset?: string) =>
+    req<DatasetSamples>(
+      `/datasets/${id}/samples${patchDataset ? `?patch_dataset=${encodeURIComponent(patchDataset)}` : ""}`,
+    ),
+  folder: (path: string) => req<FolderListing>(`/folder?path=${encodeURIComponent(path)}`),
   patchDatasets: () => req<PatchDataset[]>("/patch-datasets"),
   buildPatches: (body: unknown) => req<Job>("/patch-datasets", jsonPost(body)),
   runs: () => req<RunSummary[]>("/runs"),
   run: (name: string) => req<RunDetail>(`/runs/${name}`),
+  runSource: (name: string) => req<RunSource>(`/runs/${name}/source`),
   startRun: (body: unknown) => req<Job>("/runs", jsonPost(body)),
+  renameRun: (name: string, newName: string) =>
+    req<{ renamed: string; to: string }>(`/runs/${name}`, jsonPatch({ new_name: newName })),
+  deleteRun: (name: string, force = false) =>
+    req<{ deleted: string }>(`/runs/${name}${force ? "?force=true" : ""}`, { method: "DELETE" }),
+  retrainRun: (name: string, body: unknown) =>
+    req<Job>(`/runs/${name}/retrain`, jsonPost(body)),
   job: (id: string) => req<Job>(`/jobs/${id}`),
   predict: (form: FormData) =>
     req<PredictResult>("/predict", { method: "POST", body: form }),
+  predictPath: (body: PredictPathBody) =>
+    req<PredictResult>("/predict-path", jsonPost(body)),
 };

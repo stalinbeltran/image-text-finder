@@ -38,6 +38,9 @@ below.
 
 ## CLI usage
 
+Run these from the **repo root** (where `.venv` lives) — the `.\.venv\Scripts\`
+prefix is relative, so it fails from other folders such as `web\`.
+
 ```powershell
 # 1. Build a patch dataset (writes data/patch-datasets/reducido-40/patches.npz)
 .\.venv\Scripts\itf-extract --config configs/extract.example.yaml
@@ -73,7 +76,34 @@ $env:ITF_API_URL = "http://127.0.0.1:8010"; npm run dev
 
 **Port note:** if `8000` is already in use on your machine, run the API on
 another port (`itf-api --port 8010`) and set `ITF_API_URL` accordingly. Verify
-the whole toolchain any time with `.\.venv\Scripts\python -m pytest -q`.
+the whole toolchain any time (back in the repo root, not `web\`) with
+`.\.venv\Scripts\python -m pytest -q`.
+
+### Predict panel — batch inference
+
+The **Predict** tab evaluates many images at once instead of one upload. Pick a
+trained run (it auto-selects the source dataset and split it was trained on),
+then choose an image source:
+
+- **Dataset / subset** — browse a source dataset as a thumbnail grid, filtered
+  by split (`all / train / val / test`, taken from the run's patch dataset).
+- **Folder** — point at any folder of images on the server's disk.
+- **Single upload** — the original one-off upload flow.
+
+Click a thumbnail to run inference and see the corner/paragraph overlay; each
+tile shows how many paragraphs were reconstructed. **Predict all** runs the
+whole visible set (loaded models are cached, so batches stay fast).
+
+### Runs panel — manage trained models
+
+The **Runs** tab lists trained models with per-row actions: **rename** (✎),
+**delete** (🗑), and **retrain** (↻, reuses the model architecture, dataset and
+hyperparameters with an optional epochs override). Active runs are protected —
+rename/delete are disabled while a run is still training.
+
+New backend endpoints backing these: `GET /datasets/{id}/samples`,
+`GET /image`, `GET /folder`, `GET /runs/{name}/source`, `POST /predict-path`,
+`PATCH`/`DELETE /runs/{name}`, and `POST /runs/{name}/retrain`.
 
 ## Layout
 
