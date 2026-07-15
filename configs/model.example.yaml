@@ -1,0 +1,27 @@
+# Model + training config (component 2).
+# Consumed by: itf.training.loop / the `itf-train` CLI.
+
+# --- architecture (fully declarative; compare archs without touching code) ---
+model:
+  input_size: 40          # must match the patch dataset's n
+  in_channels: 1          # grayscale patches
+  backbone:
+    - {filters: 32, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2, dropout: 0.0}
+    - {filters: 64, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2, dropout: 0.0}
+    - {filters: 128, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2, dropout: 0.1}
+  head:
+    hidden: [128]
+    dropout: 0.3
+
+# --- training hyperparameters ---
+train:
+  epochs: 20
+  batch_size: 64
+  lr: 0.001
+  optimizer: adam         # adam | adamw | sgd | rmsprop
+  weight_decay: 0.0
+  lambda_pos: 1.0         # weight of the position (smoothL1) term
+  pos_weight: null        # optional BCE positive-class weight for class imbalance
+  seed: 1
+  device: cpu             # cpu | cuda
+  num_workers: 0
