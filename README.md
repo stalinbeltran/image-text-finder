@@ -22,34 +22,58 @@ paragraph boxes.
 
 ## Setup
 
-```bash
-python -m venv .venv                     # Python 3.12 recommended (torch wheels)
-./.venv/Scripts/python -m pip install -e ".[train,api,dev]"
+PyTorch has no wheels for Python 3.14 yet, so create the venv with **Python
+3.12**. On Windows use the `py` launcher; the commands below are for PowerShell.
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install -e ".[train,api,dev]"
 ```
+
+This installs the `itf-extract`, `itf-train`, and `itf-api` console scripts into
+`.venv\Scripts\`. Either activate the venv (`.\.venv\Scripts\Activate.ps1`) so
+they're on your PATH, or call them with the `.\.venv\Scripts\` prefix as shown
+below.
 
 ## CLI usage
 
-```bash
-# 1. Build a patch dataset
-itf-extract --config configs/extract.example.yaml
+```powershell
+# 1. Build a patch dataset (writes data/patch-datasets/reducido-40/patches.npz)
+.\.venv\Scripts\itf-extract --config configs/extract.example.yaml
 
-# 2. Train a model
-itf-train --config configs/model.example.yaml \
+# 2. Train a model (writes checkpoints + metrics to runs/cnn-a/)
+.\.venv\Scripts\itf-train --config configs/model.example.yaml `
           --data data/patch-datasets/reducido-40 --out runs/cnn-a
 
-# 3. Serve the API (docs at http://127.0.0.1:8000/docs)
-itf-api --port 8000
+# 3. Serve the API (interactive docs at http://127.0.0.1:8000/docs)
+.\.venv\Scripts\itf-api --port 8000
 ```
+
+> The example `configs/extract.example.yaml` points `source` at a dataset under
+> `image-text-sample-generator`. Edit that path (or pass `--source <dir> --out <dir>`)
+> to build from your own datasets.
 
 ## Web app
 
-```bash
+Requires Node.js (tested with Node 24 / npm 11).
+
+```powershell
 cd web
 npm install
 npm run dev        # http://localhost:5173  (proxies /api -> http://127.0.0.1:8000)
 ```
 
-Set `ITF_API_URL` before `npm run dev` if the backend runs elsewhere.
+The dev server proxies `/api/*` to the backend. If the backend is not on
+`http://127.0.0.1:8000`, point the proxy at it before starting Vite:
+
+```powershell
+$env:ITF_API_URL = "http://127.0.0.1:8010"; npm run dev
+```
+
+**Port note:** if `8000` is already in use on your machine, run the API on
+another port (`itf-api --port 8010`) and set `ITF_API_URL` accordingly. Verify
+the whole toolchain any time with `.\.venv\Scripts\python -m pytest -q`.
 
 ## Layout
 
