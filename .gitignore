@@ -147,6 +147,11 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# image-text-finder build artifacts
+/data/
+/runs/
+/configs/models/
+
 # Environments
 .env
 .envrc
