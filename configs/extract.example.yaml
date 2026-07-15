@@ -1,0 +1,24 @@
+# Patch-dataset extraction config (component 1).
+# Consumed by: itf.patches.extract / the `itf-extract` CLI.
+
+# Source dataset produced by image-text-sample-generator (dir with labels.jsonl).
+source: "C:/Desarrollo/image-text-sample-generator/data/datasets/clean-paragraphs-01/reducido"
+
+# Output .npz + manifest are written here.
+out: "data/patch-datasets/reducido-40"
+
+patch_size: 40          # n (patches are n x n)
+stride: 20              # sliding-window step; 20 = 50% overlap for n=40
+
+# Which ground-truth block kinds contribute corners.
+target_kinds: ["paragraph"]
+
+# Drop samples whose blocks overlap (labels.has_overlap == true).
+drop_overlap: false
+
+# Reproducible split fractions (by sample, not by patch).
+split:
+  train: 0.8
+  val: 0.1
+  test: 0.1
+seed: 1
