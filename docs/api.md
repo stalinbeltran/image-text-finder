@@ -226,19 +226,29 @@ función pura de dos diccionarios, sin torch, milisegundos— y si devuelve prob
 > aparecer a mitad de época. El API da el `400` temprano; `train()` es la red de seguridad. Que la
 > validación viva en el **dominio** y no aquí es lo que permite las dos llamadas (§0).
 
-La procedencia que devuelve `GET /runs/{name}` es contrato ③:
+La procedencia que devuelve `GET /runs/{name}` es contrato ③. *(D2, decidido 2026-07-16.)*
 
 ```jsonc
 { "provenance": {
     "patch_dataset": {"name": "reducido-40", "fingerprint": "sha256:…"},
     "network": {"name": "cnn-a", "value": { … }},   // nombre para agrupar, valor para reproducir
     "recipe":  {"name": "adam-lr1e-3", "value": { … }},
-    "sweep": null                                    // o el barrido padre
+    "sweep": null,                                   // o el barrido padre
+    "git_commit": "acaf34d…",
+    "environment": {"python": "3.12.10", "torch": "2.13.0+cpu", "platform": "win32"}
 } }
 ```
 
-**Retrocompatibilidad**: los `config.json` que ya están en `runs/` no tienen nada de esto.
-Deben leerse degradando (`name: null`), nunca reventar.
+**Los cinco campos son obligatorios y ninguno se rellena**: si no se puede saber el commit
+(árbol sucio, sin git), se escribe la razón, no `null` silencioso — es formatos.md §2 otra vez.
+
+Sobre `environment`: la regla 1 de comparación del protocolo es *mismo commit de git*, pero **el
+commit no captura el intérprete**. Subir de torch 2.13 a 2.14 mueve los resultados igual que
+tocar la pérdida, y **el plan incluye pasar a GPU**, donde el entorno cambia entero. Sin este
+campo, los runs de CPU de hoy no podrían decir contra qué se les compara mañana.
+
+**No hay retrocompatibilidad que mantener**: `runs/` está vacío (D18). Todo run nace con la
+procedencia completa, y un `config.json` sin ella es un error, no un caso legado.
 
 ### `/runs/{name}/diagnostics` (E×B) — el substrato de §3 de ui.md
 

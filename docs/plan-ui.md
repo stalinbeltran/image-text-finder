@@ -61,20 +61,32 @@ pantallas.
 
 ## 2. Las fases
 
-### Fase 0 — Cerrar decisiones abiertas *(sin código)*
+### Fase 0 — Cerrar decisiones abiertas *(sin código)* — ✅ **hecha (2026-07-16)**
 
-Queda **una** (D2 en [decisiones.md](decisiones.md)):
+Eran **dos**, y las dos están cerradas ([decisiones.md](decisiones.md) §4):
 
-1. **Forma de la procedencia en el run** (contrato ③): los nombres de campo de `network`,
-   `recipe` y la **huella de B**. Se deciden ahora porque los escribe la fase 4 y los lee todo lo
-   demás.
+1. **D2 — forma de la procedencia** (contrato ③): nombre + valor de C y D, huella de B,
+   `sweep`, `git_commit` y **`environment`**. La escribe la fase 4 y la lee todo lo demás.
+   → **formatos.md §4.2.1**, api.md §3.
+2. **D16 — el holdout**: 500 imágenes, fuente propia, misma config del generador, generado lo
+   primero. Bloqueaba el **paso 0 del protocolo**, o sea todo. → **protocolo.md §3**.
 
-*(D1 —tabla por patch— ya está cerrada: es un **caché**, así que no hay entidad ni pantalla.)*
+*(D1 —tabla por patch— ya estaba cerrada: es un **caché**, así que no hay entidad ni pantalla.)*
 *(La tercera pregunta —qué hacer con los `config.json` ya entrenados— **murió con el borrado**:
 no queda ninguno. `device` sale de la identidad de D desde el primer run, sin migración ni
 retrocompatibilidad.)*
 
-**Entregable**: organizacion.md actualizado. **Verificación**: nada que correr.
+### Fase 0.5 — Los contratos, en xfail *(tests, sin `src/`)*
+
+**Antes de la primera línea de `src/`**, y es [tests.md](tests.md) §2 quien lo pide: los diez
+tests de contrato se escriben **ahora**, todos en `xfail(strict=True)` citando su documento.
+
+Esta fase existe porque faltaba: cada fase de abajo tiene el deber de **quitar sus xfails**, pero
+ninguna era dueña de **crearlos**. Sin ella el plan no tiene barra de progreso — y con ella,
+`pytest tests/test_contracts.py -v` **es** el parte de estado de organizacion.md §2.
+
+**Entregable**: `tests/test_contracts.py`. **Verificación**: la suite pasa en verde, con los diez
+como xfail esperados.
 
 ### Fase 1 — Esqueleto y paleta *(front, desde cero)*
 

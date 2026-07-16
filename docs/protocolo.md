@@ -183,9 +183,35 @@ por imagen, no por patch**. Por eso un holdout de imágenes sirve para **cualqui
 de B — incluso si cambia `n`, el `stride` o las fracciones. Con métricas de patch no se podría:
 cambiar `n` cambia qué son los patches, y no habría nada que comparar entre puntos.
 
-**Cómo**: generarlo como **su propia fuente** (`…-holdout`), aparte, y no extraer de ahí jamás
-patches de entrenamiento. Es más simple que una lista de índices y hace la fuga **físicamente
-imposible**, que es la propiedad que quieres de un holdout.
+### Decidido: 500 imágenes, fuente propia, generado lo primero
+
+*(D16, decidido 2026-07-16.)* Tres respuestas, y el orden entre ellas importa:
+
+**Cuándo: el primero, antes que ningún dataset de entrenamiento.** No por ceremonia: un holdout
+generado *después* es un holdout que ya sabes que necesitabas, y la tentación de elegirlo para
+que el resultado salga bien no se puede descartar desde fuera. Generado primero, esa duda no
+existe.
+
+**Cómo: su propia fuente, `<nombre>-holdout`.** Una lista de índices apartada dentro de la misma
+fuente dependería de que nadie la mire; una fuente separada de la que **nunca se extraen patches
+de entrenamiento** hace la fuga **físicamente imposible**. Esa es la propiedad que se compra, y
+es la razón de que sea más simple que la alternativa.
+
+**Con qué config: la misma que el resto.** Un holdout más difícil a propósito mediría otra cosa —
+la robustez a un cambio de distribución, que es una pregunta legítima y **no es esta**. Misma
+receta del generador, misma distribución, otra semilla.
+
+**Cuánto: 500 imágenes.** Da ~5000 positivos por esquina ⇒ sd teórico del recall **≈0,65 %**, por
+debajo de la banda que el paso 1 va a medir. Y la aritmética de arriba **asume independencia
+entre patches, que es falsa**, así que el suelo real será peor: 500 deja margen para esa
+sorpresa. El coste es una corrida del generador y **cero CPU de entrenamiento** — el holdout se
+mide una vez, al final, sobre el ganador (§7, regla 5). Ser tacaño aquí no compra nada.
+
+| | Val (dentro de B) | Holdout (fuera de B) |
+|---|---|---|
+| Tamaño | Un eje del barrido (D6) | **500, fijo para siempre** |
+| Quién lo toca | El run y H, todo el rato | **Solo el ganador, una vez** |
+| Está sesgado | **Sí**, al alza (§7) | No: nada lo optimizó |
 
 | | Qué es | Quién lo toca |
 |---|---|---|
@@ -300,6 +326,7 @@ un buen accidente: la disciplina se establece ahora, gratis, antes de que aparez
 ## 8. Presupuesto y orden
 
 ```
+Paso 0  generar el holdout (500 img)        ~min   ← lo primero, y no se vuelve a tocar
 Paso 0  generar ~2000 img + extraer         ~1 h (generador + extracción)
 Paso 3  arreglar momentum/beta/scheduler     fase 3 del plan
 Paso 1  baseline + suelo de ruido (5 seeds)  ~5,5 h  (una vez)

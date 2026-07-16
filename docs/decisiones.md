@@ -18,25 +18,11 @@ aquí queda una línea en §4 apuntando allí.
 
 ## 1. Bloquean la siguiente fase
 
-### D2 — La forma exacta de la procedencia en el run
+**Ninguna.** D2 y D16 se cerraron el 2026-07-16 (§4). La fase 0 de [plan-ui.md](plan-ui.md) está
+terminada y la construcción puede empezar.
 
-**En juego**: contrato ③. Los nombres de campos que escribe la fase 4 y lee todo lo demás.
-**Propuesta** *(tomada por defecto salvo veto; es un detalle de forma, no de fondo — lo de fondo
-—nombre + valor + huella— ya lo fija el contrato ③)*:
-
-```jsonc
-"provenance": {
-  "patch_dataset": {"name": "…", "fingerprint": "sha256:…"},
-  "network":       {"name": "…", "value": { … }},   // nombre para agrupar, valor para reproducir
-  "recipe":        {"name": "…", "value": { … }},
-  "sweep":         null,
-  "git_commit":    "…"
-}
-```
-
-**Bloquea**: fase 4, y el barrido entero (sin esto no se agrupa por red ni por receta).
-**Dónde vivirá**: api.md §3 (`/runs`), formatos.md §4.2.
-
+Lo que queda abierto (§2, §3) **no bloquea**: son preguntas que se responden al llegar a su fase,
+o resultados de investigación que el barrido mismo contestará.
 
 ---
 
@@ -59,19 +45,6 @@ aquí queda una línea en §4 apuntando allí.
 
 Consecuencias de §4 que aún no tienen respuesta:
 
-### D16 — ¿Cuál es el holdout, y cuándo se genera?
-
-**En juego**: D6 hizo de `num_images` y las fracciones del split **ejes del barrido**, y eso
-obliga a un **holdout fuera de B** — o cada punto se mide con una regla distinta (contrato ⑧).
-**Preguntas**: ¿cuántas imágenes? ¿se genera **antes** que nada, de una vez y para siempre?
-¿lleva la misma configuración del generador que el resto, o se busca a propósito que sea más
-difícil?
-**Recomiendo**: generarlo **primero**, como **fuente propia** (`…-holdout`), con la misma config
-del generador (si no, mide otra cosa). Tamaño: generoso — solo se usa una vez y no cuesta CPU de
-entrenamiento.
-**Bloquea**: el paso 0 del protocolo, o sea todo.
-**Dónde vivirá**: protocolo.md §3.
-
 ### D17 — ¿Qué rango barre `num_images` y las fracciones?
 
 **En juego**: es un eje nuevo del barrido y es **el más caro de todos** — dobla las imágenes y
@@ -88,6 +61,8 @@ coste sin necesidad.
 
 | | Decisión | Vive en | Fecha |
 |---|---|---|---|
+| **D2** | La procedencia lleva **nombre + valor** de C y D, huella de B, `sweep`, `git_commit` y **`environment`**. El nombre agrupa, el valor reproduce. `environment` cierra el hueco de `git_commit`: el commit fija el código, no el intérprete — y al llegar la GPU cambia entero. Ningún campo se rellena si falta | formatos.md §4.2.1, api.md §3 (`/runs`) | 2026-07-16 |
+| **D16** | El holdout son **500 imágenes**, **fuente propia** (`…-holdout`), **misma config** del generador, **generado lo primero**. Fuente aparte ⇒ la fuga es físicamente imposible. Misma config porque otra mediría robustez, que es otra pregunta. 500 ⇒ sd ≈0,65 %, con margen para que el suelo real sea peor que la aritmética | protocolo.md §3 | 2026-07-16 |
 | **D1** | La tabla por patch es un **caché**, no una entidad. Se puede recalcular exacta ⇒ no se guarda. Sin pantalla de Evaluaciones. Un **filtro** guardado (criterios, no filas) se añadiría solo si se quiere reentrenar sobre los errores | formatos.md §4.4, ui.md §3, api.md §3 (`/diagnostics`) | 2026-07-16 |
 | **D4** | **Allowlist de raíces + CORS cerrado** a `localhost:5173`. La ruta se comprueba tras `resolve()`. Se implementa en la fase 2 | api.md §6 | 2026-07-16 |
 | **D5** | **Se versiona la descripción, se ignora la carga** (105 KB vs 38,5 MB). Criterio: se versiona lo que no se puede recalcular. Si el historial se ensucia, se ignora `sweeps/` — no se revierte | formatos.md §5 | 2026-07-16 |

@@ -189,23 +189,52 @@ pierden, los datos siguen cargando y significan otra cosa.
 
 | Fichero | Qué |
 |---|---|
-| `config.json` | El `RunConfig` congelado: `data`, `out`, `model`, hiperparámetros, `seed`, `device` |
+| `config.json` | `format_version`, la receta (D), la red por valor (C) y la **procedencia** (§4.2.1). **`device` no está**: es X (contrato ⑩) |
 | `metrics.jsonl` | Una línea JSON por época: `{epoch, train_loss, val:{…}, seconds}` |
-| `best.pt`, `last.pt` | `{"model": state_dict, "config": dict, "epoch": int}` — verificado |
+| `best.pt`, `last.pt` | `{"model": state_dict, "config": dict, "epoch": int}` |
 | `summary.json` | `{run, epochs, best_val_loss, final, corner_order}` |
+| `status.json` | El estado **explícito**: `running \| done \| error \| cancelled`. Sin él, un crash queda "running" para siempre |
+
+#### 4.2.1 `provenance` — la forma exacta
+
+*(D2, decidido 2026-07-16.)* Es el contrato ③. Lo escribe la fase 4 y lo lee todo lo demás; el
+barrido no existe sin él, porque agrupar por red o por receta **es** esta estructura.
+
+```jsonc
+{ "provenance": {
+    "patch_dataset": {"name": "…", "fingerprint": "sha256:…"},
+    "network":       {"name": "…", "value": { … }},   // nombre para agrupar, valor para reproducir
+    "recipe":        {"name": "…", "value": { … }},
+    "sweep":         null,                            // o el nombre del barrido padre
+    "git_commit":    "…",
+    "environment":   {"python": "3.12.10", "torch": "2.13.0+cpu", "platform": "win32"}
+} }
+```
+
+El **nombre y el valor van los dos, y no es redundancia** — es justo lo que el contrato ③
+descubrió que faltaba: el valor reproduce, el nombre agrupa. Con solo el valor hay que comparar
+diccionarios a mano para preguntar *"¿qué runs usaron la red X?"*, que es la pregunta que un
+barrido hace todo el rato.
+
+`environment` cierra el hueco que `git_commit` deja: el commit fija **el código**, no **el
+intérprete**. Cambiar de torch mueve los resultados sin mover el commit, y al llegar la GPU
+cambia entero (contrato ⑩). Los runs de CPU de hoy son exactamente los que se compararán con los
+de GPU mañana.
+
+**Ningún campo se rellena si falta** (§2): sin git, `git_commit` lleva la razón, no `null`.
 
 - **El checkpoint es autodescriptivo** (contrato ④): lleva la config entera, así que
   `load_model()` reconstruye la red sin ningún YAML. **Es la mejor propiedad del formato** y no
   se toca.
 - **`metrics.jsonl` es append-only** y se lee **incrementalmente** (`?since=N`, R5 de api.md).
   Nunca se reescribe: un run vivo se está leyendo mientras se escribe.
-- **Lo que cambia en la fase 4** (contrato ③): `config.json` gana `format_version`, procedencia
-  (`network`/`recipe` **por nombre** + huella de B), commit de git y entorno; y `device` sale de
-  la identidad (contrato ⑩). **Los cinco runs de `runs/` no tienen nada de eso** → el lector
-  degrada (`name: null`), **no revienta**. Es la trampa más probable del plan y tiene test propio
-  *antes* de la fase 4 (tests.md §5).
-- **Falta estado explícito**: hoy `_run_status()` lo deduce de qué ficheros existen, así que un
-  crash queda "running" para siempre. Va a `status.json`, como en el proyecto hermano.
+- **No hay lector que degrade, y es una simplificación de D18**: `runs/` está vacío, así que
+  **todo run nace en la fase 4 con la procedencia completa**. Un `config.json` sin ella no es un
+  caso legado: es un run corrupto, y se falla con la razón (§2). El camino de degradación
+  (`name: null`) que este documento pedía **murió con D3** — era código de migración para datos
+  que ya no existen.
+- **El estado es explícito, desde el primer run**: `status.json`, no deducido de qué ficheros
+  hay. Deducirlo es lo que dejaba un crash en "running" para siempre (organizacion.md §3).
 
 ### 4.3 `configs/` — las definiciones (C y D)
 
