@@ -215,6 +215,17 @@ POST   /runs/{name}/stop              cancelación cooperativa
 `POST /runs` es donde el API **gana su sueldo** (§4). El cuerpo lleva **nombres** (R7) y
 `device` **aparte** de la receta.
 
+Antes de crear el job llama a **`itf.validation.check_compatible(manifest, model_cfg)`** —
+función pura de dos diccionarios, sin torch, milisegundos— y si devuelve problemas responde
+**400** con ellos (R4). Cubre de una vez los contratos ① (`patch_size == input_size`), ②
+(`border_features` sobre un dataset sin `border`) e `in_channels`: **son la misma pregunta**
+(organizacion.md §2, recuadro tras ②).
+
+> **El mismo validador se llama también dentro de `train()`**, y no es redundancia: **`itf-train`
+> no pasa por el API**. Sin el segundo control, el CLI se salta la puerta y el fallo vuelve a
+> aparecer a mitad de época. El API da el `400` temprano; `train()` es la red de seguridad. Que la
+> validación viva en el **dominio** y no aquí es lo que permite las dos llamadas (§0).
+
 La procedencia que devuelve `GET /runs/{name}` es contrato ③:
 
 ```jsonc

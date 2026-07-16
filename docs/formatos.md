@@ -73,9 +73,44 @@ el dataset 'reducido-40' se construyó antes de los flags de borde y no los tien
 Reconstrúyelo, o entrena con border_features: false.
 ```
 
-Generalizado: **un lector que necesita un campo ausente falla; nunca lo inventa.** Y el
-contrato ② de tests.md gana un caso que hoy no cubre — `test_patch_dataset_border_backfill`
-prueba que el relleno ocurre, pero no que **se niegue** cuando la red sí lo usa.
+Generalizado: **un lector que necesita un campo ausente falla; nunca lo inventa.**
+
+### La afinación: **dato** ausente ≠ **declaración** ausente
+
+Bajando al detalle aparece una asimetría que la regla de arriba no distingue, y es la que hace
+que esto se resuelva **sin migrar nada**:
+
+| Tipo de campo | Ejemplo | Ausente significa | Comportamiento |
+|---|---|---|---|
+| **Dato** | `border` (N,4) | No se sabe — y **no se puede inventar** | **Fallar**, alto y claro |
+| **Declaración de capacidad** | `has_border: true` en el manifest | "No lo tengo" | **Por defecto "no"**: seguro, rechaza de más y nunca de menos |
+
+Por eso los manifests viejos no necesitan migración: no llevan `has_border` ⇒ se lee `False` ⇒ si
+la red pide bordes, se niega. **El default correcto sale solo.**
+
+### Cómo se resuelve
+
+Tres piezas, ninguna grande:
+
+1. **El manifest declara**: `has_border: true`. Hoy hay que *inferirlo* de que falte
+   `border_order` — y **inferir no es declarar**. *(Comprobar el `.npz` directamente también
+   valdría: `np.load` es perezoso y saber si el array está cuesta ~34 ms. Pero el manifest **es
+   el contrato**, §4.1.)*
+2. **`PatchDataset` enuncia el hecho, no dicta política**: una propiedad `has_border`. Sigue
+   rellenando ceros —inocuo cuando nadie los usa— pero **deja de mentir en el docstring**: hoy
+   dice *"no border known"*; debe decir *"ceros; consulta `has_border` antes de usarlos"*. Un
+   lector no puede decidir esto solo: **no conoce el modelo**.
+3. **Lo decide el validador de compatibilidad**, que es el mismo del contrato ① — porque son la
+   misma pregunta (organizacion.md §2, recuadro tras ②). No hace falta un mecanismo para
+   `border`: entra gratis en el validador que ① ya pedía.
+
+Y el contrato ② de [tests.md](tests.md) gana el caso que hoy no cubre:
+`test_patch_dataset_border_backfill` prueba que el relleno **ocurre**, pero no que **se niegue**
+cuando la red sí lo usa.
+
+> **Lo que NO se hace: migrar los tres `.npz` de hoy.** Se van a regenerar igualmente (D6: ~2000
+> imágenes + el holdout) y además son **derivables** de fuente + config + semilla. **No se escribe
+> código de migración para datos que estás a punto de tirar.** El arreglo es para el futuro.
 
 ---
 
@@ -126,6 +161,7 @@ pierden, los datos siguen cargando y significan otra cosa.
 ```jsonc
 { "format_version": 2,                  // ← falta hoy
   "fingerprint": "sha256:…",            // ← falta hoy, contrato ⑧
+  "has_border": true,                   // ← falta hoy: lo que el validador de ② consulta (§2)
   "source_id": "clear-paragraphs-02-8ea1ac04",
   "config": { … },                      // el PatchExtractConfig entero: n, stride, split, seed…
   "num_samples": 200, "num_patches": 9800,

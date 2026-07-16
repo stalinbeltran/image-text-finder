@@ -92,6 +92,10 @@ debe leerse como el **parte de estado** de organizacion.md §2.
 |---|---|---|---|
 | **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **xfail** — no hay validación |
 | **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **parcial** — los dos tests existen, pero el caso que falla no está (formatos.md §2) |
+
+> **① y ② comparten validador** (`itf.validation`, organizacion.md §2): sus tests son dos casos de
+> la misma función pura, no dos mecanismos. Y como es pura, **corren en milisegundos sin entrenar**
+> — que es exactamente la señal de que la validación está en la capa correcta.
 | **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B; `DELETE` de un B en uso → **409** | **xfail** |
 | **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | ✅ probablemente — **falta escribirlo** |
 | **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **falta — y es el único que puede romperse en silencio** |
@@ -129,10 +133,15 @@ barato. La capa objetivo:
 | `itf.geometry` *(no existe aún; la ventana compartida, contrato ⑤)* | — |
 | `itf.datasets` (A) | — |
 | `itf.models` (C) | **nada de `itf`** |
+| `itf.validation` *(no existe aún; contratos ① y ②)* | **nada de `itf`** — es puro: dos dicts |
 | `itf.patches` (B) | `datasets`, `geometry` |
-| `itf.training` (D) | `patches`, `models` |
+| `itf.training` (D) | `patches`, `models`, `validation` |
 | `itf.inference` (F) | `models`, `geometry` — **no `patches`** |
 | `itf.api` | todos |
+
+`itf.validation` no importa nada porque **compara diccionarios, no objetos**: el manifest de B
+contra la config de C. Eso es lo que le permite correr en milisegundos y ser llamado tanto por
+`train()` como por el API (api.md §3).
 
 Dos violaciones vivas: `models/builder.py` importa `NUM_BORDERS` de `datasets.loader` (⑦), e
 `inference/predict.py` importa la **privada** `_positions` de `patches.extract` (⑤). Ambas se

@@ -246,15 +246,48 @@ otra dimensión y el `Linear` de la cabeza revienta.
   ser cosmética y pasa a ser lo único que impide combinaciones imposibles. Debería vivir en
   el backend (400 con la razón), no en un `.tsx`.
 
+**① y ② son la misma pregunta, y comparten validador** — ver el recuadro tras ②.
+
 ### ② B ↔ C — `border_features`
 
-B **siempre** escribe `border` (N,4). C decide si lo usa: con `border_features: true`, la
-cabeza recibe `flat + 4`. `PatchDataset` rellena ceros si el `.npz` es viejo y no trae el
-array.
+B escribe `border` (N,4). C decide si lo usa: con `border_features: true`, la cabeza recibe
+`flat + 4`. Es un contrato **opcional y unidireccional**: el dataset ofrece, la red decide.
 
-Es un contrato **opcional y unidireccional**: el dataset ofrece, la red decide. No hay
-mismatch posible — por eso es el modelo a imitar para futuros extras de contexto.
+**Pero sí hay mismatch posible, y está vivo**: si el `.npz` es anterior a la feature y **no
+trae** el array, `PatchDataset` **rellena ceros** — y cero significa "no toca ningún borde", no
+"no se sabe". Con `border_features: true` la red entrena creyendo que ninguna ventana toca un
+borde, y en inferencia `detect_corners` le mete los flags reales: **ve una distribución que nunca
+entrenó, justo en los bordes**. Sin excepción. Los tres `.npz` del repo están en ese caso y el
+ejemplo del README pide `border_features: true` ([formatos.md](formatos.md) §2).
+
 (Ligado: `in_channels: 1` ↔ `patch_shape: [n, n, 1]`.)
+
+---
+
+> ### ① y ② son la misma pregunta: un solo validador
+>
+> | | Lo que **ofrece** B | Lo que **necesita** C |
+> |---|---|---|
+> | ① | `patch_size: 40` | `input_size: 40` |
+> | ② | tiene `border` / no | `border_features: true` |
+> | (③) | `patch_shape: [n,n,1]` | `in_channels: 1` |
+>
+> Las tres son **"¿puede esta red entrenar sobre este dataset?"**: mismo momento (antes de
+> entrenar), mismo sitio (donde B y C se encuentran), mismo tipo de error (400 con razón). **No
+> hace falta un mecanismo para `border`**: hace falta el validador que ① ya pedía, y ② entra
+> gratis.
+>
+> **`itf/validation.py` — función pura de dos diccionarios** (manifest × config de red). Sin
+> torch, sin entrenar, milisegundos. Devuelve una lista de problemas con `code`, `message` y
+> `hint` (R4 de [api.md](api.md)).
+>
+> **Se llama dos veces, a propósito**: en `POST /runs` → **400 antes de crear el job**; y dentro
+> de `train()` como red de seguridad, porque **`itf-train` no pasa por el API** y sin eso el CLI
+> se salta la puerta. Cuesta nada: es pura. Es el patrón del proyecto hermano (`validation.py`
+> usado por el manager *y* por el bucle).
+>
+> Que sea pura y barata **es la prueba de que está en la capa correcta**: si validar exigiera
+> entrenar, la validación estaría en el sitio equivocado ([tests.md](tests.md) §3).
 
 ### ③ B + C + D → E — referencia vs. copia, y el nombre que se pierde
 
