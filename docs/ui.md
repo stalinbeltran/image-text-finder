@@ -324,8 +324,9 @@ sistemáticamente con "la red es pequeña". La más valiosa del catálogo para l
 proyecto.
 
 **V8 — histograma de scores + curva PR.** Separabilidad de positivos vs negativos, por tipo de
-esquina. El desbalance aquí es brutal (la mayoría de patches no tienen esquina), así que la
-accuracy no dice nada y la PR sí. **Es el barrido gratis**: elegir `threshold` sin reentrenar.
+esquina. El desbalance es de **3,9:1** (20,5 % de positivos en `clear-paragraphs-02`): bastante
+para que la accuracy sea engañosa —acertar "no hay esquina" siempre ya da 80 %— y la PR sea la
+que informa. **Es el barrido gratis**: elegir `threshold` sin reentrenar.
 
 **V9 — co-activación de tipos.** Ojo con el nombre: **no es una matriz de confusión clásica**.
 Las 4 cabezas son binarias independientes, no un softmax: un patch puede activar dos a la vez, o

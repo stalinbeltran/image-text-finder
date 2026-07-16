@@ -132,7 +132,7 @@ que conviene fijar ahora, porque en un formulario se mezclan solas:
 | | | Definición | Notas |
 |---|---|---|---|
 | `lambda_pos` | hoy | Peso del término de posición (smoothL1) frente al de existencia (BCE). | Arbitra **"¿hay esquina?" vs "¿dónde exactamente?"**. Es el hiperparámetro más interesante del proyecto y el que más cuidado pide al rankear (contrato ⑨). |
-| `pos_weight` | hoy | Peso de la clase positiva en la BCE. | La inmensa mayoría de patches **no** tienen esquina. `manifest.positives_per_corner` / `num_patches` da el desbalance real: empieza el barrido en ese ratio. |
+| `pos_weight` | hoy | Peso de la clase positiva en la BCE. | El desbalance real, medido en `clear-paragraphs-02`: **20,5 % de positivos ⇒ 3,9:1**. Modesto, no brutal. Empieza el barrido en ese ratio y sácalo de `manifest.positives_per_corner / num_patches`, que cambia por dataset. |
 | `smooth_l1_beta` | **falta** | Umbral donde smoothL1 pasa de cuadrático a lineal. | **Hoy es el default de PyTorch, `beta=1.0`, y las coords van normalizadas a [0,1]** → `\|error\| < 1` *siempre* → nunca se sale de la rama cuadrática. **La pérdida de posición es MSE pura; la robustez de Huber jamás se activa.** Para que haga algo: ~0.05–0.1 (≈2–4 px en un patch de 40). |
 
 **Datos en tiempo de entrenamiento** — no existen hoy; `PatchDataset` devuelve el tensor crudo.

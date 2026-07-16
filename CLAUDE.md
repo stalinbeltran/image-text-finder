@@ -25,6 +25,12 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/protocolo.md](docs/protocolo.md) define cuándo un resultado es creíble.** Léelo antes de
+sacar cualquier conclusión de un entrenamiento, y antes de lanzar un barrido. Lo esencial: un run
+aislado no es un resultado, es una anécdota (van N semillas, media ± sd); toda diferencia dentro
+de la banda de ruido es un empate; el test se toca **una vez, al final, solo el ganador**; y dos
+runs solo son comparables con el mismo commit de git y la misma huella del dataset.
+
 **[docs/api.md](docs/api.md) define el contrato del API REST** — un recurso por dominio, reglas
 R1–R7 (nombres, síncrono vs job, errores con razón y arreglo, polling incremental, agregados en
 el servidor) y dónde el API hace cumplir los contratos. Léelo antes de tocar `src/itf/api/`.
@@ -122,3 +128,13 @@ Cosas que ya sabemos que están rotas o a medias — no las redescubras, y no la
   optimizadores hoy está sesgado a favor de Adam.
 - **Augmentation**: flips y rotaciones **no son válidos sin reetiquetar** (un flip convierte
   TL en TR e invalida los flags de borde). El fallo sería silencioso.
+- **No existe ninguna métrica de párrafo.** `evaluate()` es todo a nivel de patch. Nadie ha
+  medido nunca si los párrafos salen bien en la imagen completa — que es el objetivo real del
+  proyecto. Ver protocolo.md §2.
+- **Un dataset de patches sin val rompe la selección en silencio.** Con `val` vacío,
+  `loop.py` cae a `monitor = train_loss` y `best.pt` acaba siendo el checkpoint más
+  sobreajustado, sin warning. Le pasa a `reducido-40` (5 imágenes → split 4/0/1), que es el
+  ejemplo del README.
+- **El val de `clear-paragraphs-02` son 20 imágenes**, no 980 patches: los patches de una imagen
+  están correlacionados. Diferencias de f1 bajo ~5 % no son resolubles ahí. El dato es sintético
+  y el generador está al lado: es una elección, no una restricción.
