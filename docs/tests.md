@@ -91,7 +91,7 @@ debe leerse como el **parte de estado** de organizacion.md §2.
 | | Contrato | El test afirma | Hoy |
 |---|---|---|---|
 | **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **xfail** — no hay validación |
-| **②** | `border_features` | El `.npz` sin `border` carga ceros; la red solo lo usa si opta | **✅ pasa** — ya existen, hay que renombrarlos y moverlos |
+| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **parcial** — los dos tests existen, pero el caso que falla no está (formatos.md §2) |
 | **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B; `DELETE` de un B en uso → **409** | **xfail** |
 | **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | ✅ probablemente — **falta escribirlo** |
 | **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **falta — y es el único que puede romperse en silencio** |

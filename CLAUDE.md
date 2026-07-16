@@ -25,6 +25,11 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/formatos.md](docs/formatos.md) define los artefactos en disco y cómo evolucionan.**
+Léelo antes de añadir o cambiar un campo del `.npz`, del manifest o del `config.json` de un run.
+La regla que más se incumple: **ausente ≠ cero** — rellenar un campo que falta solo es legal si el
+consumidor no lo usa; si lo necesita, se falla con la razón, nunca se inventa el dato.
+
 **[docs/tests.md](docs/tests.md) define qué se testea: los contratos de organizacion.md §2 **son**
 el plan de pruebas.** Un contrato sin test es un comentario. Un contrato aún roto lleva su test
 con `xfail(strict=True)` citando el documento — así "lo que está roto" es una lista ejecutable y
@@ -139,6 +144,11 @@ Cosas que ya sabemos que están rotas o a medias — no las redescubras, y no la
 - **No existe ninguna métrica de párrafo.** `evaluate()` es todo a nivel de patch. Nadie ha
   medido nunca si los párrafos salen bien en la imagen completa — que es el objetivo real del
   proyecto. Ver protocolo.md §2.
+- **Ninguno de los `.npz` de `data/patch-datasets/` tiene el array `border`** (son anteriores a
+  la feature), y `configs/model.example.yaml` trae `border_features: true`. El ejemplo del README
+  entrena con flags de borde **todos a cero** rellenados en silencio, y luego en inferencia
+  `detect_corners` calcula los reales: el modelo ve en los bordes una distribución que nunca
+  entrenó. Sin excepción, solo peores predicciones. Ver formatos.md §2.
 - **Un dataset de patches sin val rompe la selección en silencio.** Con `val` vacío,
   `loop.py` cae a `monitor = train_loss` y `best.pt` acaba siendo el checkpoint más
   sobreajustado, sin warning. Le pasa a `reducido-40` (5 imágenes → split 4/0/1), que es el
