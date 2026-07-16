@@ -103,7 +103,7 @@ Both training actions load the run's frozen config; a toggle in the panel
 switches between the two modes:
 
 - **Retrain the same network** — the parameters that define the network (input
-  size, conv backbone, head) are shown but **fixed**; you change only the
+  size, border features, conv backbone, head) are shown but **fixed**; you change only the
   **patch dataset** and the **training hyperparameters** (epochs, batch size,
   lr, optimizer, λ, device).
 - **New network from this config** — the same config is a starting point with
@@ -140,6 +140,14 @@ tests/           # pytest (extract, model, end-to-end API)
 
 ## Notes
 
+- **Border features** — each patch also carries 4 flags marking which source-image
+  edges it sits flush against (`top, right, bottom, left`). This context is lost
+  when a patch is cropped, yet it constrains where a paragraph corner can be when
+  the paragraph starts near the image edge. The extractor always stores them in
+  `patches.npz` (`border`, shape `(N, 4)`); the model uses them only when
+  `model.border_features: true`, concatenating the flags to the flattened conv
+  features before the head. Patch datasets built before this feature backfill the
+  flags with zeros, so old `.npz` files still load.
 - Coordinates follow SAMPLE_FORMAT: origin top-left, `quad` clockwise from TL.
 - The extractor reads already-pixelated images as-is (text is never recognized).
 - `data/` and `runs/` are gitignored build artifacts.

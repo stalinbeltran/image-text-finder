@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 import torch
 from torch import nn
 
+from itf.datasets.loader import NUM_BORDERS
 from itf.models.heads import CornerHead
 
 _ACTIVATIONS = {
@@ -38,6 +39,10 @@ class ModelConfig:
     in_channels: int = 1
     backbone: list[dict] = field(default_factory=list)
     head: dict = field(default_factory=dict)
+    # When true, the 4 per-patch border flags (see BORDER_NAMES) are fed into
+    # the head alongside the flattened conv features. Off by default so configs
+    # from before this feature rebuild an identical network.
+    border_features: bool = False
 
     @classmethod
     def from_dict(cls, d: dict) -> "ModelConfig":
@@ -46,6 +51,7 @@ class ModelConfig:
             in_channels=int(d.get("in_channels", 1)),
             backbone=list(d.get("backbone", [])),
             head=dict(d.get("head", {})),
+            border_features=bool(d.get("border_features", False)),
         )
 
 
@@ -91,9 +97,11 @@ class ConfigurableCNN(nn.Module):
             blocks.append(block)
         self.backbone = nn.Sequential(*blocks)
         self.flatten = nn.Flatten()
+        self.use_border = config.border_features
         flat = self._infer_flat_features(config)
+        head_in = flat + (NUM_BORDERS if self.use_border else 0)
         self.head = CornerHead(
-            flat, hidden=config.head.get("hidden"), dropout=float(config.head.get("dropout", 0.0))
+            head_in, hidden=config.head.get("hidden"), dropout=float(config.head.get("dropout", 0.0))
         )
 
     def _infer_flat_features(self, config: ModelConfig) -> int:
@@ -102,9 +110,13 @@ class ConfigurableCNN(nn.Module):
             feats = self.flatten(self.backbone(dummy))
         return feats.shape[1]
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, border: torch.Tensor | None = None) -> torch.Tensor:
         x = self.backbone(x)
         x = self.flatten(x)
+        if self.use_border:
+            if border is None:
+                raise ValueError("model has border_features enabled but no border tensor was passed")
+            x = torch.cat([x, border.to(x.dtype)], dim=1)  # (B, flat + 4)
         return self.head(x)  # (B, 4, 3)
 
 

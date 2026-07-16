@@ -5,6 +5,7 @@
 model:
   input_size: 40          # must match the patch dataset's n
   in_channels: 1          # grayscale patches
+  border_features: true   # feed the 4 per-patch edge flags (top/right/bottom/left) into the head
   backbone:
     - {filters: 32, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2, dropout: 0.0}
     - {filters: 64, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2, dropout: 0.0}

@@ -60,13 +60,17 @@ def detect_corners(model, image: np.ndarray, patch_size: int | None = None,
     ys = _positions(h, n, stride)
     xs = _positions(w, n, stride)
 
-    patches, offsets = [], []
+    patches, offsets, borders = [], [], []
     for y0 in ys:
         for x0 in xs:
             patches.append(image[y0:y0 + n, x0:x0 + n])
             offsets.append((x0, y0))
+            # Same geometry/order as extraction (BORDER_NAMES): top,right,bottom,left.
+            borders.append((int(y0 == 0), int(x0 + n >= w),
+                            int(y0 + n >= h), int(x0 == 0)))
     batch = torch.from_numpy(np.stack(patches)).unsqueeze(1).float().div_(255.0).to(device)
-    preds = model(batch)                       # (P, 4, 3)
+    border_batch = torch.tensor(borders, dtype=torch.float32, device=device)  # (P, 4)
+    preds = model(batch, border_batch)         # (P, 4, 3)
     probs = torch.sigmoid(preds[..., 0])       # (P, 4)
 
     raw: list[Detection] = []

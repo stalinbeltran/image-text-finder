@@ -71,9 +71,9 @@ def evaluate(model, loader, loss_fn, device, patch_size: int) -> dict:
     tp = fp = fn = tn = 0
     pos_err_sum = 0.0
     pos_count = 0
-    for x, y in loader:
-        x, y = x.to(device), y.to(device)
-        pred = model(x)
+    for x, border, y in loader:
+        x, border, y = x.to(device), border.to(device), y.to(device)
+        pred = model(x, border)
         out = loss_fn(pred, y)
         tot_loss += float(out["loss"]); tot_cls += float(out["cls_loss"]); tot_pos += float(out["pos_loss"])
         n_batches += 1
@@ -139,10 +139,10 @@ def train(config: RunConfig, on_epoch: Callable[[int, dict], None] | None = None
         t0 = time.time()
         run_loss = 0.0
         n_batches = 0
-        for x, y in train_loader:
-            x, y = x.to(device), y.to(device)
+        for x, border, y in train_loader:
+            x, border, y = x.to(device), border.to(device), y.to(device)
             optimizer.zero_grad()
-            out = loss_fn(model(x), y)
+            out = loss_fn(model(x, border), y)
             out["loss"].backward()
             optimizer.step()
             run_loss += out["loss"].detach().item(); n_batches += 1

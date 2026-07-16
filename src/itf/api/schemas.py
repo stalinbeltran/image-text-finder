@@ -27,6 +27,7 @@ class ModelConfigModel(BaseModel):
     in_channels: int = 1
     backbone: list[dict]
     head: dict = {}
+    border_features: bool = False
 
 
 class TrainRequest(BaseModel):

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from itf.datasets.loader import NUM_CORNERS, SourceDataset
+from itf.datasets.loader import NUM_BORDERS, NUM_CORNERS, SourceDataset
 
 SPLIT_NAMES = ("train", "val", "test")
 
@@ -108,6 +108,7 @@ def extract_dataset(config: PatchExtractConfig) -> dict:
 
     X_list: list[np.ndarray] = []
     y_list: list[np.ndarray] = []
+    border_list: list[tuple[int, int, int, int]] = []
     sample_idx_list: list[int] = []
     patch_xy_list: list[tuple[int, int]] = []
     split_list: list[int] = []
@@ -121,6 +122,14 @@ def extract_dataset(config: PatchExtractConfig) -> dict:
         for y0 in _positions(h, n, stride):
             for x0 in _positions(w, n, stride):
                 patch = img[y0 : y0 + n, x0 : x0 + n]
+                # Which source-image edges this patch is flush against, in
+                # BORDER_NAMES order (top, right, bottom, left). Lost on crop.
+                border = (
+                    int(y0 == 0),
+                    int(x0 + n >= w),
+                    int(y0 + n >= h),
+                    int(x0 == 0),
+                )
                 label = np.zeros((NUM_CORNERS, 3), dtype=np.float32)
                 # nearest-to-center distance per corner type, to break ties
                 best_d = [np.inf] * NUM_CORNERS
@@ -134,12 +143,14 @@ def extract_dataset(config: PatchExtractConfig) -> dict:
                             label[ctype] = (1.0, min(max(lx, 0.0), 1.0), min(max(ly, 0.0), 1.0))
                 X_list.append(patch)
                 y_list.append(label)
+                border_list.append(border)
                 sample_idx_list.append(sample.index)
                 patch_xy_list.append((x0, y0))
                 split_list.append(split_id)
 
     X = np.stack(X_list).astype(np.uint8)[..., None]  # (N, n, n, 1)
     y = np.stack(y_list).astype(np.float32)            # (N, 4, 3)
+    border = np.asarray(border_list, dtype=np.uint8)   # (N, 4)
     sample_idx = np.asarray(sample_idx_list, dtype=np.int32)
     patch_xy = np.asarray(patch_xy_list, dtype=np.int32)
     split_arr = np.asarray(split_list, dtype=np.int8)
@@ -150,6 +161,7 @@ def extract_dataset(config: PatchExtractConfig) -> dict:
         out_dir / "patches.npz",
         X=X,
         y=y,
+        border=border,
         sample_idx=sample_idx,
         patch_xy=patch_xy,
         split=split_arr,
@@ -162,7 +174,7 @@ def extract_dataset(config: PatchExtractConfig) -> dict:
 
 
 def _summarize(config, ds, samples, split_by_sample, X, y, split_arr) -> dict:
-    from itf.datasets.loader import CORNER_NAMES
+    from itf.datasets.loader import BORDER_NAMES, CORNER_NAMES
 
     pos_per_corner = {
         CORNER_NAMES[c]: int(y[:, c, 0].sum()) for c in range(NUM_CORNERS)
@@ -183,6 +195,7 @@ def _summarize(config, ds, samples, split_by_sample, X, y, split_arr) -> dict:
         "patch_shape": list(X.shape[1:]),
         "label_shape": list(y.shape[1:]),
         "corner_order": list(CORNER_NAMES),
+        "border_order": list(BORDER_NAMES),
         "patches_per_split": counts_by_split,
         "positives_per_corner": pos_per_corner,
     }

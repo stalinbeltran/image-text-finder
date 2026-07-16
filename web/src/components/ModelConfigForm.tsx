@@ -19,6 +19,7 @@ export const defaultBlock = (): Block => ({
 
 export interface ModelForm {
   input_size: number;
+  borderFeatures: boolean; // feed per-patch edge flags into the head
   blocks: Block[];
   headHidden: string; // comma-separated hidden sizes
   headDropout: number;
@@ -32,6 +33,7 @@ export interface ModelForm {
 
 export const defaultModelForm = (): ModelForm => ({
   input_size: 40,
+  borderFeatures: true,
   blocks: [
     { ...defaultBlock(), filters: 32 },
     { ...defaultBlock(), filters: 64 },
@@ -47,6 +49,7 @@ export function modelFormToModel(f: ModelForm) {
   return {
     input_size: Number(f.input_size),
     in_channels: 1,
+    border_features: f.borderFeatures,
     backbone: f.blocks.map((b) => ({
       filters: Number(b.filters), kernel: Number(b.kernel), stride: Number(b.stride),
       batchnorm: b.batchnorm, activation: b.activation,
@@ -76,6 +79,7 @@ export function configToModelForm(config: Record<string, any> | null | undefined
   const bb = (m.backbone ?? []) as any[];
   return {
     input_size: m.input_size ?? d.input_size,
+    borderFeatures: m.border_features ?? false,
     blocks: bb.length
       ? bb.map((b) => ({
           filters: b.filters ?? 32, kernel: b.kernel ?? 3, stride: b.stride ?? 1,
@@ -122,6 +126,14 @@ export default function ModelConfigForm({
           <label>input_size (n){lockedNote}</label>
           <input type="number" value={value.input_size} disabled={archRo}
                  onChange={(e) => set({ input_size: Number(e.target.value) })} />
+        </div>
+        <div className="field">
+          <label>border features{lockedNote}</label>
+          <label className="checkbox">
+            <input type="checkbox" checked={value.borderFeatures} disabled={archRo}
+                   onChange={(e) => set({ borderFeatures: e.target.checked })} />
+            <span>feed per-patch edge flags (top/right/bottom/left) into the head</span>
+          </label>
         </div>
       </div>
 

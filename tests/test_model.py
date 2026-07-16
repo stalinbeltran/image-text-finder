@@ -70,12 +70,51 @@ def test_patch_dataset_split(tmp_path):
     n, N = 40, 20
     X = (np.random.rand(N, n, n, 1) * 255).astype(np.uint8)
     y = np.zeros((N, 4, 3), dtype=np.float32)
+    border = (np.random.rand(N, 4) > 0.5).astype(np.uint8)
     split = np.array([0] * 10 + [1] * 5 + [2] * 5, dtype=np.int8)
-    np.savez(tmp_path / "patches.npz", X=X, y=y,
+    np.savez(tmp_path / "patches.npz", X=X, y=y, border=border,
              sample_idx=np.zeros(N, np.int32), patch_xy=np.zeros((N, 2), np.int32), split=split)
     ds = PatchDataset(tmp_path, split="train")
     assert len(ds) == 10
-    xb, yb = ds[0]
+    xb, bb, yb = ds[0]
     assert xb.shape == (1, 40, 40)
     assert 0.0 <= float(xb.max()) <= 1.0
+    assert bb.shape == (4,)
+    assert set(bb.tolist()) <= {0.0, 1.0}
     assert yb.shape == (4, 3)
+
+
+def test_patch_dataset_border_backfill(tmp_path):
+    """Datasets built before border extraction (no 'border' key) fall back to zeros."""
+    from itf.patches.dataset import PatchDataset
+
+    n, N = 40, 6
+    X = (np.random.rand(N, n, n, 1) * 255).astype(np.uint8)
+    y = np.zeros((N, 4, 3), dtype=np.float32)
+    split = np.zeros(N, dtype=np.int8)
+    np.savez(tmp_path / "patches.npz", X=X, y=y,
+             sample_idx=np.zeros(N, np.int32), patch_xy=np.zeros((N, 2), np.int32), split=split)
+    ds = PatchDataset(tmp_path, split="train")
+    _, bb, _ = ds[0]
+    assert bb.shape == (4,) and float(bb.abs().sum()) == 0.0
+
+
+def test_border_features_change_head_and_forward():
+    cfg = {**MODEL_CFG, "border_features": True}
+    model = build_model(cfg)
+    x = torch.zeros(4, 1, 40, 40)
+    border = torch.ones(4, 4)
+    out = model(x, border).detach()
+    assert out.shape == (4, 4, 3)
+    # the head must consume the 4 extra border inputs
+    assert model.head.mlp[0].in_features == MODEL_CFG_FLAT + 4
+    # forgetting the border tensor is a hard error when the feature is on
+    try:
+        model(x)
+        assert False, "expected ValueError when border tensor is missing"
+    except ValueError:
+        pass
+
+
+# Flattened conv-feature width for MODEL_CFG at 40x40: two /2 pools -> 10x10, 16 ch.
+MODEL_CFG_FLAT = 16 * 10 * 10

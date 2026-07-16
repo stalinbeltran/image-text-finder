@@ -73,6 +73,8 @@ input, select {
 }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
 .field { margin-bottom: 12px; }
+label.checkbox { display: flex; align-items: center; gap: 8px; color: var(--text); margin: 0; }
+label.checkbox input { width: auto; }
 
 button.btn {
   background: var(--accent);

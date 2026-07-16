@@ -21,6 +21,13 @@ from PIL import Image
 CORNER_NAMES = ("TL", "TR", "BR", "BL")
 NUM_CORNERS = len(CORNER_NAMES)
 
+# Per-patch border flags: whether the patch is flush against the source image's
+# edge on each side. Fixed order, clockwise from the top like CSS margins.
+# This context is lost when a patch is cropped, yet it constrains where a
+# paragraph corner can sit when the paragraph starts near the image edge.
+BORDER_NAMES = ("top", "right", "bottom", "left")
+NUM_BORDERS = len(BORDER_NAMES)
+
 
 @dataclass(frozen=True)
 class Block:

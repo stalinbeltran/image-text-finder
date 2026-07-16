@@ -43,11 +43,16 @@ def test_extract_shapes_and_labels(tmp_path):
     summary = extract_dataset(cfg)
 
     data = np.load(tmp_path / "out" / "patches.npz")
-    X, y = data["X"], data["y"]
+    X, y, border = data["X"], data["y"], data["border"]
     assert X.dtype == np.uint8
     assert X.shape[1:] == (40, 40, 1)
     assert y.shape[1:] == (4, 3)
-    assert X.shape[0] == y.shape[0] == summary["num_patches"]
+    assert X.shape[0] == y.shape[0] == border.shape[0] == summary["num_patches"]
+    # border flags are strictly 0/1, shaped (N, 4) == (top, right, bottom, left)
+    assert border.shape[1:] == (4,)
+    assert set(np.unique(border).tolist()) <= {0, 1}
+    # every patch grid has at least one patch flush to each edge
+    assert border.max(axis=0).min() == 1
     # exists flags are strictly 0/1
     assert set(np.unique(y[:, :, 0]).tolist()) <= {0.0, 1.0}
     # normalized coordinates are within [0, 1]

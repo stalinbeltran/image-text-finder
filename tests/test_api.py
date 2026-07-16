@@ -37,6 +37,7 @@ client = TestClient(app)
 SMALL_MODEL = {
     "input_size": 40,
     "in_channels": 1,
+    "border_features": True,
     "backbone": [
         {"filters": 8, "kernel": 3, "batchnorm": True, "activation": "relu", "pool": 2},
         {"filters": 16, "kernel": 3, "activation": "relu", "pool": 2},
