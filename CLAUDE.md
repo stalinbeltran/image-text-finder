@@ -25,6 +25,12 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/decisiones.md](docs/decisiones.md) lista lo que está sin decidir y qué bloquea.**
+Consúltalo antes de empezar una fase, y **no tomes tú una decisión que esté ahí**: pregunta. Al
+cerrarse, la decisión se escribe en el documento que le toca y en decisiones.md queda solo un
+puntero. Una decisión que no se ve se acaba tomando sola — así nacieron el CORS abierto, los 20
+imágenes de val y `/runs/` gitignoreado.
+
 **[docs/glosario.md](docs/glosario.md) fija las palabras que significan dos cosas.** Cada entrada
 ya ha causado un error. Las que más: **`sample` es una imagen, no un ejemplo de entrenamiento**
 (el ejemplo es el patch — de ahí el malentendido de "980 patches de val" que en realidad son 20
