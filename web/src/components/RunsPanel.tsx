@@ -21,13 +21,18 @@ export default function RunsPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // edit / retrain form (fixed architecture; editable dataset + hyperparameters)
+  // "same"  -> retrain the same network (architecture locked, dataset+hyper editable)
+  // "new"   -> use this run's config as a fully editable starting point for a new network
+  type Mode = "same" | "new";
   const [retrainFor, setRetrainFor] = useState<string | null>(null);
+  const [retrainMode, setRetrainMode] = useState<Mode>("same");
   const [retrainName, setRetrainName] = useState("");
   const [retrainForm, setRetrainForm] = useState<ModelForm | null>(null);
   const [retrainDataset, setRetrainDataset] = useState<string>("");
   const [patchSets, setPatchSets] = useState<PatchDataset[]>([]);
   const [loadingCfg, setLoadingCfg] = useState(false);
+
+  const defaultName = (base: string, mode: Mode) => `${base}-${mode === "same" ? "v2" : "new"}`;
 
   const refresh = () => api.runs().then(setRuns).catch(() => {});
   useEffect(() => {
@@ -74,9 +79,10 @@ export default function RunsPanel() {
     } catch (e) { setError(String(e)); }
   };
 
-  const openRetrain = async (name: string) => {
+  const openRetrain = async (name: string, mode: Mode) => {
     setRetrainFor(name);
-    setRetrainName(`${name}-v2`);
+    setRetrainMode(mode);
+    setRetrainName(defaultName(name, mode));
     setRetrainForm(null);
     setRetrainDataset("");
     setMsg(null); setError(null);
@@ -95,6 +101,14 @@ export default function RunsPanel() {
     }
   };
 
+  // switch mode in-place; refresh the suggested name if it's still a default
+  const switchMode = (mode: Mode) => {
+    if (retrainFor && (retrainName === "" || retrainName === defaultName(retrainFor, retrainMode))) {
+      setRetrainName(defaultName(retrainFor, mode));
+    }
+    setRetrainMode(mode);
+  };
+
   const selectedPatch = patchSets.find((p) => p.name === retrainDataset);
   const selectedPatchSize = patchSizeOf(selectedPatch);
   const inputSize = retrainForm?.input_size ?? null;
@@ -111,7 +125,7 @@ export default function RunsPanel() {
         model: modelFormToModel(retrainForm), // architecture unchanged -> same network
         ...modelFormHyper(retrainForm),
       });
-      setMsg(`Retraining started as ${retrainName} — see it below for live metrics.`);
+      setMsg(`${retrainMode === "same" ? "Retraining" : "Training new network"} started as ${retrainName} — see it below for live metrics.`);
       setRetrainFor(null);
       refresh();
       setSelected(retrainName);
@@ -153,7 +167,8 @@ export default function RunsPanel() {
                 <td>{r.last?.val?.loss?.toFixed(4) ?? "—"}</td>
                 <td>{r.last?.val?.f1?.toFixed(3) ?? "—"}</td>
                 <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
-                  <button className="btn ghost" onClick={() => openRetrain(r.name)} title="View / edit parameters & retrain">↻</button>{" "}
+                  <button className="btn ghost" onClick={() => openRetrain(r.name, "same")} title="Retrain the same network (architecture fixed)">↻</button>{" "}
+                  <button className="btn ghost" onClick={() => openRetrain(r.name, "new")} title="New network from this config (fully editable)">＋</button>{" "}
                   <button className="btn ghost" onClick={() => rename(r.name)} title="Rename"
                           disabled={r.status !== "done"}>✎</button>{" "}
                   <button className="btn ghost" onClick={() => remove(r.name)} title="Delete"
@@ -170,11 +185,28 @@ export default function RunsPanel() {
 
       {retrainFor && (
         <div className="card">
-          <h2>Retrain <span className="mono">{retrainFor}</span></h2>
+          <h2>
+            {retrainMode === "same" ? "Retrain" : "New network from"}{" "}
+            <span className="mono">{retrainFor}</span>
+          </h2>
+          <div className="chips">
+            <button className={`chip ${retrainMode === "same" ? "active" : ""}`} onClick={() => switchMode("same")}>
+              Retrain same network
+            </button>
+            <button className={`chip ${retrainMode === "new" ? "active" : ""}`} onClick={() => switchMode("new")}>
+              New network from this config
+            </button>
+          </div>
           <p className="muted">
-            Retrains the <em>same network</em> as <span className="mono">{retrainFor}</span>: its
-            architecture (input size, backbone, head) stays fixed, while you can change the patch
-            dataset and any training hyperparameter. The original run is left untouched.
+            {retrainMode === "same" ? (
+              <>Retrains the <em>same network</em>: its architecture (input size, backbone, head)
+                stays fixed, while you can change the patch dataset and any training hyperparameter.
+                The original run is left untouched.</>
+            ) : (
+              <>Uses <span className="mono">{retrainFor}</span>'s full configuration as a starting
+                point for a <em>new</em> network — <strong>everything is editable</strong>
+                (architecture, head, dataset and hyperparameters). The original run is left untouched.</>
+            )}
           </p>
           {loadingCfg && <p className="muted">loading config…</p>}
           {retrainForm && (
@@ -212,11 +244,12 @@ export default function RunsPanel() {
                 </p>
               )}
 
-              <ModelConfigForm value={retrainForm} onChange={setRetrainForm} lockArchitecture />
+              <ModelConfigForm value={retrainForm} onChange={setRetrainForm}
+                               lockArchitecture={retrainMode === "same"} />
 
               <button className="btn" onClick={submitRetrain}
                       disabled={!retrainName || !retrainDataset || !datasetCompatible}>
-                Start retrain
+                {retrainMode === "same" ? "Start retrain" : "Train new network"}
               </button>{" "}
               <button className="btn ghost" onClick={() => setRetrainFor(null)}>Cancel</button>
             </>
