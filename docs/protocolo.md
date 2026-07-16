@@ -152,15 +152,55 @@ Y lo que cuesta el train, que es la otra cara:
 > coste; val manda en la resolución. El `split: 80/10/10` de hoy los acopla, y por eso subir val
 > parece caro cuando no tiene por qué serlo.
 
-**Propuesta**: generar **~2000 imágenes** y extraer con **80/10/10** → train 1600, val 200, test
-200. Val pasa de 20 a 200 imágenes (sd teórico ~1 %). El barrido sube a ~22 h en bruto, pero
-**con poda la mayoría de los puntos mueren en la época 3–5**, así que en la práctica son una
-noche. Eso exige la cola persistente de la fase 7 — que es justo por qué es bloqueante.
+### Decidido: el tamaño del dataset **es una variable de investigación**, no un ajuste
 
-Si sale demasiado lento, la salida es **recortar el train del barrido** (tarea proxy: rankear
-con train pequeño, reentrenar al ganador con todo). Funciona, pero tiene su propio riesgo y hay
-que decirlo: **los hiperparámetros que ganan con poco train no son siempre los que ganan con
-mucho** — `lr`, `batch_size` y la regularización interactúan con el tamaño del dataset.
+*(D6, decidido 2026-07-16.)* **Cuántas imágenes generar y con qué porcentajes repartirlas son
+preguntas del proyecto, no decisiones de diseño**: hoy nadie sabe qué punto da mejor resultado al
+menor coste, y las tablas de arriba son aritmética teórica que **asume independencia entre
+patches — que es falsa**. Así que `num_images` y las fracciones del split **entran al barrido**,
+como cualquier otro parámetro.
+
+Punto de partida razonable mientras tanto: ~2000 imágenes, 80/10/10 → train 1600, val 200, test
+200. Pero es un punto de partida **para medir**, no una conclusión.
+
+### La consecuencia: hace falta un **holdout** fuera de B
+
+Barrer los parámetros de B tiene una trampa que hay que cerrar antes de barrer nada:
+
+> **El instrumento de medida no puede ser parte del experimento.** Si el split entra al barrido,
+> cada punto tiene un val y un test **distintos**: estarías comparando mediciones hechas con
+> reglas distintas. Medirías la regla, no el modelo. Es el contrato ⑧ llevado a su conclusión.
+
+El `test` de hoy **no sirve** para esto: se deriva del mismo `_assign_splits` que estarías
+barriendo. Hace falta algo por encima de B:
+
+> **Holdout**: un conjunto de imágenes apartado **una sola vez**, que **ninguna configuración de
+> B toca jamás**. Todos los puntos del barrido —de D *o* de B— se miden contra las mismas
+> imágenes.
+
+**Y aquí encaja la métrica de §2, que es lo que hace esto posible**: la **F1 de párrafo se mide
+por imagen, no por patch**. Por eso un holdout de imágenes sirve para **cualquier** configuración
+de B — incluso si cambia `n`, el `stride` o las fracciones. Con métricas de patch no se podría:
+cambiar `n` cambia qué son los patches, y no habría nada que comparar entre puntos.
+
+**Cómo**: generarlo como **su propia fuente** (`…-holdout`), aparte, y no extraer de ahí jamás
+patches de entrenamiento. Es más simple que una lista de índices y hace la fuga **físicamente
+imposible**, que es la propiedad que quieres de un holdout.
+
+| | Qué es | Quién lo toca |
+|---|---|---|
+| **train** | Ajusta los pesos | El run |
+| **val** | Elige `best.pt`, y rankea el barrido | El run y H — **está sesgado al alza** (§7) |
+| **test** (dentro de B) | Sale del mismo split que barres | **Inútil si barres B** |
+| **holdout** (fuera de B) | La regla fija de todo | **Solo el ganador, una vez, al final** |
+
+### Si el barrido sale demasiado lento
+
+Salida: **recortar el train del barrido** (tarea proxy: rankear con train pequeño, reentrenar al
+ganador con todo). Funciona, pero tiene su riesgo y hay que decirlo: **los hiperparámetros que
+ganan con poco train no son siempre los que ganan con mucho** — `lr`, `batch_size` y la
+regularización interactúan con el tamaño del dataset. Con `num_images` ya dentro del barrido,
+esto deja de ser un truco: **es uno de los ejes que estás midiendo**.
 
 **Y ojo**: `PatchExtractConfig` **no tiene un `limit` de train** (el proyecto hermano sí lo
 tiene). Si se quiere la tarea proxy, hay que añadirlo.

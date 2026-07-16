@@ -179,10 +179,26 @@ JSON: **los escribe una persona**. Ambos con `format_version`.
 Contraste deliberado con todo lo demás: **estos se versionan en git y no son artefactos**. Son
 fuente.
 
-### 4.4 La tabla por patch (E×B) — a diseñar
+### 4.4 La tabla por patch (E×B) — **un caché**, no un artefacto
 
-El único que se puede hacer bien desde el minuto cero. `.npz` columnar, porque es el idioma del
-proyecto y numpy agrega ~10⁵ filas al instante (librerias.md descartó Parquet/DuckDB por eso):
+*(D1, decidido 2026-07-16.)* Es **función pura de (run, huella de B, split, knobs por defecto)**,
+y los cuatro ya tienen identidad ⇒ **se puede recalcular exacta ⇒ es un caché**, por el mismo
+criterio de §5. No se nombra, no se lista, no se versiona, no tiene CRUD ni pantalla — y las
+cuatro vistas de diagnóstico (V6–V9) salen igual.
+
+- **Clave**: `(run, fingerprint de B, split, knobs)`. Si cambia cualquiera, se recalcula.
+- **Ubicación**: un directorio de caché, gitignoreado. Borrarlo no pierde nada.
+- **Coste de rehacerla**: segundos (~10⁴ forwards por lotes). Por eso puede ser síncrona (R3 de
+  api.md).
+
+> Lo que **no** se puede recalcular es el **criterio humano** — que a ti te interesaran "los
+> patches donde falla el TL". Si algún día se quiere volver a una búsqueda guardada (y de ahí
+> construir un dataset con esos fallos para reentrenar, como el proyecto hermano), lo que se
+> guarda es **el filtro**: `{run, split, outcome, corner}`, cuatro campos, no 10⁵ filas. **Hoy no
+> se construye** (D1: solo caché).
+
+`.npz` columnar, porque es el idioma del proyecto y numpy agrega ~10⁵ filas al instante
+(librerias.md descartó Parquet/DuckDB por eso):
 
 | Array | Forma | Qué |
 |---|---|---|
@@ -191,9 +207,10 @@ proyecto y numpy agrega ~10⁵ filas al instante (librerias.md descartó Parquet
 | `xy_pred` | (M, 4, 2) float32 | Posición predicha, normalizada |
 | `err_px` | (M, 4) float32 | Error en px; `NaN` donde no hay esquina real |
 
-Más un manifest con `format_version`, el run, la **huella de B**, el split, el commit de git y
-los defaults de los knobs de F. Con eso, re-umbralizar es filtrar una tabla y **no vuelve a
-correr el modelo** (V8 de ui.md) — que es de dónde salen las horas de CPU ahorradas.
+La clave del caché (run + huella de B + split + knobs) va **en el nombre del fichero o en un
+sidecar**, para poder invalidarlo sin abrirlo. Con la tabla en mano, re-umbralizar es filtrar
+columnas y **no vuelve a correr el modelo** (V8 de ui.md) — que es de dónde salen las horas de
+CPU ahorradas.
 
 `err_px = NaN` donde no hay esquina, **no 0**: es §2 otra vez. Un 0 diría "acertó exacto".
 
@@ -237,10 +254,23 @@ Aplicado aquí sería:
 Tamaños: los `.npz` y los `.pt` son MB; los manifests y `metrics.jsonl` son KB. **El coste es
 despreciable y lo que se compra es el registro de la investigación.**
 
-Contras honestos: los runs de barrido pueden ser cientos (ensucian el historial — mitigable
-ignorando `sweeps/`), y `metrics.jsonl` de un run vivo cambia en cada época (ruido en
-`git status`). **La decisión es tuya**; lo que no es defendible es que sea la que está por
-defecto sin haberla tomado.
+### Decidido: se versiona la descripción, se ignora la carga
+
+*(D5, decidido 2026-07-16.)* Medido en este repo: **descripción 105 KB vs carga 38,5 MB** — el
+**0,3 %** del peso, y es el registro de la investigación.
+
+El criterio, que es el mismo que decide D1 (§4.4):
+
+> **Se versiona lo que no se puede recalcular; se ignora lo que sí.**
+>
+> `best.pt` sale de config + semilla + código, y aunque no saliera, git es la herramienta
+> equivocada para 2 MB de binario: eso son backups. `metrics.jsonl` **es una medición** —
+> recalcularla cuesta horas y solo sale igual si el código no ha cambiado. No es derivable: es un
+> registro.
+
+Contras asumidos: un run vivo reescribe `metrics.jsonl` cada época ⇒ `git status` sucio mientras
+entrenas. Y un barrido son decenas de runs; si el historial se ensucia demasiado, se ignora
+`sweeps/` (no se revierte la decisión).
 
 ---
 

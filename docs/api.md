@@ -126,7 +126,7 @@ agrupar y lo que hoy es imposible.
 | **C** Red | `/networks` | `/models` (muerto: el front no lo llama) |
 | **D** Receta | `/recipes` | **no existe** |
 | **E** Run | `/runs` | igual (sin procedencia ni stop) |
-| **E×B** Evaluación | `/runs/{name}/evaluations` | **no existe** |
+| **E×B** Diagnóstico | `/runs/{name}/diagnostics` — **caché, no entidad** (D1) | **no existe** |
 | **H** Barrido | `/sweeps` | **no existe** |
 | **F** Inferencia | `/runs/{name}/predict` | `/predict`, `/predict-path` |
 | **X** Jobs | `/jobs` | igual (sin cancelar) |
@@ -229,21 +229,27 @@ La procedencia que devuelve `GET /runs/{name}` es contrato ③:
 **Retrocompatibilidad**: los `config.json` que ya están en `runs/` no tienen nada de esto.
 Deben leerse degradando (`name: null`), nunca reventar.
 
-### `/runs/{name}/evaluations` (E×B) — el substrato de §3 de ui.md
+### `/runs/{name}/diagnostics` (E×B) — el substrato de §3 de ui.md
+
+**Es un caché, no una entidad** (D1): no hay `POST` que lo cree, ni `id`, ni recurso listable.
+Todos los endpoints son **`GET` idempotentes** sobre `(run, split)`; la tabla se calcula al primer
+GET y se invalida sola si cambian el run, la huella de B o los knobs.
 
 ```
-POST /runs/{name}/evaluations                   → job    {patch_dataset, split}
-GET  /runs/{name}/evaluations/{id}                resumen
-GET  /runs/{name}/evaluations/{id}/patches        tabla filtrada y paginada  (V6)
-       ?outcome=&corner=&order=error&offset=&limit=
-GET  /runs/{name}/evaluations/{id}/pr?corner=     curva PR + histograma      (V8)
-GET  /runs/{name}/evaluations/{id}/error-map      mapa 40×40                 (V7)
-GET  /runs/{name}/evaluations/{id}/coactivation   matriz 4×4                 (V9)
+GET /runs/{name}/diagnostics/patches      tabla filtrada y paginada  (V6)
+      ?split=val&outcome=&corner=&order=error&offset=&limit=
+GET /runs/{name}/diagnostics/pr           curva PR + histograma      (V8)
+      ?split=val&corner=TL
+GET /runs/{name}/diagnostics/error-map    mapa 40×40                 (V7)
+GET /runs/{name}/diagnostics/coactivation matriz 4×4                 (V9)
 ```
 
-Los tres últimos son R6: agregados hechos en el servidor. **La curva PR se calcula sobre los
-scores ya guardados**: barrer `threshold` no vuelve a correr el modelo. Ahí está el ahorro de
-horas de CPU.
+- **Síncronos** (R3): una pasada sobre val son ~10⁴ forwards por lotes, segundos. El primer GET
+  paga; los demás leen el caché.
+- **Agregados en el servidor** (R6): `pr`, `error-map` y `coactivation` devuelven el resultado ya
+  hecho. El navegador **nunca** recibe 10⁵ filas; `patches` va filtrado y paginado.
+- **La curva PR se calcula sobre los scores cacheados**: barrer `threshold` **no vuelve a correr
+  el modelo**. Ahí está el ahorro de horas de CPU.
 
 ### `/runs/{name}` — introspección (V1, V2, V4)
 
@@ -339,7 +345,7 @@ Condiciones para que esto no corrompa la librería:
   patch, la frontera está mal.
 
 **Superficie de proyecto** — no se extrae nunca: `/sources`, `/patch-datasets`, `/networks`,
-`/recipes`, `/sweeps`, `/predict`, `/evaluations`. Son el **significado**, y el significado es
+`/recipes`, `/sweeps`, `/predict`, `/diagnostics`. Son el **significado**, y el significado es
 del proyecto (prueba de frontera de librerias.md §0).
 
 Lo que **sí** se reaprovecha de esta capa, sin ser código, son las **reglas** R1–R7. Van al
@@ -377,8 +383,17 @@ arbitraria" de la pestaña Predecir hay tres salidas, y hay que **elegir una a c
 3. **Dejarlo como está** y cerrar CORS a `localhost:5173` + no exponer el API en red — decisión
    válida, pero **escrita**, no heredada.
 
-Recomendación: **1 + CORS cerrado**. La comodidad de "apunta a cualquier carpeta" se conserva
-declarando raíces, y el día de la GPU no hay que rehacer nada.
+### Decidido: raíces permitidas + CORS cerrado
+
+*(D4, decidido 2026-07-16.)*
+
+- **Allowlist de raíces**: `DATASETS_ROOT` más las que se declaren explícitamente. Una ruta que no
+  cuelgue de una raíz permitida → **403**. La resolución se hace **después** de `Path.resolve()`,
+  o `..\..\` se salta la comprobación.
+- **CORS cerrado** al origen del front (`http://localhost:5173`), no `*`.
+
+Se conserva la comodidad de "apunta a esa carpeta" declarando raíces, y **el día de la GPU no hay
+que rehacer nada**. Se implementa en la **fase 2** (§7), que es cuando se toca esta zona.
 
 ---
 
@@ -392,7 +407,7 @@ API"**:
 | **2** | `/datasets` → `/sources`; `DELETE /patch-datasets` + `used_by`; `/sources/{id}/samples/{i}/image`; CORS |
 | **3** | `/models` → `/networks` + `DELETE` + `/validate`; **`/recipes` nuevo** |
 | **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` |
-| **5** | `/evaluations` + los agregados |
+| **5** | `/diagnostics` + los agregados (caché) |
 | **6** | `/kernels`, `/feature-maps`; `raw` en predict |
 | **7** | `/sweeps`; `/jobs/{id}/cancel` |
 

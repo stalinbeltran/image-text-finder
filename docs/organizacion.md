@@ -280,12 +280,29 @@ Consecuencias, y son asimétricas:
 Y de B, la ruta **más una huella del contenido** — porque hoy nada distingue un B
 reconstruido bajo el mismo nombre (contrato ⑧).
 
-### ⑧ H ↔ B, C — la comparabilidad
+### ⑧ H ↔ B, C — la comparabilidad, y la regla de medir
 
 Un barrido de D **solo es comparable si todos sus runs comparten el mismo B y el mismo C**.
 Si a mitad de barrido se reconstruye el dataset de patches con otro `stride`, o se toca la
 arquitectura, los puntos dejan de ser comparables entre sí — y **nada en el sistema lo
 detecta**: `data` es una ruta, y una ruta reconstruida sigue apuntando igual.
+
+**Generalizado**: *lo que no barres, se queda fijo*. Y de ahí sale la regla que gobierna el
+proyecto entero:
+
+> **El instrumento de medida no puede ser parte del experimento.**
+
+Importa porque **los parámetros de B son variables de investigación** (`num_images`, las
+fracciones del split — decidido en [protocolo.md](protocolo.md) §3): se van a barrer. Y en cuanto
+barres el split, **cada punto tiene un val y un test distintos** ⇒ comparas mediciones hechas con
+reglas distintas ⇒ mides la regla, no el modelo. El `test` de hoy no salva nada: **sale del mismo
+`_assign_splits` que estarías barriendo**.
+
+La salida es un **holdout** por encima de B: imágenes apartadas una vez que ninguna configuración
+de B toca jamás, contra las que se mide todo. Y lo que lo hace viable es que la **F1 de párrafo
+se mida por imagen y no por patch** — así el mismo holdout sirve aunque cambien `n`, el `stride`
+o las fracciones. Con métricas de patch sería imposible: cambiar `n` cambia qué es un patch, y no
+habría nada que comparar.
 
 Lo que hace falta para cerrarlo: que B tenga una **huella de contenido** (hash del `.npz` o
 del manifest) registrada en el manifest y copiada en cada run. Entonces un barrido puede

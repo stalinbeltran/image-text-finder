@@ -239,10 +239,15 @@ Lo que compra:
   una tabla, no correr el modelo. En CPU esa diferencia son minutos contra horas.
 - **Filtrar por resultado** (aciertos / fallos / por tipo de esquina) sin recomputar.
 
-> **Decisión pendiente, y afecta a organizacion.md**: si esto es una entidad guardada (con
-> nombre, como en el proyecto hermano) o solo un caché. Es E × B con identidad propia, así que
-> por la regla 1 pide pantalla. **Si se acepta, va a organizacion.md antes de implementarse**
-> — la regla de CLAUDE.md aplica también a este documento.
+> **Decidido (D1, 2026-07-16): es un caché, no una entidad.** Se puede recalcular exacta a partir
+> de cosas que ya tienen identidad (run, huella de B, split, knobs), y **lo que se puede
+> recalcular no se guarda** ([formatos.md](formatos.md) §4.4). Consecuencia para la UI: **no hay
+> pantalla de Evaluaciones** ni un dominio nuevo — la tabla se calcula al abrir Diagnóstico y se
+> invalida sola. Las cuatro vistas salen igual.
+>
+> Lo único que no es recalculable es el **criterio** ("los fallos del TL"). Si algún día se quiere
+> volver a una búsqueda guardada —y de ahí construir un dataset con esos fallos para reentrenar,
+> como el hermano— se guardaría **el filtro** (4 campos), nunca la tabla. Hoy no se construye.
 
 ---
 

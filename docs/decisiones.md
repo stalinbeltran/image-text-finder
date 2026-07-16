@@ -2,90 +2,58 @@
 
 Lo que está **sin decidir** y bloquea algo. Índice, no archivo histórico.
 
-**Por qué existe**: al escribir las specs se acumularon decisiones repartidas por seis
-documentos. Nadie —ni tú ni un Claude que llegue en tres meses— puede ver de un vistazo qué
-falta por elegir. Una decisión que no se ve **se acaba tomando sola, por defecto y sin pensar**;
-así nacieron las tres que arrastramos: el CORS abierto, los 20 imágenes de val y `/runs/`
+**Por qué existe**: al escribir las specs se acumularon decisiones repartidas por varios
+documentos. Nadie —ni tú ni un Claude que llegue en tres meses— puede ver de un vistazo qué falta
+por elegir. Una decisión que no se ve **se acaba tomando sola, por defecto y sin pensar**; así
+nacieron las tres que arrastrábamos: el CORS abierto, los 20 imágenes de val y `/runs/`
 gitignoreado.
 
 **Esto no es un ADR.** Los documentos ya cargan el *por qué* de cada decisión tomada, que es el
-90 % del valor de un ADR. Aquí solo vive lo **pendiente**.
+90 % del valor de un ADR. Aquí solo vive lo **pendiente**, más un índice de lo cerrado (§4).
 
 **Ciclo de vida**: al decidirse, la decisión **se escribe en el documento que le corresponde** y
-aquí queda una línea en §3 apuntando allí. Este fichero se mantiene corto o deja de leerse.
+aquí queda una línea en §4 apuntando allí.
 
 ---
 
 ## 1. Bloquean la siguiente fase
 
-### D1 — ¿La tabla por patch es entidad guardada o caché?
-
-**En juego**: es E×B con identidad propia, así que por la regla 1 de ui.md pediría pantalla
-propia. El proyecto hermano la tenía como entidad (`evaluations/<id>/`).
-**Opciones**: entidad con nombre y CRUD · caché invalidable por huella.
-**Recomiendo**: entidad. Es lo que permite comparar dos evaluaciones y guardar el filtro.
-**Bloquea**: fase 5. **Si es entidad, va a organizacion.md antes de implementarse** — lo exige
-CLAUDE.md.
-**Dónde**: plan-ui.md fase 0.1, ui.md §3.
-
 ### D2 — La forma exacta de la procedencia en el run
 
-**En juego**: contrato ③. Nombres de campos que escribe la fase 4 y lee todo lo demás.
-**Propuesta**: `provenance: {patch_dataset:{name,fingerprint}, network:{name,value}, recipe:{name,value}, sweep}`.
-**Bloquea**: fase 4, y el barrido entero (sin esto no se puede agrupar por red ni por receta).
-**Dónde**: api.md §3 (`/runs`), formatos.md §4.2.
+**En juego**: contrato ③. Los nombres de campos que escribe la fase 4 y lee todo lo demás.
+**Propuesta** *(tomada por defecto salvo veto; es un detalle de forma, no de fondo — lo de fondo
+—nombre + valor + huella— ya lo fija el contrato ③)*:
+
+```jsonc
+"provenance": {
+  "patch_dataset": {"name": "…", "fingerprint": "sha256:…"},
+  "network":       {"name": "…", "value": { … }},   // nombre para agrupar, valor para reproducir
+  "recipe":        {"name": "…", "value": { … }},
+  "sweep":         null,
+  "git_commit":    "…"
+}
+```
+
+**Bloquea**: fase 4, y el barrido entero (sin esto no se agrupa por red ni por receta).
+**Dónde vivirá**: api.md §3 (`/runs`), formatos.md §4.2.
 
 ### D3 — Los `config.json` viejos: ¿migrar o leer degradando?
 
 **En juego**: los cinco runs de `runs/` llevan `device` dentro y no tienen procedencia.
-**Opciones**: migrar con un script · leer con retrocompatibilidad (`name: null`).
-**Recomiendo**: leer degradando. Migrar reescribe un registro histórico, que es justo lo que no
-se debe tocar.
-**Bloquea**: fase 4. Es **la trampa más probable del plan** y tiene test propio.
-**Dónde**: plan-ui.md fase 0.3 y §3, formatos.md §4.2.
+**Recomiendo**: **leer degradando** (`name: null`). Migrar reescribe un registro histórico, que
+es justo lo que no se debe tocar — y ahora que se versiona (D5), reescribirlo además ensucia el
+historial.
+**Bloquea**: fase 4. Es **la trampa más probable del plan** y tiene test propio (tests.md §5).
+**Dónde vivirá**: formatos.md §4.2.
 
 ---
 
-## 2. Deciden solas si no se miran
-
-### D4 — Rutas arbitrarias + CORS abierto
-
-**En juego**: `/image?path=` y `/folder?path=` leen **cualquier imagen del disco**, y CORS está
-en `allow_origins=["*"]`. Cualquier página que visites mientras el API corre puede enumerar y
-leer imágenes de tu disco.
-**Opciones**: raíces permitidas (allowlist) · solo upload · dejarlo y cerrar CORS.
-**Recomiendo**: allowlist **+** CORS cerrado. **La GPU lo agrava**: en cuanto el API viva en red,
-deja de ser modesto.
-**Urgencia**: media hoy, alta el día de la GPU. **Dónde**: api.md §6.
-
-### D5 — ¿Se versiona el registro de investigación?
-
-**En juego**: `.gitignore` excluye `/runs/` entero ⇒ `git ls-files runs` está **vacío**. Los
-configs y las métricas de tus cinco runs no tienen historia y están a un `rm -rf` de
-desaparecer.
-**Opciones**: versionar la descripción e ignorar la carga (patrón del proyecto hermano) · dejarlo.
-**Recomiendo**: versionar descripción (KB), ignorar `.npz` y `.pt` (MB).
-**Contra**: cientos de runs de barrido ensucian el historial (mitigable ignorando `sweeps/`), y
-un `metrics.jsonl` vivo hace ruido en `git status`.
-**Urgencia**: **sube con cada run que corres**. **Dónde**: formatos.md §5.
-
-### D6 — Cuántas imágenes generar, y el punto train↔val
-
-**En juego**: val = 20 imágenes hoy; el ruido tapa las diferencias que busca el barrido. Train
-manda en el coste, val en la resolución, y **son knobs independientes**.
-**Propuesta**: ~2000 imágenes, 80/10/10 → train 1600, val 200. Barrido ~22 h en bruto, una noche
-con poda.
-**Nota**: el paso 1 del protocolo **mide** el suelo real y dice si hiciste bastante. Es un bucle.
-**Bloquea**: todo el protocolo, y por tanto que el barrido signifique algo. **Dónde**: protocolo.md §3.
-
----
-
-## 3. Pueden esperar
+## 2. Pueden esperar
 
 | | Decisión | Recomiendo | Dónde |
 |---|---|---|---|
 | **D7** | ¿La métrica de párrafo soporta rotación, o compara contra el *bbox* del `quad`? | Bbox: basta con `clear-paragraphs` (`angle≈0`). Con `mixed-layout`, no | protocolo.md §2 |
-| **D8** | ¿Añadir `limit` de train a `PatchExtractConfig`? | Solo si hace falta la tarea proxy (rankear con train pequeño). El hermano lo tiene | protocolo.md §3 |
+| **D8** | ¿Añadir `limit` de train a `PatchExtractConfig`? | **Sí**, ahora que `num_images` es un eje del barrido (D6): deja de ser un truco y pasa a ser un parámetro que se mide | protocolo.md §3 |
 | **D9** | Nombres de las librerías (`exp-registry`, `jobq`, `convspec`, `matrixview`) | Provisionales; decidir al extraer la primera | librerias.md §1 |
 | **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala | librerias.md §4 |
 | **D11** | ¿Backportear NIST a las librerías? | **No.** Funciona; su valor ya está cobrado como evidencia | librerias.md §4 |
@@ -96,7 +64,40 @@ con poda.
 
 ---
 
+## 3. Abiertas por lo que decidimos
+
+Consecuencias de §4 que aún no tienen respuesta:
+
+### D16 — ¿Cuál es el holdout, y cuándo se genera?
+
+**En juego**: D6 hizo de `num_images` y las fracciones del split **ejes del barrido**, y eso
+obliga a un **holdout fuera de B** — o cada punto se mide con una regla distinta (contrato ⑧).
+**Preguntas**: ¿cuántas imágenes? ¿se genera **antes** que nada, de una vez y para siempre?
+¿lleva la misma configuración del generador que el resto, o se busca a propósito que sea más
+difícil?
+**Recomiendo**: generarlo **primero**, como **fuente propia** (`…-holdout`), con la misma config
+del generador (si no, mide otra cosa). Tamaño: generoso — solo se usa una vez y no cuesta CPU de
+entrenamiento.
+**Bloquea**: el paso 0 del protocolo, o sea todo.
+**Dónde vivirá**: protocolo.md §3.
+
+### D17 — ¿Qué rango barre `num_images` y las fracciones?
+
+**En juego**: es un eje nuevo del barrido y es **el más caro de todos** — dobla las imágenes y
+doblas cada época de cada punto.
+**Recomiendo**: **no meterlo en el barrido general**. Medirlo **aparte y primero**, con la receta
+de la baseline fija, para saber la curva "más datos → cuánto mejora" antes de gastar el
+presupuesto grande. Es una pregunta distinta a "qué receta es mejor", y mezclarlas multiplica el
+coste sin necesidad.
+**Dónde vivirá**: protocolo.md §3.
+
+---
+
 ## 4. Ya decididas
 
-*(Vacío. Al cerrar una, borra su entrada de arriba y deja aquí una línea con el documento donde
-vive ahora y el commit.)*
+| | Decisión | Vive en | Fecha |
+|---|---|---|---|
+| **D1** | La tabla por patch es un **caché**, no una entidad. Se puede recalcular exacta ⇒ no se guarda. Sin pantalla de Evaluaciones. Un **filtro** guardado (criterios, no filas) se añadiría solo si se quiere reentrenar sobre los errores | formatos.md §4.4, ui.md §3, api.md §3 (`/diagnostics`) | 2026-07-16 |
+| **D4** | **Allowlist de raíces + CORS cerrado** a `localhost:5173`. La ruta se comprueba tras `resolve()`. Se implementa en la fase 2 | api.md §6 | 2026-07-16 |
+| **D5** | **Se versiona la descripción, se ignora la carga** (105 KB vs 38,5 MB). Criterio: se versiona lo que no se puede recalcular. Si el historial se ensucia, se ignora `sweeps/` — no se revierte | formatos.md §5 | 2026-07-16 |
+| **D6** | El **tamaño del dataset y las fracciones son variables de investigación**, no ajustes: entran al barrido. Consecuencia: hace falta un **holdout fuera de B**, viable porque la F1 de párrafo se mide **por imagen** | protocolo.md §3, organizacion.md ⑧ | 2026-07-16 |
