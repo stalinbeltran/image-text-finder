@@ -3,7 +3,9 @@ import { NAV, SCREENS } from "./nav";
 import { NotBuiltYet } from "./components/Async";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { Kitchen } from "./screens/Kitchen";
+import { Networks } from "./screens/Networks";
 import { Patches } from "./screens/Patches";
+import { Recipes } from "./screens/Recipes";
 import { Sources } from "./screens/Sources";
 
 /** The screens that exist. The rest fall through to NotBuiltYet, which names
@@ -11,6 +13,8 @@ import { Sources } from "./screens/Sources";
 const BUILT: Record<string, () => JSX.Element> = {
   "/sources": Sources,
   "/patch-datasets": Patches,
+  "/networks": Networks,
+  "/recipes": Recipes,
 };
 
 /** The shell: four groups, no step numbers (ui.md §1). */

@@ -20,6 +20,22 @@ Medidos sobre `data/patch-datasets/clear-paragraphs-02`, que es donde se entren�
 | Positivos por esquina | ~2012 de 9800 = **20,5 %** |
 | Coste | ~20 s/época → **6,7 min por run** de 20 épocas |
 
+> **La fuente es `clear-paragraphs-02-reducidos`, la de 160×160.** No es un detalle: hay **dos**
+> fuentes que empiezan por `clear-paragraphs-02` y la otra (`-8ea1ac04`) es de **640×480**, o sea
+> **14,5× más área**. Con la misma ventana (`n=40`, `stride=20`) la rejilla pasa de 7×7 = **49**
+> patches por imagen a 31×23 = **713**, y como el número de esquinas lo ponen los párrafos y no la
+> rejilla, **el denominador crece y el numerador no**: el desbalance se desploma de **3,9:1** a
+> **~67:1** y la época pasa de ~20 s a **~319 s**. La aritmética que las separa es
+> `((L-40)/20)+1` por eje.
+>
+> Toda esta tabla es de la de 160×160. **Reverificada entera el 2026-07-16** (fase 3) y reproduce
+> exacta: 9800 patches, 7840/980/980, TL = 2012 ⇒ 20,53 % ⇒ 3,88:1.
+>
+> **Por qué está escrito aquí**: al verificar la fase 3 se midió la de 640×480 creyendo que era
+> ésta, y sus números (1,5 %, ~67:1, 319 s/época) parecían demostrar que esta tabla estaba mal por
+> 16× y que §1.4 era una corrección equivocada. **No lo estaba: era la fuente equivocada.** El
+> nombre casi compartido es la trampa — nómbrala entera siempre.
+
 De ahí salen tres cosas, y las tres cambian el plan:
 
 ### 1.1 El val son 20 imágenes, no 980 patches

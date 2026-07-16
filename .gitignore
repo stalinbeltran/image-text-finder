@@ -159,7 +159,7 @@ activemq-data/
 #   runs/*/config.json, metrics.jsonl, summary.json, status.json
 #   data/patch-datasets/*/manifest.json, split.json
 
-# configs/models y configs/recipes son FUENTE (los escribe una persona): se versionan.
+# configs/networks y configs/recipes son FUENTE (los escribe una persona): se versionan.
 
 # Environments
 .env

@@ -30,6 +30,10 @@ class Settings:
     datasets_root: Path
     patch_datasets_root: Path
     runs_root: Path
+    #: C and D live in `configs/`, and unlike everything else they are SOURCE:
+    #: versioned in git, written by a person (formatos.md §4.3).
+    networks_root: Path
+    recipes_root: Path
     #: Every root a client-supplied path is allowed to resolve under (D4).
     allowed_roots: tuple[Path, ...]
     cors_origins: tuple[str, ...]
@@ -39,6 +43,7 @@ class Settings:
         datasets_root = _env_path("ITF_DATASETS_ROOT", DEFAULT_DATASETS_ROOT)
         data_root = _env_path("ITF_DATA_ROOT", REPO_ROOT / "data")
         runs_root = _env_path("ITF_RUNS_ROOT", REPO_ROOT / "runs")
+        configs_root = _env_path("ITF_CONFIGS_ROOT", REPO_ROOT / "configs")
 
         # D4: the allowlist is DATASETS_ROOT plus whatever is declared on
         # purpose. Declaring roots keeps the "just point at that folder"
@@ -55,6 +60,12 @@ class Settings:
             datasets_root=datasets_root,
             patch_datasets_root=data_root / "patch-datasets",
             runs_root=runs_root,
+            # `configs/networks/`, not `configs/models/`: "model" is the ambiguous
+            # word -- it means C or E depending on who is talking -- and api.md R2
+            # makes it disappear from the vocabulary. The directory was empty, so
+            # the rename cost nothing (formatos.md §4.3).
+            networks_root=configs_root / "networks",
+            recipes_root=configs_root / "recipes",
             allowed_roots=(datasets_root, *extra_roots),
             cors_origins=tuple(o.strip() for o in origins.split(",") if o.strip()),
         )

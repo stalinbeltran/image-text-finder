@@ -61,11 +61,13 @@ def write_tiny_source(root: Path, *, num_samples: int = 6, width: int = 120, hei
 
 @dataclass
 class Layout:
-    """A throwaway disk layout: sources, patch datasets and runs."""
+    """A throwaway disk layout: sources, patch datasets, configs and runs."""
 
     datasets: Path
     patch_datasets: Path
     runs: Path
+    networks: Path
+    recipes: Path
 
     def write_source(self, name: str = "tiny", **kwargs) -> str:
         write_tiny_source(self.datasets / name, **kwargs)
@@ -115,6 +117,8 @@ def layout(tmp_path: Path) -> Layout:
         datasets=tmp_path / "sources",
         patch_datasets=tmp_path / "patch-datasets",
         runs=tmp_path / "runs",
+        networks=tmp_path / "configs" / "networks",
+        recipes=tmp_path / "configs" / "recipes",
     )
 
 
@@ -131,13 +135,15 @@ def itf_api(layout: Layout):
     from itf.api.app import create_app
     from itf.settings import Settings
 
-    for path in (layout.datasets, layout.patch_datasets, layout.runs):
+    for path in (layout.datasets, layout.patch_datasets, layout.runs, layout.networks, layout.recipes):
         path.mkdir(parents=True, exist_ok=True)
 
     settings = Settings(
         datasets_root=layout.datasets,
         patch_datasets_root=layout.patch_datasets,
         runs_root=layout.runs,
+        networks_root=layout.networks,
+        recipes_root=layout.recipes,
         allowed_roots=(layout.datasets,),
         cors_origins=("http://localhost:5173",),
     )

@@ -26,12 +26,21 @@ from PIL import Image
 
 from itf.api.errors import bad_request, conflict, not_found
 from itf.api.jobs import JobQueue
-from itf.api.schemas import BuildPatchDatasetBody
+from itf.api.schemas import BuildPatchDatasetBody, NamedNetworkBody, NetworkBody, RecipeBody
 from itf.datasets import SourceDataset, discover_sources
+from itf.models import (
+    NetworkConfig,
+    NetworkNotFound,
+    NetworkStore,
+    build_model,
+    count_params,
+    flat_features,
+    spatial_trace,
+)
 from itf.patches import SPLIT_NAMES, PatchExtractConfig, SplitConfig, extract_dataset
 from itf.patches.store import PatchDatasetNotFound, PatchDatasetStore
 from itf.settings import Settings
-from itf.training import RunStore
+from itf.training import Recipe, RecipeNotFound, RecipeStore, RunStore
 
 
 @dataclass(frozen=True)
@@ -45,6 +54,8 @@ class Context:
 
     settings: Settings
     patch_datasets: PatchDatasetStore
+    networks: NetworkStore
+    recipes: RecipeStore
     runs: RunStore
     jobs: JobQueue
 
@@ -299,6 +310,121 @@ def register_patch_datasets(app: FastAPI) -> None:
             }
 
 
+# ── C: /networks ──────────────────────────────────────────────────────────────
+
+
+def _describe_network(config: dict) -> dict:
+    """Spatial trace + parameter count. Pure, synchronous, cheap.
+
+    `POST /networks/validate` makes the check a FUNCTION OF THE API rather than a
+    side effect of training: the old flow only told you a layer did not fit by
+    exploding inside a job.
+    """
+    cfg = NetworkConfig.from_dict(config)
+    trace = spatial_trace(cfg)
+    model = build_model(cfg)
+    return {
+        "valid": True,
+        "trace": trace,
+        "num_params": count_params(model),
+        # The FLATTENED CONV features -- not what the head receives. With
+        # `border_features` the head gets flat + 4, and reporting that number
+        # under the name `flat_features` would quietly be wrong by 4.
+        "flat_features": flat_features(cfg),
+    }
+
+
+def register_networks(app: FastAPI) -> None:
+    @app.get("/networks")
+    def list_networks(c: Context = Depends(get_context)) -> dict:
+        return {"networks": [{"name": n, "config": c.networks.get(n)} for n in c.networks.names()]}
+
+    @app.get("/networks/{name}")
+    def get_network(name: str, c: Context = Depends(get_context)) -> dict:
+        try:
+            return {"name": name, "config": c.networks.get(name)}
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{name}'")
+
+    @app.post("/networks/validate")
+    def validate_network(body: NetworkBody) -> dict:
+        """Does this architecture even fit? Synchronous, no saving, milliseconds.
+
+        Feeds the Redes screen live. A network that does not fit answers 400 with
+        WHICH layer, at what size, and how to fix it.
+        """
+        try:
+            return _describe_network(body.model_dump())
+        except ValueError as exc:
+            raise bad_request("layer_does_not_fit", str(exc), "baja el pool o el stride, o sube input_size")
+
+    @app.post("/networks", status_code=201)
+    def create_network(body: NamedNetworkBody, c: Context = Depends(get_context)) -> dict:
+        payload = body.model_dump()
+        name = payload.pop("name")
+        try:
+            if c.networks.exists(name):
+                raise conflict("network_exists", f"ya existe una red llamada '{name}'", "elige otro nombre")
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        # It must not be saveable if it does not build: a stored network that
+        # explodes at training time is the failure this endpoint exists to stop.
+        try:
+            _describe_network(payload)
+        except ValueError as exc:
+            raise bad_request("layer_does_not_fit", str(exc), "baja el pool o el stride, o sube input_size")
+        c.networks.save(name, payload)
+        return {"name": name, "config": c.networks.get(name)}
+
+    @app.delete("/networks/{name}", status_code=204)
+    def delete_network(name: str, c: Context = Depends(get_context)) -> Response:
+        try:
+            c.networks.delete(name)
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{name}'")
+        return Response(status_code=204)
+
+
+# ── D: /recipes ───────────────────────────────────────────────────────────────
+
+
+def register_recipes(app: FastAPI) -> None:
+    @app.get("/recipes")
+    def list_recipes(c: Context = Depends(get_context)) -> dict:
+        return {"recipes": [{"name": n, "recipe": c.recipes.get(n).as_dict()} for n in c.recipes.names()]}
+
+    @app.get("/recipes/{name}")
+    def get_recipe(name: str, c: Context = Depends(get_context)) -> dict:
+        try:
+            return {"name": name, "recipe": c.recipes.get(name).as_dict()}
+        except (RecipeNotFound, ValueError):
+            raise not_found("recipe_not_found", f"no existe la receta '{name}'")
+
+    @app.post("/recipes", status_code=201)
+    def create_recipe(body: RecipeBody, c: Context = Depends(get_context)) -> dict:
+        payload = body.model_dump()
+        name = payload.pop("name")
+        try:
+            if c.recipes.exists(name):
+                raise conflict("recipe_exists", f"ya existe una receta llamada '{name}'", "elige otro nombre")
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        try:
+            recipe = Recipe.from_dict(payload)
+        except ValueError as exc:
+            raise bad_request("invalid_recipe", str(exc))
+        c.recipes.save(name, recipe)
+        return {"name": name, "recipe": recipe.as_dict()}
+
+    @app.delete("/recipes/{name}", status_code=204)
+    def delete_recipe(name: str, c: Context = Depends(get_context)) -> Response:
+        try:
+            c.recipes.delete(name)
+        except (RecipeNotFound, ValueError):
+            raise not_found("recipe_not_found", f"no existe la receta '{name}'")
+        return Response(status_code=204)
+
+
 # ── X: /jobs ──────────────────────────────────────────────────────────────────
 
 
@@ -321,6 +447,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.context = Context(
         settings=settings,
         patch_datasets=PatchDatasetStore(settings.patch_datasets_root),
+        networks=NetworkStore(settings.networks_root),
+        recipes=RecipeStore(settings.recipes_root),
         runs=RunStore(settings.runs_root),
         # On CPU the limit is 1: torch already uses every core inside one run, so
         # N at once just fight each other and each holds its dataset in RAM.
@@ -336,6 +464,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     register_sources(app)
     register_patch_datasets(app)
+    register_networks(app)
+    register_recipes(app)
     register_jobs(app)
     return app
 

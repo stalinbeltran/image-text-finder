@@ -54,7 +54,7 @@ def _network(*, input_size: int = 40, border_features: bool = False, in_channels
         "in_channels": in_channels,
         "border_features": border_features,
         "backbone": [{"filters": 8, "kernel": 3, "stride": 1, "padding": 1, "pool": 2}],
-        "head": {"hidden": 32},
+        "head": {"hidden": [32]},
     }
 
 
@@ -63,7 +63,6 @@ def _network(*, input_size: int = 40, border_features: bool = False, in_channels
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ①: sin implementar, plan-ui.md fase 4")
 def test_contract_01_rejects_patch_size_mismatch():
     """A network that expects 40 must not be trainable on 60-pixel patches.
 
@@ -90,7 +89,6 @@ def test_contract_01_rejects_patch_size_mismatch():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ②: sin implementar, plan-ui.md fase 4")
 def test_contract_02_border_backfill_is_harmless_when_the_network_ignores_it():
     """Zeros for an absent `border` are legal only because nobody reads them.
 
@@ -102,7 +100,6 @@ def test_contract_02_border_backfill_is_harmless_when_the_network_ignores_it():
     assert check_compatible(_manifest(has_border=False), _network(border_features=False)) == []
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ②: el caso que faltaba, formatos.md §2 / plan-ui.md fase 4")
 def test_contract_02_refuses_border_features_when_the_dataset_lacks_them():
     """The case the old suite never had, and the one that matters.
 
@@ -274,35 +271,52 @@ def test_contract_05_extraction_and_inference_see_the_same_window(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ⑦: sin implementar, plan-ui.md fase 3")
-def test_contract_07_models_and_validation_import_nothing_from_itf():
-    """C must not know that A exists, and the validator must stay pure.
+def _itf_imports(package: str) -> list[str]:
+    """Every `itf.*` module that `itf.<package>` imports, read from the AST."""
+    files = sorted((SRC / "itf" / package).rglob("*.py"))
+    assert files, f"itf.{package} no existe"
+    found = []
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("itf"):
+                found.append(f"{path.name}: {node.module}")
+            elif isinstance(node, ast.Import):
+                found += [f"{path.name}: {a.name}" for a in node.names if a.name.startswith("itf")]
+    return found
+
+
+def test_contract_07_the_network_does_not_know_the_source_loader_exists():
+    """C must not know that A exists.
 
     The old violation: `models/builder.py` imported `NUM_BORDERS` from
-    `datasets.loader` -- the network importing the source loader, just to learn
-    there are 4 borders. Nobody decided that; the constant was there and the
-    import worked. It is project vocabulary (G) and wants its own module.
+    `datasets.loader` -- the network importing the source-dataset loader just to
+    learn there are 4 borders. Nobody decided that; the constant was there and
+    the import worked, and that is how every trap in this project was born.
 
-    `itf.validation` imports nothing because it compares dicts, not objects --
-    which is what lets it run in milliseconds and be called from both `train()`
-    and the API (tests.md §4).
+    `itf.geometry` is allowed, and is the FIX rather than an exception to it
+    (tests.md §4): the vocabulary is what everyone shares, C included. Writing 4
+    by hand in `models` to avoid the import would be the same bug with more
+    steps -- two constants that can drift.
     """
-    offenders = []
-    for package in ("models", "validation"):
-        files = sorted((SRC / "itf" / package).rglob("*.py"))
-        assert files, f"itf.{package} no existe todavía (plan-ui.md fase 3)"
-        for path in files:
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("itf"):
-                    offenders.append(f"{path.name}: from {node.module} import ...")
-                elif isinstance(node, ast.Import):
-                    offenders += [
-                        f"{path.name}: import {a.name}"
-                        for a in node.names
-                        if a.name.startswith("itf")
-                    ]
-    assert offenders == []
+    # `itf.models.*` is itself -- a package importing its own submodules says
+    # nothing about layering. What the contract is about is what it reaches
+    # OUTSIDE its own walls, and the only legal answer there is `itf.geometry`.
+    allowed = ("itf.geometry", "itf.models")
+    offenders = [imp for imp in _itf_imports("models") if not imp.split(": ")[1].startswith(allowed)]
+    assert offenders == [], "itf.models solo puede importar de itf.geometry (y de sí mismo)"
+
+
+def test_contract_07_the_validator_is_pure():
+    """`itf.validation` imports nothing from itf, and that is load-bearing.
+
+    It compares DICTS, not objects: B's manifest against C's config. That is what
+    lets it run in milliseconds without torch, and therefore what lets it be
+    called from both `train()` and the API. If it needed to import the model to
+    validate the model, the validation would be in the wrong layer -- and the
+    speed of its test is what would tell you (tests.md §3).
+    """
+    assert _itf_imports("validation") == []
 
 
 # --------------------------------------------------------------------------- #
@@ -409,7 +423,6 @@ def test_contract_09_sweep_rejects_loss_objective_when_lambda_pos_varies():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ⑩: sin implementar, plan-ui.md fase 4")
 def test_contract_10_device_is_not_part_of_the_recipe_identity():
     """The same recipe on CPU and on GPU is the same recipe.
 

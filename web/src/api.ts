@@ -138,6 +138,94 @@ export const buildPatchDataset = (body: BuildBody) =>
 export const deletePatchDataset = (name: string) =>
   request<void>(`/patch-datasets/${encodeURIComponent(name)}`, { method: "DELETE" });
 
+// ── C: networks ──────────────────────────────────────────────────────────────
+
+export interface BlockSpec {
+  filters: number;
+  kernel: number;
+  stride: number;
+  padding?: number | "same";
+  batchnorm?: boolean;
+  activation?: string;
+  pool?: number;
+  dropout?: number;
+}
+
+export interface NetworkConfig {
+  input_size: number;
+  in_channels: number;
+  backbone: BlockSpec[];
+  head: { hidden?: number[]; dropout?: number };
+  border_features: boolean;
+}
+
+export interface TraceStep {
+  layer: number;
+  in: number;
+  conv: number;
+  out: number;
+  channels: number;
+}
+
+export interface NetworkDescription {
+  valid: boolean;
+  trace: TraceStep[];
+  num_params: number;
+  flat_features: number;
+}
+
+export const listNetworks = () =>
+  request<{ networks: { name: string; config: NetworkConfig }[] }>("/networks");
+
+/** Pure, synchronous and cheap: validation as a FUNCTION of the API rather than
+ *  a side effect of training. It is what feeds the Redes screen live. */
+export const validateNetwork = (config: NetworkConfig) =>
+  request<NetworkDescription>("/networks/validate", { method: "POST", body: JSON.stringify(config) });
+
+export const createNetwork = (name: string, config: NetworkConfig) =>
+  request<{ name: string; config: NetworkConfig }>("/networks", {
+    method: "POST",
+    body: JSON.stringify({ name, ...config }),
+  });
+
+export const deleteNetwork = (name: string) =>
+  request<void>(`/networks/${encodeURIComponent(name)}`, { method: "DELETE" });
+
+// ── D: recipes ───────────────────────────────────────────────────────────────
+
+/** The catalogue of organizacion.md §1-D. **No `device`, no `num_workers`**:
+ *  those are X (contract ⑩), and they live in Entrenar. */
+export interface RecipeValues {
+  lr: number;
+  optimizer: string;
+  momentum: number;
+  weight_decay: number;
+  batch_size: number;
+  grad_clip: number;
+  epochs: number;
+  scheduler: string;
+  warmup_epochs: number;
+  patience: number;
+  min_delta: number;
+  lambda_pos: number;
+  pos_weight: number | null;
+  smooth_l1_beta: number;
+  monitor: string;
+  seed: number;
+}
+
+export const listRecipes = () =>
+  request<{ recipes: { name: string; recipe: RecipeValues }[] }>("/recipes");
+
+export const createRecipe = (name: string, recipe: RecipeValues) =>
+  request<{ name: string; recipe: RecipeValues }>("/recipes", {
+    method: "POST",
+    body: JSON.stringify({ name, ...recipe }),
+  });
+
+export const deleteRecipe = (name: string) =>
+  request<void>(`/recipes/${encodeURIComponent(name)}`, { method: "DELETE" });
+
 // ── X: jobs ──────────────────────────────────────────────────────────────────
 
 export interface Job {

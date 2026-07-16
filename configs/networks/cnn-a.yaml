@@ -1,0 +1,28 @@
+# C — una red. Config puro: nada de esto cambia si cambias el dataset o el lr.
+#
+# Esto es FUENTE, no un artefacto: lo escribe una persona y va versionado en git
+# (formatos.md §4.3). Por eso es YAML y lleva comentarios.
+#
+# La traza espacial que sale de aquí: 40 -> 20 -> 10.
+format_version: 1
+
+# La mitad C del contrato ①. El dataset de patches declara `patch_size` por su
+# lado y NADA los une salvo el validador: si no casan, no se entrena.
+input_size: 40
+in_channels: 1
+
+# Los 4 flags de borde entran en la cabeza. El dataset ofrece y la red decide
+# (contrato ②) — y si el dataset no los trae, el validador se niega en vez de
+# rellenarlos con ceros, que es lo que falsificaba el dato antes.
+border_features: true
+
+backbone:
+  # `batchnorm: true` es C, no D: cambia el módulo, aunque suene a entrenamiento.
+  - {filters: 32, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2}
+  - {filters: 64, kernel: 3, stride: 1, batchnorm: true, activation: relu, pool: 2}
+
+head:
+  # Una lista de anchos, una entrada por capa oculta.
+  hidden: [128]
+  # `dropout` también es C.
+  dropout: 0.3

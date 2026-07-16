@@ -96,16 +96,23 @@ La columna que lleva la información es **qué fase lo quita**: es la barra de p
 
 | | Contrato | El test afirma | Lo quita | |
 |---|---|---|---|---|
-| **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **4** | xfail |
-| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **4** | xfail |
+| **①** | `patch_size == input_size` | `check_compatible` con desajuste → `patch_size_mismatch`, con los dos números y su arreglo (no una excepción dentro del hilo del job) | **3** | ✅ |
+| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **3** | ✅ |
 | **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B | **4** | xfail |
 | **③** | B en uso | `DELETE` de un B que un run referencia → **409 con la lista** | **2** | ✅ |
 | **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** | xfail |
 | **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **6** — `itf.geometry` nace en la 2, pero hasta que exista F no hay dos lados que comparar | xfail |
-| **⑦** | dirección de dependencias | `itf.models` y `itf.validation` no importan nada de `itf` | **3** | xfail |
+| **⑦** | dirección de dependencias | `itf.models` importa de `itf.geometry` (G) pero **no** de `itf.datasets` (A); `itf.validation` no importa nada de `itf` | **3** | ✅ |
 | **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; la semilla de B sola decide el split | **2** | ✅ |
 | **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** | xfail |
-| **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **4** | xfail |
+| **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **3** | ✅ |
+
+> **① y ② los quita la fase 3, no la 4, y con una salvedad que hay que leer.** El test afirma hoy
+> el **validador** (`check_compatible`), que es donde vive la regla, y `itf-train` lo llama antes
+> del primer batch — así que el camino del **CLI** está cerrado de verdad. Lo que **todavía no
+> existe** es el `POST /runs → 400`: `/runs` llega en la fase 4, y **es ella quien debe extender
+> estos dos tests a HTTP**. Mientras tanto queda un hueco consciente: nada obliga a que el
+> `POST /runs` de la fase 4 llame al validador. *(La fase 4 no ha terminado hasta que lo haga.)*
 
 > **Un xfail necesita un control, y por eso ③ son dos tests.** «Borrar un B en uso da 409» lo
 > cumpliría también un `DELETE` que fallara siempre. El control —borrar uno libre da 204— es lo
@@ -141,14 +148,22 @@ barato. La capa objetivo:
 
 | Módulo | Puede importar de |
 |---|---|
-| `itf.geometry` *(no existe aún; la ventana compartida, contrato ⑤)* | — |
+| `itf.geometry` (G: el vocabulario y la ventana) | — |
 | `itf.datasets` (A) | — |
-| `itf.models` (C) | **nada de `itf`** |
-| `itf.validation` *(no existe aún; contratos ① y ②)* | **nada de `itf`** — es puro: dos dicts |
+| `itf.models` (C) | **solo `geometry`** |
+| `itf.validation` (contratos ① y ②) | **nada de `itf`** — es puro: dos dicts |
 | `itf.patches` (B) | `datasets`, `geometry` |
-| `itf.training` (D) | `patches`, `models`, `validation` |
+| `itf.training` (D) | `patches`, `models`, `validation`, `geometry` |
 | `itf.inference` (F) | `models`, `geometry` — **no `patches`** |
 | `itf.api` | todos |
+
+> **`itf.models` importa de `geometry`, y eso *es* el arreglo del ⑦, no una excepción a él.**
+> Una versión anterior de esta tabla decía «nada de `itf`» para C, y se contradecía con su propio
+> párrafo de abajo y con organizacion.md ⑦, que dice que el vocabulario «quiere su propio módulo»
+> — o sea, que **C lo importe de G**. Lo que ⑦ prohíbe es que la red importe del **cargador de la
+> fuente** (`itf.datasets`) para saber que hay 4 bordes: eso es que C sepa que A existe. G es el
+> suelo que todos comparten; que la cabeza saque `(B, 4, 3)` con un 4 escrito a mano en `models`
+> **y** otro en `geometry` sería el mismo error, con más pasos. *(Corregido en la fase 3.)*
 
 `itf.validation` no importa nada porque **compara diccionarios, no objetos**: el manifest de B
 contra la config de C. Eso es lo que le permite correr en milisegundos y ser llamado tanto por

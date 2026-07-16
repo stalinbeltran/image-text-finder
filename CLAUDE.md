@@ -9,24 +9,31 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Fases 0, 0.5, 1 y 2 hechas (2026-07-16). La siguiente es la [fase 3](docs/plan-ui.md)**:
-> Redes (C) y Recetas (D) — **el cuello del plan**: sin identidad para C y D no hay Entrenar
-> limpio ni barrido. Trae también el **catálogo entero de hiperparámetros**, con las dos trampas
-> por defecto (`momentum`, `smooth_l1_beta`) puestas a propósito.
+> **Fases 0, 0.5, 1, 2 y 3 hechas (2026-07-16). La siguiente es la [fase 4](docs/plan-ui.md)**:
+> Entrenar y Runs (E) — `POST /runs` validando el contrato ① (400 con la razón, llamando a
+> `itf.validation`), la **procedencia por nombre** (D2), **409 si el run ya existe** (nunca
+> sobrescribir en silencio), `202` + `/metrics?since=` + `/stop`, y sacar X de la identidad.
 > **No quedan decisiones bloqueando**; lo abierto en [decisiones.md](docs/decisiones.md) §2–§3 se
 > responde al llegar a su fase.
 >
-> **Ya existen**: `itf.geometry` (G), `itf.datasets` (A), `itf.patches` (B),
-> `itf.training.registry` (la mitad lectora de E) y `itf.api` (`/sources`, `/patch-datasets`,
-> `/jobs`). Faltan `itf.models` (C), `itf.validation` (①②), `itf.inference` (F) y el bucle (D).
+> **Ya se entrena, y por CLI**: `itf-train --name <run> --patch-dataset <B> --network <C>
+> --recipe <D> --device cpu`. Toma **nombres**, no valores: es lo que hace que la procedencia se
+> sostenga sola. La UI de Entrenar es de la fase 4; el bucle ya está.
+>
+> **Ya existen**: `itf.geometry` (G), `itf.datasets` (A), `itf.patches` (B), `itf.models` (C),
+> `itf.validation` (①②), `itf.training` (D: `recipe`, `losses`, `loop`, `cli`, `registry`) y
+> `itf.api` (`/sources`, `/patch-datasets`, `/jobs`, `/networks` + `/networks/validate`,
+> `/recipes`). Faltan `itf.inference` (F), la procedencia por nombre (③) y el barrido (H).
 > El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para **algoritmos**, no para
 > estructura: `git show pre-rediseno:src/itf/training/losses.py`.
 >
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *12 passed, 10 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *42 passed, 4 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
-> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. La fase 3 quita
-> el ⑦ (dirección de imports).
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. La fase 3 quitó
+> ①, ② (×2), ⑦ (×2) y ⑩. Quedan ③ y ④ (fase 4), ⑤ (fase 6) y ⑨ (fase 7).
+> **Ojo con ① y ②**: hoy los afirma el validador y `itf-train` lo llama, pero **el `POST /runs`
+> → 400 no existe todavía** — la fase 4 debe extender esos dos tests a HTTP (tests.md §3).
 >
 > **Arrancar**: `.\.venv\Scripts\python -m itf.api` (8000) y `cd web && npm run dev` (5173). El
 > front proxya `/api` al backend. **La paleta vive en `web/src/theme/tokens.css` y solo ahí** —
@@ -115,7 +122,7 @@ extracción va enganchada a su fase de plan-ui.md, nunca como refactor aparte.
 |---|---|---|---|
 | **A** | Fuente | Imágenes + geometría de párrafos (proyecto externo, solo-lectura) | `datasets/loader.py` |
 | **B** | Dataset de patches | El dato que la CNN consume de verdad | `patches/`, `data/patch-datasets/` |
-| **C** | Red | La arquitectura. Config puro, cero datos | `models/`, `configs/models/` |
+| **C** | Red | La arquitectura. Config puro, cero datos | `models/`, `configs/networks/` |
 | **D** | Receta | Hiperparámetros que **definen el resultado** | `training/` |
 | **E** | Run | Modelo entrenado: pesos + métricas + procedencia | `runs/<name>/` |
 | **H** | Barrido | Espacio de D con B y C fijos → muchos E | *no existe aún* |
@@ -209,5 +216,11 @@ aparecieron por no elegir. Construir desde cero **no protege de ellas: las invit
 - **Medir con una regla de 20 imágenes**: los patches de una imagen están correlacionados, así
   que "980 patches de val" eran 20 imágenes de muestra efectiva. El dato es sintético y el
   generador está al lado: **generar más es gratis** (protocolo.md §1).
+- **Coger la fuente equivocada por el sufijo, y no enterarte**: hay **dos** `clear-paragraphs-02`
+  — `-reducidos` (160×160) y `-8ea1ac04` (640×480). Con la misma ventana, la de 640×480 da **713
+  patches por imagen en vez de 49**, el desbalance se va de 3,9:1 a **~67:1** y la época de 20 s a
+  **319 s**. **Equivocarse no falla**: construye un B válido que mide otra cosa. Le pasó a la
+  verificación de la fase 3, que llegó a "demostrar" que protocolo.md §1 estaba mal por 16× —
+  no lo estaba. **Nombra la fuente entera**; `itf-extract` las lista si te equivocas.
 - **Optimizar un proxy sin validarlo**: no existía ninguna métrica de párrafo — todo era a nivel
   de patch. La F1 de párrafo es el objetivo real y **es barata** (protocolo.md §2).

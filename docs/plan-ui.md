@@ -141,7 +141,7 @@ contrato ⑧ pide.
   verdad (persistencia, cancelar), pero el límite no es una feature que se añade después: es la
   trampa, y añadirlo luego sería tocar la cola con jobs corriendo.
 
-### Fase 3 — Modelo: Redes (C) y Recetas (D) ← **el desbloqueo**
+### Fase 3 — Modelo: Redes (C) y Recetas (D) — ✅ **hecha (2026-07-16)** ← *era el desbloqueo*
 
 La fase que lo condiciona todo: sin identidad para C y D no hay Entrenar limpio ni H.
 
@@ -162,8 +162,39 @@ La fase que lo condiciona todo: sin identidad para C y D no hay Entrenar limpio 
    D, agrupada como el catálogo, **con la definición de cada campo en línea**).
 5. `device` **no** aparece en Recetas: es X, va en Entrenar.
 
-**Verificación**: tests; crear una red y una receta desde la UI; **entrenar por CLI**
-(`itf-train`) — a partir de aquí ya se puede entrenar sin esperar a la UI.
+**Verificado**: 42 tests pasan (4 siguen en xfail). Red y receta **creadas desde la UI de verdad**
+(Chrome por CDP, clic real en el formulario): la **traza se recalcula mientras escribes** —bajar
+`input_size` a 32 la movió a `32 → 16 → 8` en vivo— y ambas aterrizan como YAML con
+`format_version`. Y **se entrena por CLI**: `clear-paragraphs-02-reducidos` → 20 épocas en
+**7,2 min** (21,7 s/época, contra los 6,7 min y ~20 s que predecía protocolo.md §1), **F1 0,80**,
+`pos_err_px` **9,4**. `best.pt` salió de la **época 17**, no de la 20 — la selección por `val_loss`
+no es decorativa. `config.json` congela red y receta por valor con `execution` **fuera**
+(contrato ⑩) y **sin** `format_version` dentro de la red. `pos_weight: 3.9` llega vivo hasta la
+BCE: el recall sube de 0,54 a **0,85** a costa de la precisión, que es justo lo que debe hacer.
+
+**Xfails que quita**: ①, ② (×2), ⑦ (×2) y ⑩. Quedan ③ y ④ (fase 4), ⑤ (fase 6) y ⑨ (fase 7).
+**Con una deuda explícita**: ① y ② los afirma hoy el **validador**, y `itf-train` lo llama — pero
+`POST /runs → 400` no existe aún. **La fase 4 debe extender esos dos tests a HTTP** (tests.md §3);
+mientras tanto nada obliga a que su `POST /runs` llame al validador.
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **`configs/models/` → `configs/networks/`.** formatos.md §4.3 decía `models/` mientras
+  glosario.md §1 prohibía la palabra y api.md R2 la borraba del vocabulario: era una
+  contradicción entre documentos, no una decisión. El directorio estaba vacío ⇒ coste cero.
+- **`augment` y `sampler` se quedan fuera, y ahora está escrito por qué** (organizacion.md §1-D).
+  No eran un hueco: un flip convierte una TL en TR e invalida los flags de borde, **y el fallo es
+  silencioso**. Implementarlo mal es peor que no tenerlo.
+- **La negativa por val vacío tiene tipo propio** (`NoValidationSplitError`). Salía como un
+  *traceback*, y un traceback se lee como «la herramienta está rota» — que invita justo a
+  rodearlo, y rodearlo **es** la trampa (best.pt por train loss). Ahora es un mensaje y un exit 2.
+- **`itf-extract --source` admite id, ruta relativa o absoluta, y si falla lista las fuentes
+  reales.** Nació de una trampa que se cobró esta misma verificación: hay **dos**
+  `clear-paragraphs-02` (160×160 y 640×480) y **coger la equivocada no falla** — construye un B
+  válido con 713 patches/imagen en vez de 49 y un desbalance de ~67:1 en vez de 3,9:1. La
+  verificación llegó a «demostrar» que protocolo.md §1 estaba mal por 16×. **No lo estaba: era la
+  fuente equivocada**, y toda la tabla reproduce exacta (protocolo.md §1). Una medición contra la
+  fuente que no es no se parece a un error: se parece a un hallazgo.
 
 ### Fase 4 — Entrenar y Runs (E)
 

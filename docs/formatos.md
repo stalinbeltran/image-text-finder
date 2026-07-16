@@ -241,11 +241,22 @@ de GPU mañana.
 
 ### 4.3 `configs/` — las definiciones (C y D)
 
-`configs/models/*.yaml` (C, hoy huérfano) y `configs/recipes/*.yaml` (D, por crear). YAML, no
-JSON: **los escribe una persona**. Ambos con `format_version`.
+`configs/networks/*.yaml` (C) y `configs/recipes/*.yaml` (D). YAML, no JSON: **los escribe una
+persona**. Ambos con `format_version`.
 
 Contraste deliberado con todo lo demás: **estos se versionan en git y no son artefactos**. Son
 fuente.
+
+> **`networks/`, no `models/`** *(fase 3, 2026-07-16)*. Este documento decía `configs/models/`
+> mientras glosario.md §1 fijaba «**no se usa "model" a secas, nunca**» y api.md R2 hacía
+> desaparecer `/models` del vocabulario a propósito — la palabra es ambigua: significa C o E según
+> quién hable. Era una contradicción entre documentos, no una decisión: el directorio estaba
+> **vacío** (C era «hoy huérfano», que es justo lo que la fase 3 arregla), así que el renombrado
+> costó cero. Lo lee `Settings.networks_root`.
+
+**`format_version` es del fichero, no de la red.** Al congelar un C dentro de `runs/<name>/config.json`
+se le quita: si viajara dentro, quedaría fosilizado en el checkpoint y en la procedencia, donde no
+significa nada. Lo hace `itf-train` antes de construir el `RunSpec`.
 
 ### 4.4 La tabla por patch (E×B) — **un caché**, no un artefacto
 

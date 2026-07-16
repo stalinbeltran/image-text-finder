@@ -11,11 +11,8 @@ pass* is not *passes* -- which is the whole reason to write it down. tests.md §
 
 from __future__ import annotations
 
-import pytest
 
-
-@pytest.mark.xfail(strict=True, reason="reproducibilidad: sin bucle todavía, plan-ui.md fase 4")
-def test_same_seed_and_config_produce_the_same_weights(tmp_path):
+def test_same_seed_and_config_produce_the_same_weights():
     import torch
 
     from itf.models import build_model
@@ -25,7 +22,8 @@ def test_same_seed_and_config_produce_the_same_weights(tmp_path):
         "in_channels": 1,
         "border_features": False,
         "backbone": [{"filters": 8, "kernel": 3, "stride": 1, "padding": 1, "pool": 2}],
-        "head": {"hidden": 32},
+        # A LIST of layer widths, one entry per hidden layer.
+        "head": {"hidden": [32]},
     }
 
     def weights(seed: int) -> list[torch.Tensor]:

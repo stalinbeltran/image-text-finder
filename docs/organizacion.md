@@ -15,8 +15,8 @@ eso es un **contrato** y está listado abajo con nombre y número.
 |---|---------|--------|-----------|--------|---------|
 | **A** | **Fuente** | Imágenes + geometría de párrafos. Lo produce *otro* proyecto | `id` = ruta relativa a `DATASETS_ROOT` | `datasets/loader.py` | externo, solo-lectura |
 | **B** | **Dataset de patches** | El dato que la CNN consume de verdad | `<name>` = subdir | `patches/extract.py`, `patches/dataset.py` | `data/patch-datasets/<name>/` |
-| **C** | **Red** | La arquitectura. Config puro, cero datos | `<name>.yaml` | `models/builder.py`, `models/heads.py` | `configs/models/*.yaml` *(huérfano, ver §3)* |
-| **D** | **Receta** | Los hiperparámetros que definen el resultado | `<name>` — **hoy no existe, ver §3** | `training/loop.py`, `training/losses.py` | **falta** |
+| **C** | **Red** | La arquitectura. Config puro, cero datos | `<name>.yaml` | `models/builder.py`, `models/heads.py`, `models/store.py` | `configs/networks/*.yaml` |
+| **D** | **Receta** | Los hiperparámetros que definen el resultado | `<name>.yaml` | `training/recipe.py`, `training/loop.py`, `training/losses.py` | `configs/recipes/*.yaml` |
 | **E** | **Run** | El modelo entrenado: pesos + métricas + procedencia | `<name>` = subdir | `training/loop.py` escribe, `api/app.py` lee | `runs/<name>/` |
 | **H** | **Barrido** | Un espacio de D explorado con B y C fijos → muchos E | `<name>` | **no existe** | **falta** |
 | **F** | **Inferencia** | Aplicar un E a una imagen completa | — (es una operación, no una cosa) | `inference/predict.py` | — |
@@ -26,14 +26,16 @@ eso es un **contrato** y está listado abajo con nombre y número.
 Tres observaciones que ordenan todo lo demás:
 
 - **D es un sustantivo** (decisión de este proyecto, por el barrido de hiperparámetros): una
-  receta se nombra, se guarda, se compara y se reutiliza. Hoy no existe como tal — solo vive
-  aplanada dentro de `runs/<name>/config.json`. Ver §3.
+  receta se nombra, se guarda, se compara y se reutiliza. **Desde la fase 3 lo es de verdad**:
+  `configs/recipes/*.yaml`, `RecipeStore`, `/recipes` y su pantalla. Antes solo vivía aplanada
+  dentro de `runs/<name>/config.json`.
 - **F sí es un verbo**: no tiene almacén ni identidad; es una llamada sobre un E. En la UI es
   un panel de resultados, no una entidad listable.
-- **C es un sustantivo que no se comporta como tal.** El backend ya tiene almacén
-  (`configs/models/`) y endpoints (`GET/POST /models`), pero **la UI no los llama nunca**
-  (`web/src/api.ts` no tiene un solo método `models`). La arquitectura hoy solo existe
-  incrustada en el formulario de entrenamiento y congelada dentro de cada run.
+- **C también es un sustantivo, y desde la fase 3 se comporta como tal**: `configs/networks/*.yaml`,
+  `NetworkStore`, `/networks` (+ `/networks/validate`) y su pantalla, que la UI **sí** llama. Antes
+  el almacén y los endpoints existían pero estaban muertos —`web/src/api.ts` no tenía un solo
+  método— y la arquitectura solo existía incrustada en el formulario de entrenamiento y congelada
+  dentro de cada run.
 
 **X (ejecución) es el eje que hace falta separar antes de que llegue la GPU.** `device` y
 `num_workers` viven hoy dentro de `RunConfig`, mezclados con la receta y congelados en
@@ -105,7 +107,15 @@ que conviene fijar ahora, porque en un formulario se mezclan solas:
 
 #### Catálogo de hiperparámetros
 
-`hoy` = existe en `RunConfig`. `falta` = no existe; merece la pena para el barrido.
+**Todo lo de aquí existe desde la fase 3** en `itf.training.recipe.Recipe`, con su definición al
+lado (un hiperparámetro sin definición en el catálogo no está terminado) y en la pantalla Recetas,
+que enseña esa misma definición **en línea**. Las dos únicas ausencias son `augment` y `sampler`, y
+**son decisiones, no huecos**: llevan su razón abajo.
+
+Lo que decía la columna antes de la fase 3: `hoy` = existía en `RunConfig`; **`falta`** = no
+existía. Se conserva porque **el «falta» era casi siempre un *default* que nadie eligió**, y esa es
+la parte que hay que recordar: `momentum` a 0 y `smooth_l1_beta` a 1.0 no se decidieron, se
+heredaron. Hoy están puestos a propósito en `configs/recipes/baseline.yaml`.
 
 **Optimización** — cómo se da cada paso.
 
@@ -135,12 +145,13 @@ que conviene fijar ahora, porque en un formulario se mezclan solas:
 | `pos_weight` | hoy | Peso de la clase positiva en la BCE. | El desbalance real, medido en `clear-paragraphs-02`: **20,5 % de positivos ⇒ 3,9:1**. Modesto, no brutal. Empieza el barrido en ese ratio y sácalo de `manifest.positives_per_corner / num_patches`, que cambia por dataset. |
 | `smooth_l1_beta` | **falta** | Umbral donde smoothL1 pasa de cuadrático a lineal. | **Hoy es el default de PyTorch, `beta=1.0`, y las coords van normalizadas a [0,1]** → `\|error\| < 1` *siempre* → nunca se sale de la rama cuadrática. **La pérdida de posición es MSE pura; la robustez de Huber jamás se activa.** Para que haga algo: ~0.05–0.1 (≈2–4 px en un patch de 40). |
 
-**Datos en tiempo de entrenamiento** — no existen hoy; `PatchDataset` devuelve el tensor crudo.
+**Datos en tiempo de entrenamiento** — **no existen, y su ausencia es una decisión de la fase 3**,
+no un olvido. `PatchDataset` devuelve el tensor crudo.
 
 | | | Definición | Notas |
 |---|---|---|---|
-| `augment` | **falta** | Perturbaciones aleatorias del patch en cada época. | **Trampa grave, ver aviso abajo.** |
-| `sampler` | **falta** | `random` vs muestreo balanceado de patches con/sin esquina. | Alternativa a `pos_weight` para el mismo problema; **elegir uno**, no ambos, o el desbalance se corrige dos veces. |
+| `augment` | **fuera a propósito** | Perturbaciones aleatorias del patch en cada época. | **Trampa grave, ver aviso abajo.** Implementarlo mal es **peor que no tenerlo**: entrena, la loss baja, y aprende esquinas cambiadas sin que nada avise. Entra el día que alguien remapee las 4 cabezas **y** los 4 flags de borde **con su test**, no como añadido al cierre de una fase. |
+| `sampler` | **fuera a propósito** | `random` vs muestreo balanceado de patches con/sin esquina. | Alternativa a `pos_weight` para el mismo problema; **elegir uno**, no ambos, o el desbalance se corrige dos veces. Como `pos_weight` ya está y **el desbalance real es modesto (3,9:1)**, no es urgente: entra si el barrido de `pos_weight` toca techo. |
 
 > **Aviso sobre augmentation.** Los flips y las rotaciones de 90° **no son válidos aquí sin
 > reetiquetar**: la etiqueta es por *tipo* de esquina. Un flip horizontal convierte una TL en
@@ -467,9 +478,13 @@ Las citas (`jobs.py:67`, `dataset.py:35`…) son del código anterior y resuelve
 
 De mayor a menor. Los marcados **[barrido]** son bloqueantes para H.
 
-1. **C y D no existen como entidades.** C tiene almacén y endpoints (`configs/models/*.yaml`,
-   `GET/POST /models`) pero están **muertos**: `web/src/api.ts` nunca los llama. D no tiene ni
-   eso. Ninguna de las dos se puede listar, nombrar ni reutilizar sin entrenar. **[barrido]**
+1. **C y D no existen como entidades.** — ✅ **arreglada en la fase 3 (2026-07-16).** C tenía
+   almacén y endpoints (`configs/models/*.yaml`, `GET/POST /models`) pero estaban **muertos**:
+   `web/src/api.ts` nunca los llamaba. D no tenía ni eso. Ninguna de las dos se podía listar,
+   nombrar ni reutilizar sin entrenar. **[barrido]**
+   *Hoy*: `configs/networks/*.yaml` + `configs/recipes/*.yaml`, `/networks` y `/recipes` con sus
+   dos pantallas, y `itf-train --network <nombre> --recipe <nombre>`, que es lo que hace que la
+   procedencia por nombre (③) se sostenga sola.
 2. **`JOBS` no es una cola: es un `Thread` por job, sin límite.** **[barrido]**
    `jobs.py:67` lanza un hilo por cada `submit()`. Un barrido de 20 puntos = 20
    entrenamientos simultáneos peleándose por los mismos núcleos (torch ya usa todos), cada

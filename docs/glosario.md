@@ -31,11 +31,13 @@ significa *índice de imagen*, y por eso confunde.
 
 ### `model` — la arquitectura (C) o lo entrenado (E)
 
-- `configs/models/*.yaml`, `ModelConfig`, `/models` → **arquitectura** (C): config puro, sin pesos.
+- `configs/networks/*.yaml`, `NetworkConfig`, `/networks` → **arquitectura** (C): config puro, sin pesos.
 - "el modelo entrenado", `best.pt` → **run** (E).
 
 **Regla**: **no se usa "model" a secas, nunca.** Es **red** (C) o **run** (E). Por eso `/models`
-se renombra a `/networks` (api.md R2): la palabra ambigua desaparece del vocabulario.
+se renombró a `/networks` (api.md R2): la palabra ambigua desaparece del vocabulario. Desde la
+fase 3 (2026-07-16) **el directorio también**: `configs/networks/`, no `configs/models/`
+(formatos.md §4.3).
 
 ### `dataset` — la fuente (A) o los patches (B)
 

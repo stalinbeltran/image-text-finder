@@ -426,8 +426,8 @@ API"**:
 
 | Fase | Al API |
 |---|---|
-| **2** | `/datasets` → `/sources`; `DELETE /patch-datasets` + `used_by`; `/sources/{id}/samples/{i}/image`; CORS |
-| **3** | `/models` → `/networks` + `DELETE` + `/validate`; **`/recipes` nuevo** |
+| **2** | `/datasets` → `/sources`; `DELETE /patch-datasets` + `used_by`; `/sources/{id}/samples/{i}/image`; CORS — ✅ |
+| **3** | `/models` → `/networks` + `DELETE` + `/validate`; **`/recipes` nuevo** — ✅ *(y el almacén con ellos: `configs/models/` → `configs/networks/`, formatos.md §4.3)* |
 | **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` |
 | **5** | `/diagnostics` + los agregados (caché) |
 | **6** | `/kernels`, `/feature-maps`; `raw` en predict |

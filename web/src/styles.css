@@ -637,6 +637,80 @@ code {
   margin-left: 4px;
 }
 
+/* ── networks: the spatial trace ───────────────────────────────────────────── */
+
+.trace {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace__step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trace__size {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  font-weight: 600;
+}
+
+.trace__arrow {
+  color: var(--itf-ink-muted);
+}
+
+.trace__channels {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+}
+
+.form__grid--block {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 6px;
+  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+}
+
+/* ── recipes ───────────────────────────────────────────────────────────────── */
+
+.fact dt {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+  /* The definition rides on the title attribute; the dotted underline is what
+     says there is one to read. */
+  border-bottom: 1px dotted var(--itf-axis);
+  display: inline;
+  cursor: help;
+}
+
+.fact dd {
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Marks the two knobs that came back on their own once, from a default.
+   Almost every trap in this project was a default nobody chose. */
+.field__trap {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--itf-ink);
+  background: color-mix(in srgb, var(--itf-status-warning) 40%, transparent);
+  cursor: help;
+}
+
 /* ── sources ───────────────────────────────────────────────────────────────── */
 
 .thumbs {
