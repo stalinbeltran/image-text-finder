@@ -147,10 +147,19 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
-# image-text-finder build artifacts
-/data/
-/runs/
-/configs/models/
+# image-text-finder — D5: se versiona la descripcion, se ignora la carga.
+# Criterio: se versiona lo que NO se puede recalcular. Un .pt sale de
+# config + semilla + codigo; metrics.jsonl es una MEDICION. Ver docs/formatos.md §5.
+
+# La carga (MB, derivable)
+/data/patch-datasets/*/patches.npz
+/runs/*/*.pt
+/data/cache/
+# La descripcion (KB, es el registro de la investigacion) SI se versiona:
+#   runs/*/config.json, metrics.jsonl, summary.json, status.json
+#   data/patch-datasets/*/manifest.json, split.json
+
+# configs/models y configs/recipes son FUENTE (los escribe una persona): se versionan.
 
 # Environments
 .env

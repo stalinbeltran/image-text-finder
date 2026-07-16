@@ -451,9 +451,21 @@ bordes. Dirección equivocada — C no debería saber que A existe. Es vocabular
 
 ---
 
-## 3. Lo que hoy rompe la separación
+## 3. Trampas: lo que rompió la separación, y volvería a romperla
 
-Resumen accionable, de mayor a menor. Los marcados **[barrido]** son bloqueantes para H.
+**Esta lista cambió de significado con el borrado del código (2026-07-16).** Ya no describe lo
+que está roto: describe **lo que se rompió una vez y volvería a romperse sola**. Sigue siendo la
+sección más útil del documento, y ahora más:
+
+> **Casi todas eran *defaults*.** `smooth_l1_beta=1.0` es el default de PyTorch. `momentum=0` es
+> el default de SGD. Meter lógica de dominio en `app.py` es lo que sale natural. Un hilo por job
+> es lo que hace `threading.Thread`. **Nadie eligió estos fallos: aparecieron por no elegir.**
+> Reconstruir desde cero no protege de ellos — los invita.
+
+Las citas (`jobs.py:67`, `dataset.py:35`…) son del código anterior y resuelven contra el tag
+**`pre-rediseno`**. Son la evidencia de que la trampa es real, no una hipótesis.
+
+De mayor a menor. Los marcados **[barrido]** son bloqueantes para H.
 
 1. **C y D no existen como entidades.** C tiene almacén y endpoints (`configs/models/*.yaml`,
    `GET/POST /models`) pero están **muertos**: `web/src/api.ts` nunca los llama. D no tiene ni

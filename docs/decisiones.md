@@ -37,14 +37,6 @@ aquí queda una línea en §4 apuntando allí.
 **Bloquea**: fase 4, y el barrido entero (sin esto no se agrupa por red ni por receta).
 **Dónde vivirá**: api.md §3 (`/runs`), formatos.md §4.2.
 
-### D3 — Los `config.json` viejos: ¿migrar o leer degradando?
-
-**En juego**: los cinco runs de `runs/` llevan `device` dentro y no tienen procedencia.
-**Recomiendo**: **leer degradando** (`name: null`). Migrar reescribe un registro histórico, que
-es justo lo que no se debe tocar — y ahora que se versiona (D5), reescribirlo además ensucia el
-historial.
-**Bloquea**: fase 4. Es **la trampa más probable del plan** y tiene test propio (tests.md §5).
-**Dónde vivirá**: formatos.md §4.2.
 
 ---
 
@@ -60,7 +52,6 @@ historial.
 | **D12** | La paleta concreta (los hex) | Al construir la fase 1, **pasada por el validador** en claro y oscuro | ui.md §0 |
 | **D13** | Kernels profundos: ¿corte del canal 0, todos los canales, o nada? | Nada: de la capa 2 en adelante la información está en los feature maps | ui.md §4.1 |
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
-| **D15** | Big-bang o franjas verticales en el rediseño | Franjas: entrenar tarda horas y necesitas la herramienta mientras | plan-ui.md §1 |
 
 ---
 
@@ -100,4 +91,7 @@ coste sin necesidad.
 | **D1** | La tabla por patch es un **caché**, no una entidad. Se puede recalcular exacta ⇒ no se guarda. Sin pantalla de Evaluaciones. Un **filtro** guardado (criterios, no filas) se añadiría solo si se quiere reentrenar sobre los errores | formatos.md §4.4, ui.md §3, api.md §3 (`/diagnostics`) | 2026-07-16 |
 | **D4** | **Allowlist de raíces + CORS cerrado** a `localhost:5173`. La ruta se comprueba tras `resolve()`. Se implementa en la fase 2 | api.md §6 | 2026-07-16 |
 | **D5** | **Se versiona la descripción, se ignora la carga** (105 KB vs 38,5 MB). Criterio: se versiona lo que no se puede recalcular. Si el historial se ensucia, se ignora `sweeps/` — no se revierte | formatos.md §5 | 2026-07-16 |
+| **D18** | **Borrar el código y los datos y construir desde cero**, con tag `pre-rediseno` como red de seguridad. Los datos no estaban en git y D6 los regenera; borrarlos **simplifica el diseño** (mata D3 y el relleno de `border`). El código estaba mal organizado y los docs lo citan 161 veces — el tag conserva la evidencia | plan-ui.md §0, README.md | 2026-07-16 |
+| **D3** | *Muerta con D18*: no quedan `config.json` viejos que migrar ni degradar | — | 2026-07-16 |
+| **D15** | *Muerta con D18*: sin código viejo no hay franjas ni big-bang que elegir | — | 2026-07-16 |
 | **D6** | El **tamaño del dataset y las fracciones son variables de investigación**, no ajustes: entran al barrido. Consecuencia: hace falta un **holdout fuera de B**, viable porque la F1 de párrafo se mide **por imagen** | protocolo.md §3, organizacion.md ⑧ | 2026-07-16 |

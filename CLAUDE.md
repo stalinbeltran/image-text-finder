@@ -9,14 +9,17 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Diseño completo; rediseño sin empezar.** El código de `src/` y `web/` es el **anterior** al
-> diseño de `docs/`: cumple pocas de sus reglas. No lo leas como ejemplo de lo que hay que hacer.
+> **El árbol está vacío: no hay código.** `src/`, `web/`, `tests/`, `data/`, `runs/` y los
+> `configs/*.example.yaml` se borraron el 2026-07-16 para construir desde el diseño sin nada
+> viejo que imitar por error. **Todo sigue recuperable en el tag `pre-rediseno`**:
+> `git show pre-rediseno:src/itf/patches/extract.py`.
 >
-> **Fase de [plan-ui.md](docs/plan-ui.md): 0** — las decisiones de
-> [decisiones.md](docs/decisiones.md) §1 siguen abiertas y bloquean la fase 1.
+> **Fase de [plan-ui.md](docs/plan-ui.md): 0** — falta cerrar **D2** (la forma de la procedencia)
+> y **D16** (el holdout), que bloquean la fase 1 y el paso 0 del protocolo.
 >
-> Nada de `docs/` está ejecutado ni verificado: son especificaciones, no descripciones. Lo único
-> que corre hoy es lo que dice el README, con las trampas de "estado conocido" al final.
+> `docs/` son **especificaciones, no descripciones**: nada está ejecutado ni verificado. Cuando
+> un documento cita un fichero y una línea (`app.py:61`, `dataset.py:27-28`), habla del **código
+> anterior** — resuelve contra el tag. Son los hallazgos que motivaron el diseño.
 
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.
@@ -159,32 +162,35 @@ el catálogo no está terminado.
   cambios de código.
 - `data/` y `runs/` son artefactos gitignored.
 
-## Estado conocido (ver §3 del doc para la lista completa)
+## Trampas: no las reproduzcas (lista completa en organizacion.md §3)
 
-Cosas que ya sabemos que están rotas o a medias — no las redescubras, y no las des por buenas:
+**Esto ya pasó una vez.** Se midió sobre el código anterior (recuperable en `pre-rediseno`) y por
+eso no son hipótesis. Y lo importante: **casi todas eran *defaults*** — nadie las eligió,
+aparecieron por no elegir. Construir desde cero **no protege de ellas: las invita.**
 
-- **C y D no existen como entidades en la UI.** `GET/POST /models` está implementado y
-  **muerto**: `web/src/api.ts` no lo llama nunca.
-- **`JOBS` no es una cola**: un hilo por job, sin límite ni cancelación, estado en memoria.
-- **`POST /runs` sobrescribe en silencio** si el nombre existe.
-- **`smooth_l1_beta` usa el default de PyTorch (1.0)** con coordenadas en [0,1] ⇒ la pérdida
-  de posición es **MSE pura**, el Huber nunca se activa.
-- **SGD corre sin momentum** (`_make_optimizer` solo pasa `lr` y `weight_decay`) ⇒ comparar
-  optimizadores hoy está sesgado a favor de Adam.
-- **Augmentation**: flips y rotaciones **no son válidos sin reetiquetar** (un flip convierte
-  TL en TR e invalida los flags de borde). El fallo sería silencioso.
-- **No existe ninguna métrica de párrafo.** `evaluate()` es todo a nivel de patch. Nadie ha
-  medido nunca si los párrafos salen bien en la imagen completa — que es el objetivo real del
-  proyecto. Ver protocolo.md §2.
-- **Ninguno de los `.npz` de `data/patch-datasets/` tiene el array `border`** (son anteriores a
-  la feature), y `configs/model.example.yaml` trae `border_features: true`. El ejemplo del README
-  entrena con flags de borde **todos a cero** rellenados en silencio, y luego en inferencia
-  `detect_corners` calcula los reales: el modelo ve en los bordes una distribución que nunca
-  entrenó. Sin excepción, solo peores predicciones. Ver formatos.md §2.
-- **Un dataset de patches sin val rompe la selección en silencio.** Con `val` vacío,
-  `loop.py` cae a `monitor = train_loss` y `best.pt` acaba siendo el checkpoint más
-  sobreajustado, sin warning. Le pasa a `reducido-40` (5 imágenes → split 4/0/1), que es el
-  ejemplo del README.
-- **El val de `clear-paragraphs-02` son 20 imágenes**, no 980 patches: los patches de una imagen
-  están correlacionados. Diferencias de f1 bajo ~5 % no son resolubles ahí. El dato es sintético
-  y el generador está al lado: es una elección, no una restricción.
+- **`smooth_l1_beta`**: el default de PyTorch es **1.0**, y con coordenadas normalizadas a [0,1]
+  el error nunca supera 1 ⇒ la pérdida de posición es **MSE pura** y el Huber no se activa jamás.
+  Ponlo a propósito (~0.05–0.1).
+- **SGD sin momentum**: si al optimizador solo le pasas `lr` y `weight_decay`, SGD corre a
+  momentum 0 ⇒ comparar optimizadores queda sesgado a favor de Adam.
+- **Un hilo por job**: es lo que hace `threading.Thread`. Sin límite de workers, un barrido de 20
+  puntos son 20 entrenamientos peleándose por los mismos núcleos, cada uno con su dataset entero
+  en RAM. **En CPU el límite es 1.**
+- **`POST /runs` sobrescribiendo en silencio**: `mkdir(exist_ok=True)` + truncar `metrics.jsonl`
+  machaca resultados sin avisar. Un barrido que autogenera nombres es quien lo pisa.
+- **Lógica de dominio dentro de `app.py`**: es lo que sale natural. Regla mecánica: si una
+  función de `app.py` no menciona HTTP, no es del API.
+- **`border` relleno con ceros**: cero significa "no toca ningún borde", no "no se sabe". Si la
+  red usa `border_features` y el dataset no los trae, **se falla** (formatos.md §2). Con los datos
+  borrados, todos los datasets nuevos los traerán — así que el camino de relleno **no se
+  construye**.
+- **Un dataset sin val**: `monitor = val_metrics.get("loss", train_loss)` cae al train loss sin
+  avisar, y `best.pt` acaba siendo el checkpoint más sobreajustado. Un dataset sin val **no sirve
+  para medir**: falla o avisa.
+- **Augmentation con flips o rotaciones**: convierte una TL en TR e invalida los flags de borde.
+  Sin reetiquetar, enseña basura y el fallo es silencioso.
+- **Medir con una regla de 20 imágenes**: los patches de una imagen están correlacionados, así
+  que "980 patches de val" eran 20 imágenes de muestra efectiva. El dato es sintético y el
+  generador está al lado: **generar más es gratis** (protocolo.md §1).
+- **Optimizar un proxy sin validarlo**: no existía ninguna métrica de párrafo — todo era a nivel
+  de patch. La F1 de párrafo es el objetivo real y **es barata** (protocolo.md §2).

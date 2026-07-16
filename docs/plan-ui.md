@@ -1,64 +1,61 @@
-# Plan de rediseño de la UI
+# Plan de construcción
 
-Plan paso a paso para llevar la interfaz a la organización de [ui.md](ui.md), que a su vez
-proyecta [organizacion.md](organizacion.md). **Este documento se ejecuta; los otros dos
-mandan.**
+Plan paso a paso para construir el sistema con la organización de [organizacion.md](organizacion.md),
+proyectada sobre HTTP en [api.md](api.md) y sobre pantallas en [ui.md](ui.md). **Este documento se
+ejecuta; los otros mandan.**
 
 Cada fase termina con: la app **arranca**, los tests **pasan**, y hay un commit. Ninguna fase
 deja el árbol a medias.
 
 ---
 
-## 0. Punto de partida: qué se descarta y qué no
+## 0. Punto de partida: el árbol está vacío
 
-La propuesta era **empezar de cero descartando lo hecho**. Tras auditar `web/src` (1442
-líneas), la propuesta es correcta **en lo que importa** y hay un matiz que la refuerza:
+**No hay código.** `src/`, `web/`, `tests/` y los `configs/*.example.yaml` se borraron
+(2026-07-16) para construir desde el diseño sin nada viejo que imitar por error. Todo sigue
+recuperable en el tag **`pre-rediseno`**:
 
-> El componente que parecía más reutilizable —`ModelConfigForm.tsx`, 228 líneas— es en realidad
-> **el más sucio del front**. Su propio comentario lo dice: *"input size, the conv backbone, the
-> head, **and the training hyperparameters**"*. Es **C + D + X en un formulario**, y
-> `lockArchitecture` es el booleano que tapa la frontera C/D en lugar de resolverla. No se
-> salva: se parte en dos.
+```powershell
+git show pre-rediseno:src/itf/patches/extract.py     # un fichero
+git checkout pre-rediseno -- src/                    # el paquete entero
+```
 
-Auditoría honesta, fichero a fichero:
+**Consúltalo cuando reconstruyas un algoritmo, no una estructura.** Lo que había estaba mal
+*organizado* (dominio dentro de `app.py`, C+D+X en un formulario), pero varios algoritmos eran
+correctos y tenían tests. Lo que solo vivía allí y no está en los docs:
 
-| Fichero | | Qué se hace | Por qué |
-|---|---|---|---|
-| `App.tsx` | 40 | **Descartar** | La nav *es* lo que cambia: 4 pasos numerados → 4 grupos por dominio |
-| `ExtractPanel.tsx` | 151 | **Descartar** | Mezcla A + B. Se parte en Fuentes y Patches |
-| `ModelConfigForm.tsx` | 228 | **Descartar** | Mezcla C + D + X. Se parte en dos formularios nuevos |
-| `TrainPanel.tsx` | 74 | **Descartar** | Envoltorio fino del anterior |
-| `RunsPanel.tsx` | 313 | **Reescribir en gran parte** | E ya es un dominio, pero pierde el modal de retrain y `lockArchitecture`, y gana procedencia |
-| `PredictPanel.tsx` | 395 | **Adaptar** | F ya es un dominio. Navegar A y B desde aquí es legítimo (ui.md §2): es una vista que cruza, no una mezcla |
-| `api.ts` | 170 | **Conservar y crecer** | Los endpoints de A, B, E y F no cambian. Reescribir un `fetch` que funciona no organiza nada |
-| `LineChart.tsx` | 61 | **Conservar** | Limpio y funciona. Muere cuando entre Plot (fase 5), no antes |
-| `main.tsx` | 10 | **Conservar** | Trivial |
+| | Dónde, en el tag |
+|---|---|
+| El desempate por distancia al centro al etiquetar esquinas | `extract.py` |
+| El borde *flush* de `_positions` (la ventana cubre `[0, size)`) | `extract.py` |
+| El radio de NMS = `stride/2` | `predict.py` |
+| La normalización de `pos_loss` por `mask.sum()` | `losses.py` |
+| El emparejado voraz TL→BR de la reconstrucción | `predict.py` |
 
-Resultado: **~2/3 del front es código nuevo**, y el 100% de la estructura (nav, rutas, dónde
-vive el estado, cómo se parten los formularios) se hace desde cero. Eso *es* empezar de cero.
-Lo que no se hace es borrar por ceremonia un cliente HTTP correcto.
+Los datos (`data/`, `runs/`) también se borraron: no estaban en git, D6 los regenera, y
+quitarlos **simplifica el diseño** — mata D3 (migrar configs viejos), mata el camino de relleno
+de `border` en `PatchDataset`, y `format_version` nace en 1 con todo presente.
 
-**Y el trabajo de verdad no está en el front.** De las nueve pantallas, tres no existen porque
-**les falta el backend**: C tiene endpoints muertos, D no tiene nada, H no existe. Un plan
-solo-front se atasca en la fase 3. Por eso las fases de abajo son **verticales**: backend y
-front juntos, por dominio.
+> **Lo que las 161 citas de los docs referencian** (`app.py:61`, `dataset.py:27-28`,
+> `predict.py:69-70`…) resuelve contra el tag. Son **hallazgos históricos que motivaron el
+> diseño**, no descripciones del árbol de hoy.
 
 ---
 
-## 1. La decisión que gobierna el plan
+## 1. Cómo se construye
 
-**Recomendación: franjas verticales, no big-bang.** La nav nueva se levanta en la fase 1 y las
-pantallas viejas conviven en un grupo `legacy` que se vacía fase a fase, hasta borrarse entero
-en la fase 4.
+**Vertical, dominio a dominio.** Cada fase se lleva backend y front del mismo dominio, y acaba
+con algo que funciona de punta a punta. No hay una fase "el backend" y otra "el front": de las
+nueve pantallas, tres dependen de backend que no existe, y un plan solo-front se atasca en la
+fase 3.
 
-Por qué, y es una razón concreta de este proyecto: **entrenas en CPU y un run tarda horas**. Un
-big-bang deja la herramienta inservible justo mientras la necesitas, y la tentación de "lo
-arreglo rápido con un parche" es exactamente lo que produjo `lockArchitecture`. Con franjas,
-cada fase deja la app usable y el código viejo se borra **cuando su sustituto ya funciona**, no
-antes.
+Con el árbol vacío no hay convivencia con lo viejo, así que **no hay grupo `legacy` ni nada que
+borrar fase a fase** (era D15, que queda sin objeto). A cambio, la regla se vuelve más
+importante: **cada fase deja la app arrancando y los tests en verde.** Una fase que deja el árbol
+roto "hasta la siguiente" es un big-bang disfrazado.
 
-Si prefieres big-bang, cambia solo la fase 1 (el grupo `legacy` no existe) y la 4 (no hay nada
-que borrar): el resto del plan es idéntico.
+Y no hace falta la UI para entrenar: `itf-train` (fase 3) da el CLI mucho antes de que haya
+pantallas.
 
 ---
 
@@ -66,17 +63,16 @@ que borrar): el resto del plan es idéntico.
 
 ### Fase 0 — Cerrar decisiones abiertas *(sin código)*
 
-Tres preguntas que, si se responden tarde, se responden con un parche:
+Queda **una** (D2 en [decisiones.md](decisiones.md)):
 
-1. **La tabla por patch (ui.md §3): ¿entidad guardada o caché?** Es E × B con identidad propia,
-   así que por la regla 1 pide pantalla; el proyecto hermano la tenía como entidad
-   (`evaluations/<id>/`). **Si es entidad, va a organizacion.md antes de implementarse** — lo
-   exige CLAUDE.md.
-2. **Forma de la procedencia en el run** (contrato ③): `model_name`, `recipe_name` y una
-   **huella de contenido de B**. Decidir los nombres ahora, porque los escribe la fase 4 y los
-   lee todo lo demás.
-3. **Sacar X de la identidad de D** (contrato ⑩): los `config.json` ya entrenados llevan
-   `device` dentro. Decidir si se migran o si se leen con retrocompatibilidad.
+1. **Forma de la procedencia en el run** (contrato ③): los nombres de campo de `network`,
+   `recipe` y la **huella de B**. Se deciden ahora porque los escribe la fase 4 y los lee todo lo
+   demás.
+
+*(D1 —tabla por patch— ya está cerrada: es un **caché**, así que no hay entidad ni pantalla.)*
+*(La tercera pregunta —qué hacer con los `config.json` ya entrenados— **murió con el borrado**:
+no queda ninguno. `device` sale de la identidad de D desde el primer run, sin migración ni
+retrocompatibilidad.)*
 
 **Entregable**: organizacion.md actualizado. **Verificación**: nada que correr.
 
@@ -90,9 +86,7 @@ Tres preguntas que, si se responden tarde, se responden con un parche:
    ojo.
 3. Componentes base: `MatrixCanvas` (el `drawMap` portado, con normalización **por mapa**),
    `Meter`, y la **tabla de números** (R5: es el equivalente accesible de todo heatmap).
-4. Grupo `legacy` con las 4 pestañas actuales, intactas.
-
-**Entregable**: la app arranca con la nav nueva; lo viejo sigue accesible.
+**Entregable**: la app arranca con la nav nueva y las pantallas vacías.
 **Verificación**: `npm run dev` carga; el validador de paleta pasa en ambos modos.
 
 ### Fase 2 — Datos: Fuentes (A) y Patches (B)
@@ -103,8 +97,6 @@ Tres preguntas que, si se responden tarde, se responden con un parche:
    y hoy no lo mira nadie, y es el número que gobierna `pos_weight`.
 3. **Back**: `DELETE /patch-datasets/{name}`, que **avisa de qué runs lo referencian** antes de
    borrar (contrato ③).
-4. **Borra** `ExtractPanel.tsx`.
-
 **Verificación**: tests; construir un dataset de patches desde la UI; intentar borrar uno en uso
 y ver la razón.
 
@@ -114,40 +106,41 @@ La fase que lo condiciona todo: sin identidad para C y D no hay Entrenar limpio 
 
 1. **Back — D como entidad**: almacén (`configs/recipes/*.yaml`) + `GET/POST/GET{name}/DELETE
    /recipes`.
-2. **Back — C**: falta `DELETE /models`. Los demás endpoints existen y solo hay que llamarlos.
-3. **Back — los hiperparámetros que faltan** (catálogo §1-D de organizacion.md), en `RunConfig`
-   y `loop.py`. Dos de ellos **arreglan bugs reales**, no añaden features:
-   - `momentum` — hoy `_make_optimizer` solo pasa `lr` y `weight_decay`, así que **SGD corre a
-     momentum 0**: cualquier comparación de optimizadores está sesgada.
-   - `smooth_l1_beta` — hoy es el default de PyTorch (1.0) con coordenadas en [0,1], así que la
-     pérdida de posición **es MSE pura** y el Huber nunca se activa.
-   - Y los que faltan de verdad: `scheduler` (la omisión más cara: `lr` es constante),
+2. **Back — C**: `/networks` completo (CRUD + `POST /networks/validate`). El nombre `/models` no
+   vuelve: era la palabra ambigua (api.md R2).
+3. **Back — el catálogo de hiperparámetros entero** (§1-D de organizacion.md). **Dos son
+   trampas por defecto** y vuelven solas si no se ponen a propósito (organizacion.md §3):
+   - `momentum` — si al optimizador solo le pasas `lr` y `weight_decay`, **SGD corre a momentum
+     0** y cualquier comparación de optimizadores queda sesgada a favor de Adam.
+   - `smooth_l1_beta` — el default de PyTorch es 1.0, y con coordenadas en [0,1] eso hace la
+     pérdida de posición **MSE pura**: el Huber nunca se activa.
+   - Y los que hay que añadir: `scheduler` (el más rentable: sin él `lr` es constante),
      `grad_clip`, `patience`/`min_delta`, `monitor` explícito.
 4. **Front**: pantalla Redes (solo arquitectura, + traza espacial `40→20→10→5` y nº de params,
    que es gratis y es lo único que una red sin entrenar puede enseñar) y pantalla Recetas (solo
    D, agrupada como el catálogo, **con la definición de cada campo en línea**).
 5. `device` **no** aparece en Recetas: es X, va en Entrenar.
 
-**Verificación**: tests (incluidos los nuevos hiperparámetros); crear una red y una receta desde
-la UI; `itf-train --config configs/model.example.yaml` sigue funcionando.
+**Verificación**: tests; crear una red y una receta desde la UI; **entrenar por CLI**
+(`itf-train`) — a partir de aquí ya se puede entrenar sin esperar a la UI.
 
-### Fase 4 — Entrenar y Runs (E) — *fin de la migración*
+### Fase 4 — Entrenar y Runs (E)
 
 1. **Back**: validar el **contrato ①** en `POST /runs` (400 con la razón si `patch_size !=
-   input_size`) — hoy solo lo mira `RunsPanel.tsx` y el mismatch revienta dentro del hilo del
-   job. Escribir la **procedencia por nombre** (fase 0.2). Sacar X de la identidad.
-2. **Back**: `POST /runs` no debe **sobrescribir en silencio** (hoy sí; `retrain` ya devuelve
-   409).
+   input_size`) llamando a `itf.validation` (organizacion.md §2): el mismo validador cubre ① y ②
+   de una vez. Escribir la **procedencia por nombre** (fase 0.2). Sacar X de la identidad.
+2. **Back**: `POST /runs` **no sobrescribe en silencio** un run existente → 409. (Era una trampa
+   del código viejo: `mkdir(exist_ok=True)` + truncar `metrics.jsonl` machaca resultados sin
+   avisar, y un barrido que autogenera nombres es justo quien la pisa.)
 3. **Front**: pantalla Entrenar (elegir B + C + D; `device` aparte; **estimar el coste** con los
-   `seconds` que ya guarda `metrics.jsonl`). Runs reescrito: procedencia por nombre, sin
-   `lockArchitecture` — "re-entrenar la misma red" pasa a ser *elegir otra receta con la misma
-   C*, que es lo que siempre fue.
-4. **Borra**: `TrainPanel.tsx`, `ModelConfigForm.tsx` y **el grupo `legacy` entero**.
+   `seconds` de `metrics.jsonl`). Pantalla Runs: procedencia por nombre. **"Re-entrenar la misma
+   red" no es un modo**: es *elegir otra receta con la misma C*, que es lo que siempre fue — con
+   C y D separadas sale gratis y no hace falta ningún `lockArchitecture`.
+**Verificación**: tests; entrenar un run corto desde la UI y comprobar que su `config.json`
+lleva la procedencia completa (nombre de red, de receta y huella de B).
 
-**Verificación**: tests; entrenar un run corto desde la UI; **abrir un run antiguo** (los
-`config.json` de `runs/` no tienen los campos nuevos y no pueden romper).
-
-> A partir de aquí la app está migrada y organizada. Todo lo que sigue **añade capacidad**.
+> A partir de aquí el flujo completo funciona: dato → red → receta → run. Lo que sigue **añade
+> capacidad**.
 
 ### Fase 5 — La tabla por patch y el diagnóstico ← *la app se vuelve instrumento*
 
@@ -155,8 +148,9 @@ la UI; `itf-train --config configs/model.example.yaml` sigue funcionando.
    con `score`, `(x,y)` predicho y real, error px, `sample_idx`, `patch_xy`.
 2. **Front**: entra **Observable Plot**. V3 (predicción del patch: 4 meters + overlay), V6
    (galería peor-primero), V7 (error por posición), **V8 (scores + PR + `threshold`)**.
-3. Migrar las curvas a Plot y **partirlas en small multiples** (R4): `loss ≈ 0.28`,
-   `f1 ≈ 0.77` y `pos_err_px ≈ 11` **no van en la misma gráfica**.
+3. Las curvas de entrenamiento, en **small multiples** (R4): `loss`, `f1` y `pos_err_px` tienen
+   escalas distintas (~0,28, ~0,77 y ~11 en las medidas del código viejo) y **no van en la misma
+   gráfica** — superponerlas inventaría una correlación.
 
 **Por qué aquí y no después**: V8 deja elegir `threshold` **gratis y post-hoc**. Entrar al
 barrido sin ella es gastar horas de CPU buscando en D lo que estaba en F.
@@ -177,10 +171,10 @@ vista.
 
 ### Fase 7 — Cola de verdad y Barridos (H)
 
-1. **Back — la cola**, que es el bloqueante real: hoy `JOBS` lanza **un hilo por job, sin
-   límite**, con el estado en memoria. Hace falta **límite de workers (=1 en CPU)**,
-   persistencia y cancelar. Sin esto, un barrido de 20 puntos son 20 entrenamientos peleándose
-   por los mismos núcleos, cada uno con su `PatchDataset` entero en RAM.
+1. **Back — la cola**, que es el bloqueante real: **límite de workers (=1 en CPU)**,
+   persistencia y cancelación cooperativa. La trampa a no repetir: un hilo por job sin límite
+   (lo que había) convierte un barrido de 20 puntos en 20 entrenamientos peleándose por los
+   mismos núcleos, **cada uno con su `PatchDataset` entero en RAM**.
 2. **Back — `optuna`**: espacio, samplers, **pruners** (la palanca nº1 en CPU) y storage SQLite.
    Sus `trials` **no son** nuestros runs: un trial lanza un run y guarda su referencia.
 3. **Front**: pantalla Barridos + V12 (Pareto, secuencial por λ) y V13 (paralelas).
@@ -201,9 +195,6 @@ V5 (scrubber, la más rentable), V4 (occlusion), V9 (co-activación), V10 (flag 
 
 - **La fase 3 es el cuello.** Todo lo demás depende de ella. Si hay que recortar algo, recorta
   fases 6 y 8, nunca la 3.
-- **Retrocompatibilidad de lo ya entrenado.** `runs/` tiene modelos reales. Los `config.json`
-  viejos no llevan `model_name`, `recipe_name` ni huella de B. Leerlos debe degradar (mostrar
-  "desconocido"), no reventar. Es la trampa más probable de la fase 4.
 - **`smooth_l1_beta` y `momentum` cambian los resultados.** Arreglarlos está bien, pero **lo ya
   entrenado deja de ser comparable** con lo nuevo. Que el cambio sea consciente y quede en el
   registro del run, no un ajuste silencioso.

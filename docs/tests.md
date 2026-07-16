@@ -9,28 +9,23 @@ Qué se testea en este proyecto, y por qué esa lista y no otra.
 
 ---
 
-## 1. Lo que ya hay, y lo que revela
+## 1. La lección de la suite anterior
 
-11 tests, **11,5 s**, todos en verde:
+`tests/` se borró con el resto del código (2026-07-16); vive en el tag `pre-rediseno`. Eran 11
+tests en 11,5 s, todos en verde. **Merece la pena entender por qué no bastaban**, porque la
+suite nueva se escribe justo al revés.
 
-| Fichero | Cubre |
-|---|---|
-| `test_extract.py` | geometría de la ventana, formas y etiquetas de B |
-| `test_model.py` | forward, pérdida, un paso de entrenamiento, split, border |
-| `test_api.py` | un end-to-end de humo |
+### 1.1 Había tests de contrato, sin saberlo
 
-Dos observaciones que motivan todo lo demás:
+`test_patch_dataset_border_backfill` y `test_border_features_change_head_and_forward` **eran el
+contrato ②**. Bien escritos y pasando — pero no se llamaban así, y **les faltaba el caso que
+importa**: que el sistema se **niegue** cuando la red pide `border` y el dataset no lo tiene
+(formatos.md §2). Probaban que el relleno *ocurre*, no que el fallo *se detecte*.
 
-### 1.1 Ya hay tests de contrato, sin saberlo
+### 1.2 Del contrato ⑤ se testeaba la mitad que no puede romperse
 
-`test_patch_dataset_border_backfill` y `test_border_features_change_head_and_forward` **son el
-contrato ②** (el dataset siempre ofrece `border`; la red decide si lo usa; los `.npz` viejos
-rellenan ceros). Están bien y pasan — solo que no se llaman así, así que cuando uno falle nadie
-sabrá qué frontera se rompió.
-
-### 1.2 Del contrato ⑤ se testea la mitad que no puede romperse
-
-Y esto es la ilustración perfecta de por qué "testear funciones" no es "testear contratos".
+La ilustración perfecta de por qué "testear funciones" no es "testear contratos", y la razón de
+que este documento exista.
 
 `test_positions_cover_edges` y `test_positions_flush_when_not_divisible` prueban `_positions()`.
 Pero `inference/predict.py:25` **importa** `_positions` de `patches/extract.py`: es la misma
@@ -47,39 +42,48 @@ border = (int(y0 == 0), int(x0 + n >= w), int(y0 + n >= h), int(x0 == 0))
 borders.append((int(y0 == 0), int(x0 + n >= w), int(y0 + n >= h), int(x0 == 0)))
 ```
 
-Hoy son idénticos. Si alguien toca uno, **nada se entera** y el modelo empieza a ver en
-inferencia una geometría que no entrenó — con el fallo silencioso y difuso (predicciones algo
-peores cerca de los bordes) en vez de una excepción.
+Eran idénticos, y por eso funcionaba. Pero si alguien tocaba uno, **nada se enteraba**: el
+modelo empezaba a ver en inferencia una geometría que no entrenó, con el fallo silencioso y
+difuso (predicciones algo peores cerca de los bordes) en vez de una excepción.
 
 **Regla que sale de aquí: testea la costura, no la función.** La pregunta no es "¿`_positions`
 es correcta?" sino "**¿extracción e inferencia ven la misma ventana?**".
 
+> En el diseño nuevo la costura desaparece: la ventana vive en **`itf.geometry`** y la importan
+> B y F (§4). Pero **el test sigue haciendo falta** — precisamente porque duplicar esas seis
+> líneas es lo que sale natural cuando escribes la inferencia y no quieres importar del
+> extractor. El test es lo que impide que la duplicación vuelva.
+
 ---
 
-## 2. El mecanismo: `xfail(strict=True)` hace ejecutable el "lo que está roto"
+## 2. El mecanismo: `xfail(strict=True)` convierte los contratos en la lista de tareas
 
-La mayoría de los contratos **están rotos hoy** (organizacion.md §3). Un test para algo no
-implementado no se omite ni se deja en rojo: se marca.
+Con el árbol vacío (2026-07-16), **ningún contrato está implementado todavía**. Un test para algo
+que aún no existe no se omite ni se deja en rojo: se marca.
 
 ```python
-@pytest.mark.xfail(strict=True, reason="contrato ①: no se valida en el backend, organizacion.md §3")
+@pytest.mark.xfail(strict=True, reason="contrato ①: sin implementar, plan-ui.md fase 4")
 def test_contract_01_rejects_patch_size_mismatch():
     ...
 ```
 
 Qué compra `strict=True`, que es la clave:
 
-- Mientras el contrato siga roto → el test falla → **xfail esperado** → la suite pasa. Nadie
+- Mientras el contrato no exista → el test falla → **xfail esperado** → la suite pasa. Nadie
   convive con una suite roja (que es como se aprende a ignorarla).
-- El día que alguien lo arregle → el test pasa → **XPASS estricto** → **la suite FALLA**, y
-  obliga a quitar el marcador y actualizar §3.
+- El día que su fase lo implemente → el test pasa → **XPASS estricto** → **la suite FALLA**, y
+  obliga a quitar el marcador.
 
-> **Consecuencia: la documentación no puede desviarse de la realidad.** Hoy §3 es prosa, y la
-> prosa envejece sola. Como xfails, no: la sección "lo que está roto" pasa a ser una lista
-> ejecutable que el CI mantiene sincronizada en las dos direcciones.
+> **Los tests de contrato son la lista de tareas del proyecto, y es ejecutable.** Escribe los diez
+> **ahora**, todos en xfail: definen el destino antes de escribir una línea de `src/`. Cada fase
+> de [plan-ui.md](plan-ui.md) se mide por **cuántos xfails quita**, y no puede olvidarse de
+> hacerlo: el XPASS estricto la pone en rojo.
+>
+> Es lo más parecido a TDD que admite un proyecto de investigación: **los invariantes se fijan
+> primero; los resultados, nunca** (§6).
 
-Y sale gratis una barra de progreso: **el número de xfails que bajan es el avance de
-[plan-ui.md](plan-ui.md)**.
+Y como el `reason` cita el documento, la lista **no puede desviarse de la realidad**: la prosa
+envejece sola, un xfail estricto no.
 
 ---
 
