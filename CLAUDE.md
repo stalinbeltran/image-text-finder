@@ -25,6 +25,12 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/api.md](docs/api.md) define el contrato del API REST** — un recurso por dominio, reglas
+R1–R7 (nombres, síncrono vs job, errores con razón y arreglo, polling incremental, agregados en
+el servidor) y dónde el API hace cumplir los contratos. Léelo antes de tocar `src/itf/api/`.
+Regla mecánica: **si una función de `app.py` no menciona HTTP, no es del API** — es dominio y va
+en `itf`.
+
 **[docs/librerias.md](docs/librerias.md) define qué se extrae como librería reutilizable**
 (`exp-registry`, `jobq`, `convspec`, `matrixview`), qué **no**, y con qué obligaciones. Dos
 reglas: *se extrae en la segunda vez, no en la primera* — nada que exista en un solo proyecto se
