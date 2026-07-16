@@ -109,16 +109,37 @@ quedar pegada a cualquier otra (4 meters en V3, 4 overlays en V11, la rejilla de
 choque entre no vecinas no se vería. Con esa exigencia, **de las 70 formas de escoger 4 de los 8
 hues documentados solo 2 pasan** en ambos modos. La paleta no se eligió: se enumeró.
 
-### Fase 2 — Datos: Fuentes (A) y Patches (B)
+### Fase 2 — Datos: Fuentes (A) y Patches (B) — ✅ **hecha (2026-07-16)**
 
-1. **Front**: pantalla Fuentes (solo lectura: datasets, muestras, párrafos dibujados) y pantalla
-   Patches (CRUD + construir).
-2. Patches muestra **el desbalance** (`positives_per_corner / num_patches`): está en el manifest
-   y hoy no lo mira nadie, y es el número que gobierna `pos_weight`.
-3. **Back**: `DELETE /patch-datasets/{name}`, que **avisa de qué runs lo referencian** antes de
-   borrar (contrato ③).
-**Verificación**: tests; construir un dataset de patches desde la UI; intentar borrar uno en uso
-y ver la razón.
+**Es la que crea `src/itf/`**, así que también es la que arregla el `pip install -e .` roto.
+
+1. **Front**: Fuentes (solo lectura, con los párrafos dibujados en SVG sobre la imagen) y Patches
+   (listar + construir + borrar).
+2. Patches muestra **el desbalance**. Medido en `clean-paragraphs-01/reducido`: **21,6 % / 3,6:1**
+   — muy cerca del 20,5 % / 3,9:1 documentado, o sea que la corrección de protocolo.md §1.4 se
+   sostiene sola.
+3. **Back**: `itf.geometry` (G: vocabulario + la ventana, contratos ⑤ y ⑦), `itf.datasets` (A),
+   `itf.patches` (B, con la huella de ⑧), `itf.training.registry` (la mitad lectora de E, que es
+   quien contesta `used_by`), `itf.api` con `/sources`, `/patch-datasets` y `/jobs`.
+4. **D4 implementado**: CORS cerrado a `localhost:5173` y las rutas resueltas **dentro** del
+   dominio — el cliente manda un id, nunca una ruta. `GET /image?path=` no vuelve.
+
+**Verificado**: 12 tests pasan (10 siguen en xfail); dataset construido **desde la UI**; borrar
+uno en uso da **409 con la lista de runs** y no borra nada. El `itf-extract` produce **la misma
+huella** que la UI construyendo en otra ruta con otro nombre — que es exactamente lo que el
+contrato ⑧ pide.
+
+**Xfails que quita**: los dos de ⑧ (huella, semilla de split) y el `DELETE` de ③.
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **El aviso de val vacío tiene sitio: el manifest.** protocolo.md §1.3 pedía «falla o avisa» sin
+  decir dónde. Ahora `manifest.warnings[]` lo lleva y la UI lo enseña en rojo. Se ve solo: el
+  ejemplo del README (`reducido`, 5 imágenes) sale **4/0/1** y dispara el aviso. La negativa dura
+  es de la fase 4, donde está el daño.
+- **La cola nace con `max_workers=1`**, no con un hilo por job. Es la fase 7 quien la hace de
+  verdad (persistencia, cancelar), pero el límite no es una feature que se añade después: es la
+  trampa, y añadirlo luego sería tocar la cola con jobs corriendo.
 
 ### Fase 3 — Modelo: Redes (C) y Recetas (D) ← **el desbloqueo**
 

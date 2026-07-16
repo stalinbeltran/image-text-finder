@@ -9,33 +9,64 @@ Las imágenes las produce
 
 ---
 
-## Estado: fase 1 hecha — la app arranca; `src/` sigue por escribir
+## Estado: fase 2 — ya se pueden construir datasets de patches
 
-**El backend no existe todavía.** El código anterior se borró para reconstruirlo desde cero
-siguiendo `docs/`; sigue recuperable en el tag **`pre-rediseno`**:
+Hechas las fases **0** (decisiones), **0.5** (los contratos en xfail), **1** (esqueleto y paleta)
+y **2** (Fuentes y Patches) de [docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 3**:
+Redes (C) y Recetas (D), que es la que desbloquea entrenar.
+
+El código anterior sigue recuperable en el tag **`pre-rediseno`**:
 
 ```powershell
-git show pre-rediseno:src/itf/patches/extract.py     # un fichero
+git show pre-rediseno:src/itf/training/losses.py     # un fichero
 git checkout pre-rediseno -- src/                    # todo el paquete
 ```
 
-Hecho: las fases **0** (decisiones), **0.5** (los contratos en xfail) y **1** (esqueleto de front
-y paleta) de [docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 2** (Fuentes y
-Patches), que es la que crea `src/itf/`.
+### Montar
 
-### La web app
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[train,api,dev]"
+cd web; npm install
+```
+
+### Correr
+
+Dos procesos. El backend:
+
+```powershell
+.\.venv\Scripts\python.exe -m itf.api          # http://127.0.0.1:8000
+```
+
+Y el front, que proxya `/api` al backend:
 
 ```powershell
 cd web
-npm install
-npm run dev              # http://localhost:5173
+npm run dev                                     # http://localhost:5173
 ```
 
-Arranca con la nav de 4 grupos y las pantallas **vacías**: cada una dice su dominio y qué fase la
-construye. La ruta `/kitchen` ("Paleta y componentes") sí tiene contenido — es donde se mira la
-paleta y los tres componentes base sobre datos sintéticos.
+**Fuentes** y **Patches** funcionan de verdad: listan, construyen y borran. El resto de pantallas
+están vacías y cada una dice qué fase la construye. `/kitchen` es donde se mira la paleta y los
+componentes base.
 
-**Aún no llama al backend**, así que no hace falta tener la API levantada.
+Las imágenes fuente salen de [image-text-sample-generator](../image-text-sample-generator) y se
+buscan en `../image-text-sample-generator/data/datasets`. Para apuntar a otro sitio:
+
+```powershell
+$env:ITF_DATASETS_ROOT = "D:\mis\datasets"
+```
+
+### Construir un dataset de patches sin la UI
+
+El CLI hace exactamente lo mismo, y no es una comodidad: **si algo solo funcionara por HTTP,
+estaría en la capa equivocada** (docs/api.md §0).
+
+```powershell
+.\.venv\Scripts\itf-extract.exe --source "..\image-text-sample-generator\data\datasets\clean-paragraphs-01\reducido" --out data\patch-datasets\prueba --patch-size 40 --stride 20
+```
+
+Sobre esa fuente de 5 imágenes avisa de que el split de val queda vacío — que es correcto y es el
+aviso que faltaba: sin val, un dataset no sirve para medir.
 
 ### La paleta se valida, no se opina
 
@@ -70,27 +101,9 @@ de prosa que envejece. Ver [docs/tests.md](docs/tests.md) §2.
 ### El entorno
 
 - **Python 3.12** (PyTorch aún no tiene wheels para 3.14). Verificado con **3.12.10**.
-- El intérprete del proyecto es `.\.venv\Scripts\python.exe`, y **ya está montado**: trae torch
-  2.13.0+cpu, FastAPI y pytest. Con él, `pytest -q` funciona (arriba).
-
-> **Caveat: hoy el proyecto no se puede instalar, y es esperable.** `pip install -e .` **falla**
-> mientras no exista `src/`:
->
-> ```
-> error: error in 'egg_base' option: 'src' does not exist or is not a directory
-> ```
->
-> `pyproject.toml` declara `[tool.setuptools.packages.find] where = ["src"]`, y ese directorio se
-> borró con el código (D18). No es tu entorno: **se arregla solo en la fase 2**, que es la que
-> crea `src/itf/`. Hasta entonces no hay nada que importar de todos modos.
->
-> Ojo con lo que dice `pip list`: sigue mostrando `image-text-finder 0.1.0` en editable, pero es
-> un **puntero colgado** del install anterior al borrado — `python -c "import itf"` da
-> `ModuleNotFoundError`. Los tests de contrato **cuentan con ello**: es justo por lo que fallan, y
-> por lo que están en xfail.
-
-`pyproject.toml` declara también los scripts `itf-extract` / `itf-train` / `itf-api`, que
-**apuntan a módulos que aún no existen**.
+- El intérprete del proyecto es `.\.venv\Scripts\python.exe`.
+- De los tres scripts que declara `pyproject.toml`, **`itf-extract` e `itf-api` funcionan**;
+  `itf-train` apunta a un módulo que llega en la fase 4.
 
 ## Por dónde se empieza
 

@@ -9,31 +9,34 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **No hay `src/`: el backend está por escribir.** Se borró el 2026-07-16 junto con `data/`,
-> `runs/` y los `configs/*.example.yaml`, para construir desde el diseño sin nada viejo que imitar
-> por error. **Todo sigue recuperable en el tag `pre-rediseno`**:
-> `git show pre-rediseno:src/itf/patches/extract.py`.
->
-> **Fases 0, 0.5 y 1 hechas (2026-07-16). La siguiente es la [fase 2](docs/plan-ui.md)**: Fuentes
-> (A) y Patches (B) — y es la que **crea `src/itf/`**. Ojo: hasta que exista, `pip install -e .`
-> falla (`egg_base 'src' does not exist`); el venv ya montado sigue funcionando.
+> **Fases 0, 0.5, 1 y 2 hechas (2026-07-16). La siguiente es la [fase 3](docs/plan-ui.md)**:
+> Redes (C) y Recetas (D) — **el cuello del plan**: sin identidad para C y D no hay Entrenar
+> limpio ni barrido. Trae también el **catálogo entero de hiperparámetros**, con las dos trampas
+> por defecto (`momentum`, `smooth_l1_beta`) puestas a propósito.
 > **No quedan decisiones bloqueando**; lo abierto en [decisiones.md](docs/decisiones.md) §2–§3 se
 > responde al llegar a su fase.
 >
-> **`tests/` es la barra de progreso del plan**: `test_contracts.py` tiene un test por contrato,
-> los 13 en `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *13 xfailed*, en verde.
+> **Ya existen**: `itf.geometry` (G), `itf.datasets` (A), `itf.patches` (B),
+> `itf.training.registry` (la mitad lectora de E) y `itf.api` (`/sources`, `/patch-datasets`,
+> `/jobs`). Faltan `itf.models` (C), `itf.validation` (①②), `itf.inference` (F) y el bucle (D).
+> El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para **algoritmos**, no para
+> estructura: `git show pre-rediseno:src/itf/training/losses.py`.
+>
+> **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *12 passed, 10 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
-> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada.
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. La fase 3 quita
+> el ⑦ (dirección de imports).
 >
-> **`web/` arranca** (`cd web && npm run dev` → 5173): nav de 4 grupos, pantallas vacías, y
-> `/kitchen` con la paleta y los componentes base. **La paleta vive en `web/src/theme/tokens.css`
-> y solo ahí** — `npm run validate:palette` la valida parseando ese fichero. Si tocas un color,
-> córrelo: no se elige a ojo (D12).
+> **Arrancar**: `.\.venv\Scripts\python -m itf.api` (8000) y `cd web && npm run dev` (5173). El
+> front proxya `/api` al backend. **La paleta vive en `web/src/theme/tokens.css` y solo ahí** —
+> `npm run validate:palette` la valida parseando ese fichero. Si tocas un color, córrelo: no se
+> elige a ojo (D12).
 >
-> El resto de `docs/` son **especificaciones, no descripciones**: nada está ejecutado ni
-> verificado. Cuando un documento cita un fichero y una línea (`app.py:61`, `dataset.py:27-28`),
-> habla del **código anterior** — resuelve contra el tag. Son los hallazgos que motivaron el
-> diseño.
+> El resto de `docs/` son **especificaciones, no descripciones**: lo no construido no está
+> ejecutado ni verificado. Cuando un documento cita un fichero y una línea (`app.py:61`,
+> `dataset.py:27-28`), habla del **código anterior** — resuelve contra el tag. Son los hallazgos
+> que motivaron el diseño.
 
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.

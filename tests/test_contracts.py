@@ -19,64 +19,19 @@ would be a collection error, which is a broken suite, not an expected xfail.
 from __future__ import annotations
 
 import ast
-import json
 from pathlib import Path
 
 import pytest
-from PIL import Image, ImageDraw
+
+from conftest import write_tiny_source as _write_tiny_source
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 
 
 # --------------------------------------------------------------------------- #
-# Fixtures: tiny synthetic sources, built in the test (tests.md §7).
-# Never touch a real data/ or runs/.
+# The two dicts the ①/② validator compares. It never sees an object: that is
+# what lets it run in milliseconds and be called from both train() and the API.
 # --------------------------------------------------------------------------- #
-
-
-def _write_tiny_source(root: Path, *, num_samples: int = 6, width: int = 120, height: int = 100) -> Path:
-    """Write a minimal source dataset (A) in the format of SAMPLE_FORMAT.md.
-
-    Only the fields formatos.md §4.5 declares we consume: `index`, `image`,
-    `labels.{width,height,has_overlap}` and `blocks[].{block_id,kind,angle,quad}`.
-    One axis-aligned paragraph per image, placed differently in each so the
-    corner labels are not all identical.
-    """
-    (root / "images").mkdir(parents=True, exist_ok=True)
-    records = []
-    for i in range(num_samples):
-        img = Image.new("L", (width, height), color=255)
-        x0, y0 = 10 + (i % 3) * 6, 12 + (i % 2) * 8
-        x1, y1 = x0 + 62, y0 + 44
-        ImageDraw.Draw(img).rectangle([x0, y0, x1, y1], fill=0)
-        img.save(root / "images" / f"{i:06d}.png")
-        records.append(
-            {
-                "index": i,
-                "image": f"images/{i:06d}.png",
-                "labels": {
-                    "image_id": f"tiny/{i:06d}",
-                    "width": width,
-                    "height": height,
-                    "has_overlap": False,
-                    "blocks": [
-                        {
-                            "block_id": "b0",
-                            "kind": "paragraph",
-                            "text": "x",
-                            "angle": 0.0,
-                            "box": [x0, y0, x1 - x0, y1 - y0],
-                            # clockwise from TL, as CORNER_NAMES expects
-                            "quad": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
-                        }
-                    ],
-                },
-            }
-        )
-    (root / "labels.jsonl").write_text(
-        "\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8"
-    )
-    return root
 
 
 def _manifest(*, patch_size: int = 40, has_border: bool = True, channels: int = 1) -> dict:
@@ -205,24 +160,40 @@ def test_contract_03_run_records_network_and_recipe_by_name_and_by_value():
     assert prov["git_commit"], "sin git se escribe la razón, no null"
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ③: sin implementar, plan-ui.md fase 2")
-def test_contract_03_delete_of_a_patch_dataset_in_use_returns_409():
+def test_contract_03_delete_of_a_patch_dataset_in_use_returns_409(itf_api):
     """Deleting a B that runs point at must say which ones, not break them quietly.
 
-    Today's failure mode: the directory goes, `_run_source()` returns None
-    silently, and the Predict tab loses its dataset without saying why.
+    The failure mode it replaces: the directory goes, the provenance chain
+    returns None in silence, and the Predict tab loses its dataset without ever
+    saying why. Nothing raises.
     """
-    from fastapi.testclient import TestClient
+    client, layout = itf_api
+    layout.write_patch_dataset("tiny-40")
+    layout.write_run("cnn-a-01", patch_dataset="tiny-40")
+    layout.write_run("cnn-a-02", patch_dataset="tiny-40")
 
-    from itf.api.app import app
-
-    client = TestClient(app)
     response = client.delete("/patch-datasets/tiny-40")
 
     assert response.status_code == 409
     detail = response.json()["detail"]
     assert detail["code"] == "patch_dataset_in_use"
-    assert detail["used_by"], "el 409 tiene que decir QUÉ runs lo referencian"
+    assert detail["used_by"] == ["cnn-a-01", "cnn-a-02"], "el 409 tiene que decir QUÉ runs lo referencian"
+    assert detail["hint"]
+    # And it must not have deleted it on the way out.
+    assert (layout.patch_datasets / "tiny-40" / "manifest.json").exists()
+
+
+def test_contract_03_delete_of_an_unused_patch_dataset_succeeds(itf_api):
+    """The control: the 409 must come from being IN USE, not from delete failing.
+
+    Without this, a `delete` that always refused would pass the test above.
+    """
+    client, layout = itf_api
+    layout.write_patch_dataset("libre-40")
+    layout.write_run("cnn-a-01", patch_dataset="otro-dataset")
+
+    assert client.delete("/patch-datasets/libre-40").status_code == 204
+    assert not (layout.patch_datasets / "libre-40").exists()
 
 
 # --------------------------------------------------------------------------- #
@@ -339,11 +310,10 @@ def test_contract_07_models_and_validation_import_nothing_from_itf():
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ⑧: sin implementar, plan-ui.md fase 2")
 def test_contract_08_fingerprint_tracks_content_not_name(tmp_path):
-    """A B rebuilt under the same name is not the same B, and today nothing notices.
+    """A B rebuilt under the same name is not the same B, and nothing else notices.
 
-    Without a content fingerprint a half-finished sweep is incomparable *in
+    Without a content fingerprint a half-finished sweep becomes incomparable *in
     silence*: `data` is a path, and a rebuilt path still points the same way.
     """
     import json as _json
@@ -366,7 +336,6 @@ def test_contract_08_fingerprint_tracks_content_not_name(tmp_path):
     assert same.startswith("sha256:")
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ⑧: sin implementar, plan-ui.md fase 2")
 def test_contract_08_split_seed_alone_decides_the_split(tmp_path):
     """B's seed fixes the split; D's seed is the replication axis. Two things.
 

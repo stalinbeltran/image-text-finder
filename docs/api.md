@@ -19,18 +19,19 @@ convertir errores del dominio en respuestas. Toda la lógica está debajo, en `i
 poder usarse sin el API** (los CLI `itf-extract` e `itf-train` lo prueban: si algo solo funciona
 por HTTP, está en la capa equivocada).
 
-**Hoy no se cumple.** `api/app.py` (511 líneas) tiene lógica de dominio dentro:
-
-| En `app.py` | Es dominio de | Debería vivir en |
-|---|---|---|
-| `_discover_datasets()` | A | `itf.datasets` |
-| `_dataset_samples()` | A | `itf.datasets` |
-| `_split_map()` | B | `itf.patches` |
-| `_run_source()` | E→B→A (procedencia) | `itf.training` / `exp-registry` |
-| `_run_status()` | E | `exp-registry` |
-| `_MODEL_CACHE` | F | `itf.inference` |
-
 Regla mecánica: **si una función de `app.py` no menciona HTTP, no es del API.**
+
+El `app.py` anterior (511 líneas) la incumplía en seis sitios, y es la lista con la que se
+comprueba que la reconstrucción no repite el error:
+
+| Estaba en `app.py` | Es dominio de | Vive ahora en |
+|---|---|---|
+| `_discover_datasets()` | A | `itf.datasets.loader.discover_sources` ✅ |
+| `_dataset_samples()` | A | `itf.datasets.loader.SourceDataset` ✅ |
+| `_split_map()` | B | `itf.patches.store.PatchDatasetStore.split_map` ✅ |
+| `_run_source()` | E→B→A (procedencia) | `itf.training.registry.RunStore` ✅ |
+| `_run_status()` | E | `itf.training.registry` / `exp-registry` — *fase 4* |
+| `_MODEL_CACHE` | F | `itf.inference` — *fase 6* |
 
 ---
 

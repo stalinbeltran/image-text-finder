@@ -347,6 +347,380 @@ code {
   color: var(--itf-ink);
 }
 
+/* ── tables, cards, forms ──────────────────────────────────────────────────── */
+
+.screen--wide {
+  max-width: 1000px;
+}
+
+.table__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 7px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--itf-hairline);
+}
+
+.table th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--itf-ink-muted);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr.is-selected {
+  background: color-mix(in srgb, var(--itf-corner-tl) 8%, transparent);
+}
+
+.table__num {
+  text-align: right;
+}
+
+.card {
+  margin: 16px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 8px;
+  background: var(--itf-surface);
+}
+
+.card--form {
+  border-color: var(--itf-axis);
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.card__section {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--itf-ink-muted);
+}
+
+.card__hint,
+.field__hint {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--itf-ink-muted);
+  font-size: 11px;
+}
+
+.card__foot {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  align-content: start;
+}
+
+.facts--inline {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.facts--inline dt {
+  margin-bottom: 2px;
+}
+
+.facts dt {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.facts--inline dd {
+  margin-bottom: 6px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.button {
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--itf-axis);
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--itf-ink-muted);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button--quiet {
+  font-weight: 400;
+  color: var(--itf-ink-secondary);
+}
+
+.form__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 18px;
+}
+
+.form__grid--three {
+  grid-template-columns: repeat(3, minmax(80px, 160px));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.field__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  font: inherit;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--itf-axis);
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+}
+
+.field--check input {
+  width: auto;
+}
+
+.async--warning {
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-radius: 6px;
+  border: 1px solid var(--itf-status-warning);
+  background: color-mix(in srgb, var(--itf-status-warning) 10%, transparent);
+}
+
+.job-state {
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-state[data-state="error"] {
+  color: var(--itf-status-critical);
+}
+
+/* ── splits and imbalance ──────────────────────────────────────────────────── */
+
+.splits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
+
+.splits__row {
+  display: grid;
+  grid-template-columns: 44px 1fr 72px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.splits__label {
+  color: var(--itf-ink-secondary);
+}
+
+.splits__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  overflow: hidden;
+}
+
+/* The splits are ORDINAL (train/val/test is a sequence, not identities), so they
+   take one hue in monotone steps -- not four categorical slots. Those belong to
+   the corners and to nothing else. */
+.splits__fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.splits__fill[data-split="train"] { background: var(--itf-seq-5); }
+.splits__fill[data-split="val"]   { background: var(--itf-seq-3); }
+.splits__fill[data-split="test"]  { background: var(--itf-seq-1); }
+
+.splits__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--itf-ink-secondary);
+}
+
+.imbalance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px 18px;
+  max-width: 620px;
+}
+
+.imbalance__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+
+.imbalance__value {
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.imbalance__ratio {
+  color: var(--itf-ink-muted);
+  margin-left: 4px;
+}
+
+/* ── sources ───────────────────────────────────────────────────────────────── */
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.thumbs__item {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 4px;
+  background: var(--itf-surface);
+  cursor: pointer;
+  line-height: 0;
+  overflow: hidden;
+}
+
+.thumbs__item.is-selected {
+  outline: 2px solid var(--itf-corner-tl);
+  outline-offset: 1px;
+}
+
+.thumbs__item img {
+  width: 72px;
+  height: auto;
+  display: block;
+}
+
+.thumbs__label {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 1px 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--itf-surface);
+  background: var(--itf-ink);
+  border-radius: 3px 0 0 0;
+}
+
+.sample-view {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.sample-view__stage {
+  position: relative;
+  flex: 1 1 420px;
+  max-width: 640px;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sample-view__stage img {
+  width: 100%;
+  display: block;
+}
+
+.sample-view__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sample-view__quad {
+  fill: color-mix(in srgb, var(--itf-corner-tl) 12%, transparent);
+  stroke: var(--itf-corner-tl);
+  stroke-width: 1.5;
+}
+
+/* R1 again: the same TL colour here as in the meters and in every other view.
+   The colour follows the entity, everywhere. */
+[data-corner-fill="TL"] { fill: var(--itf-corner-tl); }
+[data-corner-fill="TR"] { fill: var(--itf-corner-tr); }
+[data-corner-fill="BR"] { fill: var(--itf-corner-br); }
+[data-corner-fill="BL"] { fill: var(--itf-corner-bl); }
+
 /* ── kitchen ───────────────────────────────────────────────────────────────── */
 
 .kitchen__meters {

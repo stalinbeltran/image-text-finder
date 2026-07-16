@@ -92,21 +92,24 @@ envejece sola, un xfail estricto no.
 En **`tests/test_contracts.py`**, nombrados por su número. `pytest tests/test_contracts.py -v`
 debe leerse como el **parte de estado** de organizacion.md §2.
 
-**Con el árbol vacío, la columna «Hoy» es la misma para todos: xfail.** No hay `src/`, así que
-ningún contrato puede estar implementado. Lo que cambia entre filas es **qué fase lo quita**, y
-eso es lo que la columna dice.
+La columna que lleva la información es **qué fase lo quita**: es la barra de progreso del plan.
 
-| | Contrato | El test afirma | Lo quita |
-|---|---|---|---|
-| **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **4** |
-| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **4** |
-| **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B; `DELETE` de un B en uso → **409** | **2** (el `DELETE`) y **4** (la procedencia) |
-| **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** |
-| **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **6** — `itf.geometry` nace en la 2, pero hasta que exista F no hay dos lados que comparar |
-| **⑦** | dirección de dependencias | `itf.models` no importa nada de `itf.datasets` | **3** |
-| **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; los `seed` de B y de D son independientes | **2** |
-| **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** |
-| **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **4** |
+| | Contrato | El test afirma | Lo quita | |
+|---|---|---|---|---|
+| **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **4** | xfail |
+| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **4** | xfail |
+| **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B | **4** | xfail |
+| **③** | B en uso | `DELETE` de un B que un run referencia → **409 con la lista** | **2** | ✅ |
+| **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** | xfail |
+| **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **6** — `itf.geometry` nace en la 2, pero hasta que exista F no hay dos lados que comparar | xfail |
+| **⑦** | dirección de dependencias | `itf.models` y `itf.validation` no importan nada de `itf` | **3** | xfail |
+| **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; la semilla de B sola decide el split | **2** | ✅ |
+| **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** | xfail |
+| **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **4** | xfail |
+
+> **Un xfail necesita un control, y por eso ③ son dos tests.** «Borrar un B en uso da 409» lo
+> cumpliría también un `DELETE` que fallara siempre. El control —borrar uno libre da 204— es lo
+> que hace que el 409 signifique *en uso* y no *roto*.
 
 > **① y ② comparten validador** (`itf.validation`, organizacion.md §2): sus tests son dos casos de
 > la misma función pura, no dos mecanismos. Y como es pura, **corren en milisegundos sin entrenar**

@@ -3,6 +3,15 @@ import { NAV, SCREENS } from "./nav";
 import { NotBuiltYet } from "./components/Async";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { Kitchen } from "./screens/Kitchen";
+import { Patches } from "./screens/Patches";
+import { Sources } from "./screens/Sources";
+
+/** The screens that exist. The rest fall through to NotBuiltYet, which names
+ *  the phase -- an empty screen that does not say why reads as a bug. */
+const BUILT: Record<string, () => JSX.Element> = {
+  "/sources": Sources,
+  "/patch-datasets": Patches,
+};
 
 /** The shell: four groups, no step numbers (ui.md §1). */
 export function App() {
@@ -45,18 +54,25 @@ export function App() {
         <main className="main">
           <Routes>
             <Route path="/" element={<Navigate to="/sources" replace />} />
-            {SCREENS.map((s) => (
-              <Route
-                key={s.path}
-                path={s.path}
-                element={
-                  <section className="screen">
-                    <h1 className="screen__title">{s.label}</h1>
-                    <NotBuiltYet domain={s.domain} phase={s.phase} />
-                  </section>
-                }
-              />
-            ))}
+            {SCREENS.map((s) => {
+              const Built = BUILT[s.path];
+              return (
+                <Route
+                  key={s.path}
+                  path={s.path}
+                  element={
+                    Built ? (
+                      <Built />
+                    ) : (
+                      <section className="screen">
+                        <h1 className="screen__title">{s.label}</h1>
+                        <NotBuiltYet domain={s.domain} phase={s.phase} />
+                      </section>
+                    )
+                  }
+                />
+              );
+            })}
             <Route path="/kitchen" element={<Kitchen />} />
             <Route
               path="*"
