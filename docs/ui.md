@@ -150,7 +150,11 @@ patches. Construir uno nuevo desde una fuente.
 CRUD de arquitecturas **con nombre**, sin datos y sin entrenar. Los endpoints
 (`GET/POST /models`) ya existen y están muertos: `web/src/api.ts` no los llama.
 
-- Reutiliza `ModelConfigForm.tsx` tal cual — ya está escrito y ya sabe de arquitecturas.
+- **No reutiliza `ModelConfigForm.tsx`**: ese componente es **C + D + X en un solo formulario**
+  (su propio comentario lo admite: *"the conv backbone, the head, and the training
+  hyperparameters"*), y `lockArchitecture` es el booleano que tapa la frontera C/D en vez de
+  resolverla. Es el fichero más mezclado del front. Se parte en dos formularios nuevos —uno
+  para C, uno para D— y `device` se va a Entrenar.
 - Muestra la **traza espacial**: `40 → 20 → 10 → 5` con el nº de canales por capa, y los
   parámetros totales. Es gratis (no necesita pesos) y es lo único que una red sin entrenar
   puede enseñar de sí misma.

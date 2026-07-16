@@ -21,6 +21,10 @@ de visualizaciones y reglas de forma y color. Léelo antes de tocar `web/`. Sus 
 *una pantalla, un dominio*, y *toda vista de análisis declara qué fija, qué varía y qué mide*.
 Si contradice a organizacion.md, gana organizacion.md.
 
+**[docs/plan-ui.md](docs/plan-ui.md) es el plan de ejecución** de ese rediseño, por fases
+verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
+Cada fase acaba con la app arrancando, los tests pasando y un commit.
+
 ### Los dominios (resumen; el detalle está en el doc)
 
 | | Dominio | Es | Vive en |
