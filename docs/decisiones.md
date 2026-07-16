@@ -35,7 +35,6 @@ o resultados de investigación que el barrido mismo contestará.
 | **D9** | Nombres de las librerías (`exp-registry`, `jobq`, `convspec`, `matrixview`) | Provisionales; decidir al extraer la primera | librerias.md §1 |
 | **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala | librerias.md §4 |
 | **D11** | ¿Backportear NIST a las librerías? | **No.** Funciona; su valor ya está cobrado como evidencia | librerias.md §4 |
-| **D12** | La paleta concreta (los hex) | Al construir la fase 1, **pasada por el validador** en claro y oscuro | ui.md §0 |
 | **D13** | Kernels profundos: ¿corte del canal 0, todos los canales, o nada? | Nada: de la capa 2 en adelante la información está en los feature maps | ui.md §4.1 |
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
 
@@ -61,6 +60,7 @@ coste sin necesidad.
 
 | | Decisión | Vive en | Fecha |
 |---|---|---|---|
+| **D12** | La paleta: los 4 tipos de esquina son los **4 primeros slots** de la paleta documentada (blue/green/magenta/yellow), secuencial azul, divergente azul↔rojo con gris en el 0. **Elegida por enumeración, no a ojo**: de las 70 formas de escoger 4 de los 8 hues, solo 2 pasan todos los gates en ambos modos con `--pairs all`, y esta es la mejor. Vive en `web/src/theme/tokens.css`; la valida `npm run validate:palette` | ui.md §4.0, tokens.css | 2026-07-16 |
 | **D2** | La procedencia lleva **nombre + valor** de C y D, huella de B, `sweep`, `git_commit` y **`environment`**. El nombre agrupa, el valor reproduce. `environment` cierra el hueco de `git_commit`: el commit fija el código, no el intérprete — y al llegar la GPU cambia entero. Ningún campo se rellena si falta | formatos.md §4.2.1, api.md §3 (`/runs`) | 2026-07-16 |
 | **D16** | El holdout son **500 imágenes**, **fuente propia** (`…-holdout`), **misma config** del generador, **generado lo primero**. Fuente aparte ⇒ la fuga es físicamente imposible. Misma config porque otra mediría robustez, que es otra pregunta. 500 ⇒ sd ≈0,65 %, con margen para que el suelo real sea peor que la aritmética | protocolo.md §3 | 2026-07-16 |
 | **D1** | La tabla por patch es un **caché**, no una entidad. Se puede recalcular exacta ⇒ no se guarda. Sin pantalla de Evaluaciones. Un **filtro** guardado (criterios, no filas) se añadiría solo si se quiere reentrenar sobre los errores | formatos.md §4.4, ui.md §3, api.md §3 (`/diagnostics`) | 2026-07-16 |

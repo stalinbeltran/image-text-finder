@@ -1,0 +1,364 @@
+/* Layout and chrome. The palette is in theme/tokens.css and only there --
+ * nothing in this file declares a colour literal, so `npm run validate:palette`
+ * validates every colour that ships. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.92em;
+  color: var(--itf-ink-secondary);
+}
+
+/* ── shell ─────────────────────────────────────────────────────────────────── */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--itf-surface);
+  border-bottom: 1px solid var(--itf-hairline);
+}
+
+.app__title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.app__body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── nav: four groups, NO step numbers (ui.md §1) ──────────────────────────── */
+
+.nav {
+  width: 200px;
+  flex: none;
+  padding: 20px 12px;
+  background: var(--itf-surface);
+  border-right: 1px solid var(--itf-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.nav__group--foot {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--itf-hairline);
+}
+
+.nav__group-label {
+  margin: 0 0 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--itf-ink-muted);
+}
+
+.nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav__link {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--itf-ink-secondary);
+  text-decoration: none;
+}
+
+.nav__link:hover {
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+}
+
+.nav__link.is-active {
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+  font-weight: 600;
+}
+
+/* ── main ──────────────────────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 28px 64px;
+}
+
+.screen {
+  max-width: 860px;
+}
+
+.screen__title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.screen__lede {
+  margin: 0 0 28px;
+  max-width: 65ch;
+  color: var(--itf-ink-secondary);
+  line-height: 1.55;
+}
+
+.screen__section {
+  margin: 36px 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.screen__note {
+  margin: 0 0 16px;
+  max-width: 65ch;
+  color: var(--itf-ink-secondary);
+  line-height: 1.55;
+}
+
+/* ── loading / error / empty (plan-ui.md fase 1.1) ─────────────────────────── */
+
+.async {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.async--loading,
+.async--empty {
+  color: var(--itf-ink-muted);
+}
+
+.async--error {
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--itf-status-critical);
+  background: color-mix(in srgb, var(--itf-status-critical) 8%, transparent);
+}
+
+.async__message {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* R4: the hint is the half that says how to fix it. It is not fine print. */
+.async__hint {
+  margin: 6px 0 0;
+  color: var(--itf-ink-secondary);
+}
+
+.async__code {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--itf-ink-muted);
+}
+
+.not-built {
+  padding: 20px;
+  border: 1px dashed var(--itf-axis);
+  border-radius: 6px;
+  color: var(--itf-ink-muted);
+}
+
+.not-built__domain {
+  margin: 0;
+  font-weight: 600;
+  color: var(--itf-ink-secondary);
+}
+
+.not-built__phase {
+  margin: 4px 0 0;
+}
+
+/* ── theme toggle ──────────────────────────────────────────────────────────── */
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+}
+
+.theme-toggle__select {
+  font: inherit;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--itf-axis);
+  background: var(--itf-surface);
+  color: var(--itf-ink);
+}
+
+/* ── MatrixCanvas ──────────────────────────────────────────────────────────── */
+
+.matrix-canvas {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.matrix-canvas__canvas {
+  /* So a 3x3 kernel reads as 3 crisp cells and not an interpolated smear. */
+  image-rendering: pixelated;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 3px;
+  display: block;
+}
+
+.matrix-canvas.is-selected .matrix-canvas__canvas {
+  outline: 2px solid var(--itf-ink-secondary);
+  outline-offset: 2px;
+}
+
+.matrix-canvas__canvas:focus-visible {
+  outline: 2px solid var(--itf-corner-tl);
+  outline-offset: 2px;
+}
+
+.matrix-canvas__label {
+  font-size: 12px;
+  color: var(--itf-ink-muted);
+}
+
+/* ── Meter ─────────────────────────────────────────────────────────────────── */
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 180px;
+}
+
+.meter__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.meter__swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* The swatch and the fill carry identity; the text stays in ink tokens. */
+[data-corner="TL"] { background: var(--itf-corner-tl); }
+[data-corner="TR"] { background: var(--itf-corner-tr); }
+[data-corner="BR"] { background: var(--itf-corner-br); }
+[data-corner="BL"] { background: var(--itf-corner-bl); }
+
+.meter__label {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.meter__value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+}
+
+.meter__track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+/* The threshold mark is the point of a meter: p=0.6 means nothing until you can
+   see which side of the line it fell on. */
+.meter__threshold {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--itf-ink);
+  transform: translateX(-1px);
+}
+
+/* ── NumberTable (R5: the accessible twin of every heat map) ───────────────── */
+
+.number-table__scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.number-table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+/* A caption inherits the table's width, and these tables are narrow (a 3x3 kernel
+   is ~165px), so it wraps mid-phrase. It may run wider than the table; the
+   scroll container catches it. */
+.number-table__caption {
+  text-align: left;
+  padding-bottom: 6px;
+  color: var(--itf-ink-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.number-table__cell {
+  border: 1px solid var(--itf-hairline);
+  padding: 3px 6px;
+  text-align: right;
+}
+
+.number-table__value {
+  color: var(--itf-ink);
+}
+
+/* ── kitchen ───────────────────────────────────────────────────────────────── */
+
+.kitchen__meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px 20px;
+  max-width: 560px;
+}
+
+.kitchen__row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}

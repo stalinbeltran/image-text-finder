@@ -9,20 +9,26 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **No hay `src/` ni `web/`.** Se borraron el 2026-07-16 junto con `data/`, `runs/` y los
-> `configs/*.example.yaml`, para construir desde el diseño sin nada viejo que imitar por error.
-> **Todo sigue recuperable en el tag `pre-rediseno`**:
+> **No hay `src/`: el backend está por escribir.** Se borró el 2026-07-16 junto con `data/`,
+> `runs/` y los `configs/*.example.yaml`, para construir desde el diseño sin nada viejo que imitar
+> por error. **Todo sigue recuperable en el tag `pre-rediseno`**:
 > `git show pre-rediseno:src/itf/patches/extract.py`.
 >
-> **Fases 0 y 0.5 hechas (2026-07-16). La siguiente es la [fase 1](docs/plan-ui.md)**: esqueleto
-> de front y **la paleta** (que bloquea todas las vistas y se pasa por el validador de daltonismo,
-> no se elige a ojo). **No quedan decisiones bloqueando** — D2 y D16 se cerraron; lo que sigue
-> abierto en [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase.
+> **Fases 0, 0.5 y 1 hechas (2026-07-16). La siguiente es la [fase 2](docs/plan-ui.md)**: Fuentes
+> (A) y Patches (B) — y es la que **crea `src/itf/`**. Ojo: hasta que exista, `pip install -e .`
+> falla (`egg_base 'src' does not exist`); el venv ya montado sigue funcionando.
+> **No quedan decisiones bloqueando**; lo abierto en [decisiones.md](docs/decisiones.md) §2–§3 se
+> responde al llegar a su fase.
 >
-> **Ya hay `tests/`, y es la barra de progreso del plan**: `test_contracts.py` tiene un test por
-> contrato, los 13 en `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *13 xfailed*,
-> en verde. **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si
-> los deja puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada.
+> **`tests/` es la barra de progreso del plan**: `test_contracts.py` tiene un test por contrato,
+> los 13 en `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *13 xfailed*, en verde.
+> **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada.
+>
+> **`web/` arranca** (`cd web && npm run dev` → 5173): nav de 4 grupos, pantallas vacías, y
+> `/kitchen` con la paleta y los componentes base. **La paleta vive en `web/src/theme/tokens.css`
+> y solo ahí** — `npm run validate:palette` la valida parseando ese fichero. Si tocas un color,
+> córrelo: no se elige a ojo (D12).
 >
 > El resto de `docs/` son **especificaciones, no descripciones**: nada está ejecutado ni
 > verificado. Cuando un documento cita un fichero y una línea (`app.py:61`, `dataset.py:27-28`),

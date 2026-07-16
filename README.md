@@ -9,25 +9,54 @@ Las imágenes las produce
 
 ---
 
-## Estado: el diseño está cerrado; el código, por escribir
+## Estado: fase 1 hecha — la app arranca; `src/` sigue por escribir
 
-**Este repo contiene hoy el diseño y los tests, no la implementación.** El código anterior se
-borró para reconstruirlo desde cero siguiendo `docs/`; sigue recuperable en el tag
-**`pre-rediseno`**:
+**El backend no existe todavía.** El código anterior se borró para reconstruirlo desde cero
+siguiendo `docs/`; sigue recuperable en el tag **`pre-rediseno`**:
 
 ```powershell
 git show pre-rediseno:src/itf/patches/extract.py     # un fichero
 git checkout pre-rediseno -- src/                    # todo el paquete
 ```
 
-**No hay `src/` ni web app**, así que no hay app que arrancar. Las fases de
-[docs/plan-ui.md](docs/plan-ui.md) las van creando, y esta sección se rellena —verificando cada
-comando— según lleguen.
+Hecho: las fases **0** (decisiones), **0.5** (los contratos en xfail) y **1** (esqueleto de front
+y paleta) de [docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 2** (Fuentes y
+Patches), que es la que crea `src/itf/`.
 
-### Lo que sí se puede correr
+### La web app
 
-La suite de contratos, que es la **barra de progreso del plan**: un test por contrato de
-`docs/organizacion.md` §2, todos en `xfail(strict=True)` mientras no exista su implementación.
+```powershell
+cd web
+npm install
+npm run dev              # http://localhost:5173
+```
+
+Arranca con la nav de 4 grupos y las pantallas **vacías**: cada una dice su dominio y qué fase la
+construye. La ruta `/kitchen` ("Paleta y componentes") sí tiene contenido — es donde se mira la
+paleta y los tres componentes base sobre datos sintéticos.
+
+**Aún no llama al backend**, así que no hace falta tener la API levantada.
+
+### La paleta se valida, no se opina
+
+```powershell
+cd web
+npm run validate:palette
+```
+
+Debe decir **`→ PASA en claro y en oscuro`** (exit 0). El script parsea
+`web/src/theme/tokens.css`, así que valida **lo que de verdad se sirve**, no una copia. Comprueba
+la banda de luminosidad, el suelo de croma, la separación bajo daltonismo (protanopía y
+deuteranopía, Machado-Oliveira-Fernandes 2009), el suelo de visión normal, el contraste contra la
+superficie, la monotonía de la rampa secuencial y que el 0 de la divergente sea gris neutro.
+
+Reporta dos **WARN**, y los dos son legales *solo* porque el diseño ya exige la mitigación:
+etiquetado directo (R1) y la tabla de números (R5). Ver [docs/ui.md](docs/ui.md) §4.0.
+
+### Los tests de contrato
+
+La **barra de progreso del plan**: un test por contrato de `docs/organizacion.md` §2, todos en
+`xfail(strict=True)` mientras no exista su implementación.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
@@ -90,7 +119,10 @@ src/itf/
 ├── training/    # pérdidas, bucle, checkpoints, métricas
 ├── inference/   # detección por ventana deslizante + reconstrucción de párrafos
 └── api/         # FastAPI: un recurso por dominio
-web/             # Vite + React
+web/             # Vite + React — ya existe (fase 1)
+├── src/theme/    # tokens.css: LA PALETA, y solo aquí
+├── src/components/  # MatrixCanvas, Meter, NumberTable, Async
+└── scripts/      # validate-palette.mjs
 configs/         # models/*.yaml (redes)  ·  recipes/*.yaml (recetas)
 tests/           # test_contracts.py: un test por contrato — ya existe
 docs/            # el diseño

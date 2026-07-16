@@ -87,11 +87,13 @@ Tres tecnologías, según la forma (§4.0), no según el gusto:
 - Entrar Plot deja **dos formas de dibujar gráficas** (Plot y el `LineChart.tsx` a mano). No es
   urgente, pero la dirección es migrar `LineChart` a Plot cuando se toque —y al hacerlo, V14
   pasa a small multiples por R4—, no mantener las dos.
-- **La paleta concreta (los hex) no se fija aquí**, pero sí su forma: categórica de **4 slots**
-  (R1), **una** secuencial (R3) y **una** divergente (R2). Al construirla se pasa por el
-  validador de daltonismo, en claro y en oscuro, antes de darse por buena. Lo que **sí** queda
-  decidido aquí, porque es de dominio y no de estética: la normalización de los mapas va **por
-  mapa** (§5), los kernels van **centrados en 0** (R2) y **nunca hay doble eje** (R4).
+- **La paleta ya está fijada** *(D12, fase 1, 2026-07-16)*. Vive en
+  **`web/src/theme/tokens.css`** y **solo ahí**; la valida `npm run validate:palette`, que parsea
+  ese fichero —así valida lo que de verdad se sirve, no una copia que deriva— y pasa en claro y
+  en oscuro. Su forma es la que este documento pedía: categórica de **4 slots** (R1), **una**
+  secuencial (R3) y **una** divergente (R2). Lo que **sí** quedaba decidido aquí, porque es de
+  dominio y no de estética: la normalización de los mapas va **por mapa** (§5), los kernels van
+  **centrados en 0** (R2) y **nunca hay doble eje** (R4).
 
 ---
 
@@ -263,6 +265,22 @@ reglas, todas con consecuencia concreta en este proyecto:
 de V11. El color sigue a la entidad, nunca a su rango: filtrar o reordenar **no repinta** a los
 supervivientes. Son 4 series, que es justo donde entra el suelo de daltonismo → **etiquetado
 directo obligatorio**, no cortesía. Y 4 está bajo el techo de 8: nunca se generan hues nuevos.
+
+> **Y aquí las 4 esquinas se miden con la lista dura: `--pairs all`, no adyacentes.** La
+> comprobación por defecto solo mira pares vecinos, y vale cuando lo único que se toca son
+> vecinos (una pila, unas barras). Aquí **cualquiera de las cuatro puede quedar pegada a
+> cualquier otra**: 4 meters en fila (V3), 4 overlays sobre una imagen (V11), una rejilla 4×4
+> (V9). Con la lista de adyacentes, un choque entre dos no vecinas **no se vería**.
+>
+> Esa exigencia es la que fija la paleta (D12): de las **70** formas de escoger 4 de los 8 hues
+> documentados, **solo 2 pasan todos los gates en ambos modos** con all-pairs. No es una
+> elección estética con margen; es un hueco de dos.
+>
+> Y cierra el círculo con el etiquetado directo: en oscuro el peor par (TR↔BL) queda en ΔE 6,9,
+> dentro de la banda 6–8, que es **legal solo con codificación secundaria**. R1 ya la exigía por
+> su cuenta — y R5 (la tabla de números) descarga el WARN de contraste de BR y BL en claro. Las
+> dos reglas no son cortesía: **son lo que hace legal esta paleta**. Una vista que se las salte
+> convierte los WARN en fallos reales.
 
 **R2 — Los kernels son datos con signo: paleta divergente centrada en 0.** Corrección al
 proyecto hermano, y no es cosmética: allá se normalizaba `min→max` con una rampa continua, así

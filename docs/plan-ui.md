@@ -88,18 +88,26 @@ ninguna era dueña de **crearlos**. Sin ella el plan no tiene barra de progreso 
 **Entregable**: `tests/test_contracts.py`. **Verificación**: la suite pasa en verde, con los diez
 como xfail esperados.
 
-### Fase 1 — Esqueleto y paleta *(front, desde cero)*
+### Fase 1 — Esqueleto y paleta *(front, desde cero)* — ✅ **hecha (2026-07-16)**
 
 1. Nav de 4 grupos (Datos / Modelo / Entrenar / Analizar), rutas, layout, convenciones de carga
-   y error. **Sin números de paso.**
-2. **La paleta**, que bloquea todas las vistas: 4 slots categóricos fijos para `TL, TR, BR, BL`
-   (R1), 1 secuencial (R3), 1 divergente con gris neutro en el 0 (R2). **Se pasa por el
-   validador de daltonismo, en claro y en oscuro, y se corrige hasta que pase.** No se elige a
-   ojo.
-3. Componentes base: `MatrixCanvas` (el `drawMap` portado, con normalización **por mapa**),
-   `Meter`, y la **tabla de números** (R5: es el equivalente accesible de todo heatmap).
-**Entregable**: la app arranca con la nav nueva y las pantallas vacías.
-**Verificación**: `npm run dev` carga; el validador de paleta pasa en ambos modos.
+   y error. **Sin números de paso.** → `web/src/nav.ts`, `App.tsx`, `components/Async.tsx`.
+2. **La paleta** (D12) → **`web/src/theme/tokens.css`**, y solo ahí. La valida
+   `npm run validate:palette`, que **parsea ese fichero** — valida lo que se sirve, no una copia
+   que deriva.
+3. Componentes base: `MatrixCanvas` (el `drawMap` portado, normalización **por mapa**), `Meter` y
+   `NumberTable` (R5). Se miran en `/kitchen`, con datos sintéticos.
+
+**Verificado**: `npm run dev` arranca en 5173; el validador pasa en claro y en oscuro (exit 0);
+`tsc --noEmit` y `npm run build` limpios; y la app **se abrió en Chrome headless en los dos
+modos** — React monta, la cascada resuelve los tokens del modo activo, y el toggle `data-theme`
+gana sobre el ajuste del SO.
+
+**Lo que se aprendió, y cambia una regla** *(escrito en ui.md §4.0 R1)*: las 4 esquinas hay que
+validarlas con **`--pairs all`**, no con la lista de adyacentes — cualquiera de las cuatro puede
+quedar pegada a cualquier otra (4 meters en V3, 4 overlays en V11, la rejilla de V9), así que un
+choque entre no vecinas no se vería. Con esa exigencia, **de las 70 formas de escoger 4 de los 8
+hues documentados solo 2 pasan** en ambos modos. La paleta no se eligió: se enumeró.
 
 ### Fase 2 — Datos: Fuentes (A) y Patches (B)
 
