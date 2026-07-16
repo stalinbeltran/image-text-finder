@@ -54,6 +54,11 @@ export default function PredictPanel() {
   const cancelRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // result popup
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalUrl, setModalUrl] = useState<string | null>(null);
+  const [modalTitle, setModalTitle] = useState("");
+
   // --- load runs + datasets once -----------------------------------------
   useEffect(() => {
     api.runs().then((rs) => {
@@ -90,7 +95,16 @@ export default function PredictPanel() {
   useEffect(() => {
     setResults({});
     setSelected(null);
+    setModalOpen(false);
   }, [run, checkpoint, threshold]);
+
+  // --- close popup on Escape ---------------------------------------------
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setModalOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalOpen]);
 
   const items: GridItem[] = useMemo(() => {
     if (mode === "folder") return folderItems;
@@ -138,12 +152,6 @@ export default function PredictPanel() {
     }
   };
 
-  const drawFromUrl = (url: string, res: PredictResult | null) => {
-    const img = new Image();
-    img.onload = () => draw(img, res);
-    img.src = url;
-  };
-
   // --- predict one server-side image -------------------------------------
   const predictOne = async (path: string): Promise<PredictResult | null> => {
     if (results[path]) return results[path];
@@ -162,11 +170,12 @@ export default function PredictPanel() {
 
   const openItem = async (path: string) => {
     setSelected(path);
+    setUploadRes(null);
     setError(null);
-    const cached = results[path];
-    drawFromUrl(imageUrl(path), cached ?? null);
-    const res = cached ?? (await predictOne(path));
-    if (res) drawFromUrl(imageUrl(path), res);
+    setModalTitle(path.split(/[\\/]/).pop() ?? path);
+    setModalUrl(imageUrl(path));
+    setModalOpen(true);
+    if (!results[path]) await predictOne(path);
   };
 
   const predictAll = async () => {
@@ -197,8 +206,11 @@ export default function PredictPanel() {
       form.append("threshold", String(threshold));
       form.append("file", file);
       const res = await api.predict(form);
+      setSelected(null);
       setUploadRes(res);
-      drawFromUrl(URL.createObjectURL(file), res);
+      setModalTitle(file.name);
+      setModalUrl(URL.createObjectURL(file));
+      setModalOpen(true);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -206,7 +218,17 @@ export default function PredictPanel() {
     }
   };
 
-  const selRes = selected ? results[selected] : uploadRes;
+  const selRes = selected ? results[selected] ?? null : uploadRes;
+
+  // --- (re)draw the popup canvas whenever it opens or the result arrives -
+  useEffect(() => {
+    if (!modalOpen || !modalUrl) return;
+    const img = new Image();
+    img.onload = () => draw(img, selRes);
+    img.src = modalUrl;
+  }, [modalOpen, modalUrl, selRes]);
+
+  const modalBusy = selected ? busy[selected] : uploadBusy;
 
   return (
     <div className="card">
@@ -341,23 +363,30 @@ export default function PredictPanel() {
         </>
       )}
 
-      {/* selected image detail + overlay */}
-      {(selRes || (mode === "upload" && uploadRes)) && (
-        <>
-          <div className="legend" style={{ margin: "16px 0 8px" }}>
-            {Object.entries(CORNER_COLORS).map(([k, v]) => (
-              <span key={k}><span className="dot" style={{ background: v }} /> {k}</span>
-            ))}
-            <span><span className="dot" style={{ background: "#2ec7a8" }} /> paragraph box</span>
-          </div>
-          <canvas ref={canvasRef} />
-          {selRes && (
+      {/* result popup */}
+      {modalOpen && (
+        <div className="modal-backdrop" onClick={() => setModalOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3 className="mono">{modalTitle}</h3>
+              <button className="modal-close" onClick={() => setModalOpen(false)} title="Close (Esc)">✕</button>
+            </div>
+            <div className="legend" style={{ marginBottom: 8 }}>
+              {Object.entries(CORNER_COLORS).map(([k, v]) => (
+                <span key={k}><span className="dot" style={{ background: v }} /> {k}</span>
+              ))}
+              <span><span className="dot" style={{ background: "#2ec7a8" }} /> paragraph box</span>
+            </div>
+            <canvas ref={canvasRef} />
             <p className="muted">
-              {selected && <span className="mono">{selected.split(/[\\/]/).pop()}</span>}{" · "}
-              {selRes.corners.length} corners · {selRes.paragraphs.length} reconstructed paragraph(s)
+              {modalBusy
+                ? "Predicting…"
+                : selRes
+                  ? `${selRes.corners.length} corners · ${selRes.paragraphs.length} reconstructed paragraph(s)`
+                  : "no result"}
             </p>
-          )}
-        </>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -90,9 +90,10 @@ then choose an image source:
 - **Folder** — point at any folder of images on the server's disk.
 - **Single upload** — the original one-off upload flow.
 
-Click a thumbnail to run inference and see the corner/paragraph overlay; each
-tile shows how many paragraphs were reconstructed. **Predict all** runs the
-whole visible set (loaded models are cached, so batches stay fast).
+Click a thumbnail to run inference and see the corner/paragraph overlay in a
+popup (close with ✕, click outside, or Esc); each tile shows how many
+paragraphs were reconstructed. **Predict all** runs the whole visible set
+(loaded models are cached, so batches stay fast).
 
 ### Runs panel — manage trained models
 
