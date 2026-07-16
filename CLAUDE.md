@@ -25,6 +25,14 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/tests.md](docs/tests.md) define qué se testea: los contratos de organizacion.md §2 **son**
+el plan de pruebas.** Un contrato sin test es un comentario. Un contrato aún roto lleva su test
+con `xfail(strict=True)` citando el documento — así "lo que está roto" es una lista ejecutable y
+no prosa que envejece: cuando alguien lo arregla, el XPASS estricto pone la suite en rojo y
+obliga a actualizar §3. **Cada fase de plan-ui.md debe quitar sus xfails**; si los deja puestos,
+no está terminada. Y la frontera: los tests afirman **invariantes**; los resultados de
+investigación (`f1 > 0.75`) van al protocolo, nunca a pytest.
+
 **[docs/protocolo.md](docs/protocolo.md) define cuándo un resultado es creíble.** Léelo antes de
 sacar cualquier conclusión de un entrenamiento, y antes de lanzar un barrido. Lo esencial: un run
 aislado no es un resultado, es una anécdota (van N semillas, media ± sd); toda diferencia dentro
