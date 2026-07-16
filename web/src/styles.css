@@ -233,4 +233,6 @@ canvas { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; i
   justify-content: center;
   overflow: auto;
 }
-.modal-body canvas { max-height: 100%; max-width: 100%; width: auto; height: auto; }
+/* grow the image to fill the popup (keeping aspect ratio) so detected
+   boxes are big and legible, not stuck at the source resolution */
+.modal-body canvas { width: 100%; height: 100%; object-fit: contain; }
