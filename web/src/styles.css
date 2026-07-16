@@ -197,8 +197,9 @@ canvas { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; i
   border-radius: 8px;
   padding: 16px;
   max-width: min(96vw, 1000px);
-  max-height: 92vh;
-  overflow: auto;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 .modal-head {
@@ -207,6 +208,7 @@ canvas { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; i
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
+  flex: none;
 }
 .modal-head h3 { margin: 0; font-size: 14px; }
 .modal-close {
@@ -221,4 +223,14 @@ canvas { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; i
   line-height: 1;
   flex: none;
 }
-.modal canvas { max-height: 74vh; width: auto; max-width: 100%; }
+.modal .legend, .modal > .muted { flex: none; }
+/* canvas fills the space left between header/legend and the footer line */
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+.modal-body canvas { max-height: 100%; max-width: 100%; width: auto; height: auto; }

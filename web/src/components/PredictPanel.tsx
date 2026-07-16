@@ -377,7 +377,9 @@ export default function PredictPanel() {
               ))}
               <span><span className="dot" style={{ background: "#2ec7a8" }} /> paragraph box</span>
             </div>
-            <canvas ref={canvasRef} />
+            <div className="modal-body">
+              <canvas ref={canvasRef} />
+            </div>
             <p className="muted">
               {modalBusy
                 ? "Predicting…"
