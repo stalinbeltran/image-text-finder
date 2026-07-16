@@ -98,74 +98,81 @@ export default function ModelConfigForm({
   value,
   onChange,
   readOnly = false,
+  lockArchitecture = false,
 }: {
   value: ModelForm;
   onChange: (v: ModelForm) => void;
   readOnly?: boolean;
+  /** Freeze the parts that define the network itself (input size, backbone,
+   *  head) while leaving the training hyperparameters editable — used when
+   *  retraining "the same network" on new data / with new hyperparameters. */
+  lockArchitecture?: boolean;
 }) {
   const set = (patch: Partial<ModelForm>) => onChange({ ...value, ...patch });
   const editBlock = (i: number, patch: Partial<Block>) =>
     set({ blocks: value.blocks.map((b, j) => (j === i ? { ...b, ...patch } : b)) });
-  const ro = readOnly;
+  const ro = readOnly;                       // training hyperparameters
+  const archRo = readOnly || lockArchitecture; // architecture (network identity)
+  const lockedNote = lockArchitecture && !readOnly ? " — fixed (defines the network)" : "";
 
   return (
     <>
       <div className="row">
         <div className="field">
-          <label>input_size (n)</label>
-          <input type="number" value={value.input_size} disabled={ro}
+          <label>input_size (n){lockedNote}</label>
+          <input type="number" value={value.input_size} disabled={archRo}
                  onChange={(e) => set({ input_size: Number(e.target.value) })} />
         </div>
       </div>
 
-      <h3>Backbone (conv blocks)</h3>
+      <h3>Backbone (conv blocks){lockedNote}</h3>
       {value.blocks.map((b, i) => (
         <div className="block-row" key={i}>
           <div>
             <label>filters</label>
-            <input type="number" value={b.filters} disabled={ro} onChange={(e) => editBlock(i, { filters: Number(e.target.value) })} />
+            <input type="number" value={b.filters} disabled={archRo} onChange={(e) => editBlock(i, { filters: Number(e.target.value) })} />
           </div>
           <div>
             <label>kernel</label>
-            <input type="number" value={b.kernel} disabled={ro} onChange={(e) => editBlock(i, { kernel: Number(e.target.value) })} />
+            <input type="number" value={b.kernel} disabled={archRo} onChange={(e) => editBlock(i, { kernel: Number(e.target.value) })} />
           </div>
           <div>
             <label>stride</label>
-            <input type="number" value={b.stride} disabled={ro} onChange={(e) => editBlock(i, { stride: Number(e.target.value) })} />
+            <input type="number" value={b.stride} disabled={archRo} onChange={(e) => editBlock(i, { stride: Number(e.target.value) })} />
           </div>
           <div>
             <label>pool</label>
-            <input type="number" value={b.pool} disabled={ro} onChange={(e) => editBlock(i, { pool: Number(e.target.value) })} />
+            <input type="number" value={b.pool} disabled={archRo} onChange={(e) => editBlock(i, { pool: Number(e.target.value) })} />
           </div>
           <div>
             <label>dropout</label>
-            <input type="number" step="0.05" value={b.dropout} disabled={ro} onChange={(e) => editBlock(i, { dropout: Number(e.target.value) })} />
+            <input type="number" step="0.05" value={b.dropout} disabled={archRo} onChange={(e) => editBlock(i, { dropout: Number(e.target.value) })} />
           </div>
           <div>
             <label>act</label>
-            <select value={b.activation} disabled={ro} onChange={(e) => editBlock(i, { activation: e.target.value })}>
+            <select value={b.activation} disabled={archRo} onChange={(e) => editBlock(i, { activation: e.target.value })}>
               {["relu", "leaky_relu", "gelu", "elu", "tanh"].map((a) => (
                 <option key={a}>{a}</option>
               ))}
             </select>
           </div>
-          <button className="btn ghost" disabled={ro}
+          <button className="btn ghost" disabled={archRo}
                   onClick={() => set({ blocks: value.blocks.filter((_, j) => j !== i) })}>✕</button>
         </div>
       ))}
-      {!ro && (
+      {!archRo && (
         <button className="btn ghost" onClick={() => set({ blocks: [...value.blocks, defaultBlock()] })}>+ block</button>
       )}
 
-      <h3>Head</h3>
+      <h3>Head{lockedNote}</h3>
       <div className="row">
         <div className="field">
           <label>hidden (comma-sep)</label>
-          <input value={value.headHidden} disabled={ro} onChange={(e) => set({ headHidden: e.target.value })} />
+          <input value={value.headHidden} disabled={archRo} onChange={(e) => set({ headHidden: e.target.value })} />
         </div>
         <div className="field">
           <label>dropout</label>
-          <input type="number" step="0.05" value={value.headDropout} disabled={ro} onChange={(e) => set({ headDropout: Number(e.target.value) })} />
+          <input type="number" step="0.05" value={value.headDropout} disabled={archRo} onChange={(e) => set({ headDropout: Number(e.target.value) })} />
         </div>
       </div>
 

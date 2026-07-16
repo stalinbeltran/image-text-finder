@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, RunDetail, RunSummary } from "../api";
+import { api, PatchDataset, RunDetail, RunSummary } from "../api";
 import LineChart from "./LineChart";
 import ModelConfigForm, {
   configToModelForm,
@@ -8,6 +8,12 @@ import ModelConfigForm, {
   ModelForm,
 } from "./ModelConfigForm";
 
+/** patch size (n) a built patch dataset produces, or null if unknown. */
+function patchSizeOf(p: PatchDataset | undefined): number | null {
+  if (!p?.manifest) return null;
+  return p.manifest.patch_shape?.[0] ?? (p.manifest.config as any)?.patch_size ?? null;
+}
+
 export default function RunsPanel() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -15,11 +21,12 @@ export default function RunsPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // edit / retrain form (shows every parameter that defines the network)
+  // edit / retrain form (fixed architecture; editable dataset + hyperparameters)
   const [retrainFor, setRetrainFor] = useState<string | null>(null);
   const [retrainName, setRetrainName] = useState("");
   const [retrainForm, setRetrainForm] = useState<ModelForm | null>(null);
-  const [retrainData, setRetrainData] = useState<string>("");
+  const [retrainDataset, setRetrainDataset] = useState<string>("");
+  const [patchSets, setPatchSets] = useState<PatchDataset[]>([]);
   const [loadingCfg, setLoadingCfg] = useState(false);
 
   const refresh = () => api.runs().then(setRuns).catch(() => {});
@@ -71,13 +78,16 @@ export default function RunsPanel() {
     setRetrainFor(name);
     setRetrainName(`${name}-v2`);
     setRetrainForm(null);
-    setRetrainData("");
+    setRetrainDataset("");
     setMsg(null); setError(null);
     setLoadingCfg(true);
     try {
-      const d = await api.run(name);
+      const [d, ps] = await Promise.all([api.run(name), api.patchDatasets()]);
       setRetrainForm(configToModelForm(d.config));
-      setRetrainData(String((d.config as any)?.data ?? ""));
+      setPatchSets(ps);
+      // preselect the original patch dataset (basename of config.data)
+      const orig = String((d.config as any)?.data ?? "").split(/[\\/]/).filter(Boolean).pop() ?? "";
+      setRetrainDataset(orig);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -85,14 +95,20 @@ export default function RunsPanel() {
     }
   };
 
+  const selectedPatch = patchSets.find((p) => p.name === retrainDataset);
+  const selectedPatchSize = patchSizeOf(selectedPatch);
+  const inputSize = retrainForm?.input_size ?? null;
+  const datasetCompatible =
+    selectedPatchSize == null || inputSize == null || selectedPatchSize === inputSize;
+
   const submitRetrain = async () => {
-    if (!retrainFor || !retrainName || !retrainForm || !retrainData) return;
+    if (!retrainFor || !retrainName || !retrainForm || !retrainDataset || !datasetCompatible) return;
     setError(null); setMsg(null);
     try {
       await api.startRun({
-        data: retrainData,
+        data: retrainDataset,
         name: retrainName,
-        model: modelFormToModel(retrainForm),
+        model: modelFormToModel(retrainForm), // architecture unchanged -> same network
         ...modelFormHyper(retrainForm),
       });
       setMsg(`Retraining started as ${retrainName} — see it below for live metrics.`);
@@ -154,11 +170,11 @@ export default function RunsPanel() {
 
       {retrainFor && (
         <div className="card">
-          <h2>Edit &amp; retrain <span className="mono">{retrainFor}</span></h2>
+          <h2>Retrain <span className="mono">{retrainFor}</span></h2>
           <p className="muted">
-            Every parameter that defines <span className="mono">{retrainFor}</span> (its architecture,
-            head and training hyperparameters), loaded from its frozen config. Tweak any of them and
-            train a new run — the original is left untouched.
+            Retrains the <em>same network</em> as <span className="mono">{retrainFor}</span>: its
+            architecture (input size, backbone, head) stays fixed, while you can change the patch
+            dataset and any training hyperparameter. The original run is left untouched.
           </p>
           {loadingCfg && <p className="muted">loading config…</p>}
           {retrainForm && (
@@ -169,14 +185,39 @@ export default function RunsPanel() {
                   <input value={retrainName} onChange={(e) => setRetrainName(e.target.value)} />
                 </div>
                 <div className="field">
-                  <label>Patch dataset (from original run)</label>
-                  <input className="mono" value={retrainData} readOnly />
+                  <label>Patch dataset</label>
+                  <select value={retrainDataset} onChange={(e) => setRetrainDataset(e.target.value)}>
+                    {patchSets.length === 0 && <option value="">no patch datasets</option>}
+                    {retrainDataset && !patchSets.some((p) => p.name === retrainDataset) && (
+                      <option value={retrainDataset}>{retrainDataset} (original — not found)</option>
+                    )}
+                    {patchSets.map((p) => {
+                      const n = patchSizeOf(p);
+                      const ok = n == null || inputSize == null || n === inputSize;
+                      return (
+                        <option key={p.name} value={p.name}>
+                          {p.name}{n != null ? ` (n=${n})` : ""}{ok ? "" : " ✗ incompatible"}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
               </div>
 
-              <ModelConfigForm value={retrainForm} onChange={setRetrainForm} />
+              {!datasetCompatible && (
+                <p className="err">
+                  Patch size mismatch: this network needs n={inputSize} patches, but{" "}
+                  <span className="mono">{retrainDataset}</span> produces n={selectedPatchSize}.
+                  Pick a compatible dataset (or rebuild one with patch_size={inputSize}).
+                </p>
+              )}
 
-              <button className="btn" onClick={submitRetrain} disabled={!retrainName || !retrainData}>Start retrain</button>{" "}
+              <ModelConfigForm value={retrainForm} onChange={setRetrainForm} lockArchitecture />
+
+              <button className="btn" onClick={submitRetrain}
+                      disabled={!retrainName || !retrainDataset || !datasetCompatible}>
+                Start retrain
+              </button>{" "}
               <button className="btn ghost" onClick={() => setRetrainFor(null)}>Cancel</button>
             </>
           )}

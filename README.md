@@ -98,15 +98,19 @@ paragraphs were reconstructed. **Predict all** runs the whole visible set
 ### Runs panel — manage trained models
 
 The **Runs** tab lists trained models with per-row actions: **rename** (✎),
-**delete** (🗑), and **view / edit & retrain** (↻). The retrain view loads
-**every parameter that defines the network** from its frozen config (input
-size, the full conv backbone, the head, and all training hyperparameters) —
-the same form used before training — so you can inspect it and tweak anything
-before launching a new run; the original is left untouched. Active runs are
-protected — rename/delete are disabled while a run is still training.
+**delete** (🗑), and **retrain** (↻). The retrain view loads a run's frozen
+config and lets you train the **same network** again: the parameters that
+define the network — input size, the full conv backbone, and the head — are
+shown but **fixed**, while everything you *can* change is editable: the **patch
+dataset** and every **training hyperparameter** (epochs, batch size, lr,
+optimizer, λ, device). Datasets whose patch size doesn't match the network's
+input size are flagged incompatible and block the run. The original run is left
+untouched. Active runs are protected — rename/delete are disabled while a run
+is still training.
 
-That form lives in a single reusable component (`web/src/components/
-ModelConfigForm.tsx`), shared by the Train panel and this retrain view.
+The parameter form lives in a single reusable component (`web/src/components/
+ModelConfigForm.tsx`), shared by the Train panel (fully editable) and this
+retrain view (`lockArchitecture`).
 
 New backend endpoints backing these: `GET /datasets/{id}/samples`,
 `GET /image`, `GET /folder`, `GET /runs/{name}/source`, `POST /predict-path`,
