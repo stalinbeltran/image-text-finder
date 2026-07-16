@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { api, RunDetail, RunSummary } from "../api";
 import LineChart from "./LineChart";
+import ModelConfigForm, {
+  configToModelForm,
+  modelFormHyper,
+  modelFormToModel,
+  ModelForm,
+} from "./ModelConfigForm";
 
 export default function RunsPanel() {
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -9,10 +15,12 @@ export default function RunsPanel() {
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // retrain form
+  // edit / retrain form (shows every parameter that defines the network)
   const [retrainFor, setRetrainFor] = useState<string | null>(null);
   const [retrainName, setRetrainName] = useState("");
-  const [retrainEpochs, setRetrainEpochs] = useState<number | "">("");
+  const [retrainForm, setRetrainForm] = useState<ModelForm | null>(null);
+  const [retrainData, setRetrainData] = useState<string>("");
+  const [loadingCfg, setLoadingCfg] = useState(false);
 
   const refresh = () => api.runs().then(setRuns).catch(() => {});
   useEffect(() => {
@@ -59,20 +67,33 @@ export default function RunsPanel() {
     } catch (e) { setError(String(e)); }
   };
 
-  const openRetrain = (name: string) => {
+  const openRetrain = async (name: string) => {
     setRetrainFor(name);
     setRetrainName(`${name}-v2`);
-    setRetrainEpochs("");
+    setRetrainForm(null);
+    setRetrainData("");
     setMsg(null); setError(null);
+    setLoadingCfg(true);
+    try {
+      const d = await api.run(name);
+      setRetrainForm(configToModelForm(d.config));
+      setRetrainData(String((d.config as any)?.data ?? ""));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoadingCfg(false);
+    }
   };
 
   const submitRetrain = async () => {
-    if (!retrainFor || !retrainName) return;
+    if (!retrainFor || !retrainName || !retrainForm || !retrainData) return;
     setError(null); setMsg(null);
     try {
-      await api.retrainRun(retrainFor, {
+      await api.startRun({
+        data: retrainData,
         name: retrainName,
-        ...(retrainEpochs !== "" ? { epochs: Number(retrainEpochs) } : {}),
+        model: modelFormToModel(retrainForm),
+        ...modelFormHyper(retrainForm),
       });
       setMsg(`Retraining started as ${retrainName} — see it below for live metrics.`);
       setRetrainFor(null);
@@ -116,7 +137,7 @@ export default function RunsPanel() {
                 <td>{r.last?.val?.loss?.toFixed(4) ?? "—"}</td>
                 <td>{r.last?.val?.f1?.toFixed(3) ?? "—"}</td>
                 <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: "nowrap" }}>
-                  <button className="btn ghost" onClick={() => openRetrain(r.name)} title="Retrain from this config">↻</button>{" "}
+                  <button className="btn ghost" onClick={() => openRetrain(r.name)} title="View / edit parameters & retrain">↻</button>{" "}
                   <button className="btn ghost" onClick={() => rename(r.name)} title="Rename"
                           disabled={r.status !== "done"}>✎</button>{" "}
                   <button className="btn ghost" onClick={() => remove(r.name)} title="Delete"
@@ -133,22 +154,32 @@ export default function RunsPanel() {
 
       {retrainFor && (
         <div className="card">
-          <h2>Retrain <span className="mono">{retrainFor}</span></h2>
-          <p className="muted">Reuses the model architecture, dataset and hyperparameters of
-            <span className="mono"> {retrainFor}</span>. Override epochs if you want.</p>
-          <div className="row">
-            <div className="field">
-              <label>New run name</label>
-              <input value={retrainName} onChange={(e) => setRetrainName(e.target.value)} />
-            </div>
-            <div className="field">
-              <label>epochs (blank = same)</label>
-              <input type="number" value={retrainEpochs}
-                     onChange={(e) => setRetrainEpochs(e.target.value === "" ? "" : Number(e.target.value))} />
-            </div>
-          </div>
-          <button className="btn" onClick={submitRetrain} disabled={!retrainName}>Start retrain</button>{" "}
-          <button className="btn ghost" onClick={() => setRetrainFor(null)}>Cancel</button>
+          <h2>Edit &amp; retrain <span className="mono">{retrainFor}</span></h2>
+          <p className="muted">
+            Every parameter that defines <span className="mono">{retrainFor}</span> (its architecture,
+            head and training hyperparameters), loaded from its frozen config. Tweak any of them and
+            train a new run — the original is left untouched.
+          </p>
+          {loadingCfg && <p className="muted">loading config…</p>}
+          {retrainForm && (
+            <>
+              <div className="row">
+                <div className="field">
+                  <label>New run name</label>
+                  <input value={retrainName} onChange={(e) => setRetrainName(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label>Patch dataset (from original run)</label>
+                  <input className="mono" value={retrainData} readOnly />
+                </div>
+              </div>
+
+              <ModelConfigForm value={retrainForm} onChange={setRetrainForm} />
+
+              <button className="btn" onClick={submitRetrain} disabled={!retrainName || !retrainData}>Start retrain</button>{" "}
+              <button className="btn ghost" onClick={() => setRetrainFor(null)}>Cancel</button>
+            </>
+          )}
         </div>
       )}
 
