@@ -196,7 +196,9 @@ canvas { max-width: 100%; border: 1px solid var(--border); border-radius: 6px; i
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
-  max-width: min(96vw, 1000px);
+  /* explicit width (not just max-width): otherwise the flex column collapses
+     to the header/legend text width and the canvas can't grow horizontally */
+  width: min(94vw, 1200px);
   height: 80vh;
   display: flex;
   flex-direction: column;
