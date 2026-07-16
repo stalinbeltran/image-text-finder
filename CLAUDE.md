@@ -9,17 +9,25 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **El árbol está vacío: no hay código.** `src/`, `web/`, `tests/`, `data/`, `runs/` y los
-> `configs/*.example.yaml` se borraron el 2026-07-16 para construir desde el diseño sin nada
-> viejo que imitar por error. **Todo sigue recuperable en el tag `pre-rediseno`**:
+> **No hay `src/` ni `web/`.** Se borraron el 2026-07-16 junto con `data/`, `runs/` y los
+> `configs/*.example.yaml`, para construir desde el diseño sin nada viejo que imitar por error.
+> **Todo sigue recuperable en el tag `pre-rediseno`**:
 > `git show pre-rediseno:src/itf/patches/extract.py`.
 >
-> **Fase de [plan-ui.md](docs/plan-ui.md): 0** — falta cerrar **D2** (la forma de la procedencia)
-> y **D16** (el holdout), que bloquean la fase 1 y el paso 0 del protocolo.
+> **Fases 0 y 0.5 hechas (2026-07-16). La siguiente es la [fase 1](docs/plan-ui.md)**: esqueleto
+> de front y **la paleta** (que bloquea todas las vistas y se pasa por el validador de daltonismo,
+> no se elige a ojo). **No quedan decisiones bloqueando** — D2 y D16 se cerraron; lo que sigue
+> abierto en [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase.
 >
-> `docs/` son **especificaciones, no descripciones**: nada está ejecutado ni verificado. Cuando
-> un documento cita un fichero y una línea (`app.py:61`, `dataset.py:27-28`), habla del **código
-> anterior** — resuelve contra el tag. Son los hallazgos que motivaron el diseño.
+> **Ya hay `tests/`, y es la barra de progreso del plan**: `test_contracts.py` tiene un test por
+> contrato, los 13 en `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *13 xfailed*,
+> en verde. **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si
+> los deja puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada.
+>
+> El resto de `docs/` son **especificaciones, no descripciones**: nada está ejecutado ni
+> verificado. Cuando un documento cita un fichero y una línea (`app.py:61`, `dataset.py:27-28`),
+> habla del **código anterior** — resuelve contra el tag. Son los hallazgos que motivaron el
+> diseño.
 
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.
