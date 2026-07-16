@@ -92,29 +92,33 @@ envejece sola, un xfail estricto no.
 En **`tests/test_contracts.py`**, nombrados por su número. `pytest tests/test_contracts.py -v`
 debe leerse como el **parte de estado** de organizacion.md §2.
 
-| | Contrato | El test afirma | Hoy |
+**Con el árbol vacío, la columna «Hoy» es la misma para todos: xfail.** No hay `src/`, así que
+ningún contrato puede estar implementado. Lo que cambia entre filas es **qué fase lo quita**, y
+eso es lo que la columna dice.
+
+| | Contrato | El test afirma | Lo quita |
 |---|---|---|---|
-| **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **xfail** — no hay validación |
-| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **parcial** — los dos tests existen, pero el caso que falla no está (formatos.md §2) |
+| **①** | `patch_size == input_size` | `POST /runs` con desajuste → **400** (no una excepción dentro del hilo del job) | **4** |
+| **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **4** |
+| **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B; `DELETE` de un B en uso → **409** | **2** (el `DELETE`) y **4** (la procedencia) |
+| **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** |
+| **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **6** — `itf.geometry` nace en la 2, pero hasta que exista F no hay dos lados que comparar |
+| **⑦** | dirección de dependencias | `itf.models` no importa nada de `itf.datasets` | **3** |
+| **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; los `seed` de B y de D son independientes | **2** |
+| **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** |
+| **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **4** |
 
 > **① y ② comparten validador** (`itf.validation`, organizacion.md §2): sus tests son dos casos de
 > la misma función pura, no dos mecanismos. Y como es pura, **corren en milisegundos sin entrenar**
 > — que es exactamente la señal de que la validación está en la capa correcta.
-| **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B; `DELETE` de un B en uso → **409** | **xfail** |
-| **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | ✅ probablemente — **falta escribirlo** |
-| **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **falta — y es el único que puede romperse en silencio** |
-| **⑦** | dirección de dependencias | `itf.models` no importa nada de `itf.datasets` | **xfail** — hoy importa `NUM_BORDERS` |
-| **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; los `seed` de B y de D son independientes | **xfail** — no hay huella |
-| **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **xfail** — no existe H |
-| **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **xfail** |
 
 El ⑥ (el cruce A×B×F de la pestaña Predecir) se deja fuera a propósito: es una vista, no una
 frontera estructural, y ya lo cubre el end-to-end del API.
 
-**El ⑤ es el que hay que escribir primero.** Es el único de la lista que está *roto y en verde*:
-no hay nada que avise, la duplicación es real y el fallo sería silencioso. Además es barato —
-extraer un dataset diminuto, correr `detect_corners` sobre la misma imagen y comparar los flags
-por `(x0, y0)`.
+**El ⑤ sigue siendo el más importante de la lista, y ahora por otra razón.** Antes era *el único
+roto y en verde*. Hoy no hay código que romper — pero **duplicar esas seis líneas es lo que sale
+natural** cuando escribes la inferencia en la fase 6 y no te apetece importar del extractor. El
+test es lo que impide que la duplicación **vuelva**, y su xfail es lo que hace que no se olvide.
 
 ### La velocidad delata dónde está la validación
 
@@ -147,26 +151,37 @@ barato. La capa objetivo:
 contra la config de C. Eso es lo que le permite correr en milisegundos y ser llamado tanto por
 `train()` como por el API (api.md §3).
 
-Dos violaciones vivas: `models/builder.py` importa `NUM_BORDERS` de `datasets.loader` (⑦), e
-`inference/predict.py` importa la **privada** `_positions` de `patches.extract` (⑤). Ambas se
-vuelven verdes cuando exista `itf.geometry`, que es donde G debía estar desde el principio.
+**Las dos violaciones que había ya no existen** —se borraron con el código— pero la tabla no está
+para celebrarlo: está para que **no vuelvan**. Las dos nacieron de la misma comodidad, y las dos
+volverían igual:
+
+| Lo que pasó (en el tag) | Por qué sale solo |
+|---|---|
+| `models/builder.py` importaba `NUM_BORDERS` de `datasets.loader` (⑦) | La constante estaba ahí y el import funciona. **Nadie decide** que la red dependa del cargador de la fuente: se teclea |
+| `inference/predict.py` importaba la **privada** `_positions` de `patches.extract` (⑤) | Reusar es la reacción correcta; el fallo fue que **el sitio correcto no existía** |
+
+`itf.geometry` e `itf.validation` son ese sitio. Nacen ahora, no cuando duelan.
 
 ---
 
-## 5. Reproducibilidad y retrocompatibilidad
+## 5. Reproducibilidad
 
-**Reproducibilidad** (regla 1 de [protocolo.md](protocolo.md) §7): *misma semilla + misma config
-⇒ mismos pesos*. El proyecto hermano tiene ese test; ITF **no**. Debería pasar hoy
-(`manual_seed` + `num_workers=0` cubren el shuffle), pero **nadie lo ha comprobado**, y sin él
-todo el protocolo se apoya en una suposición.
+**Regla 1 de [protocolo.md](protocolo.md) §7**: *misma semilla + misma config ⇒ mismos pesos*. El
+proyecto hermano tiene ese test; ITF nunca lo tuvo. **Sin él, el protocolo entero se apoya en una
+suposición** — y las cinco reglas de comparación empiezan por dar por hecho que un run repetido
+se repite.
 
-**Retrocompatibilidad de formatos** — no es hipotética, ya ha pasado y va a volver a pasar:
+Debería pasar en cuanto exista el bucle (`manual_seed` + `num_workers=0` cubren el shuffle), pero
+*debería pasar* no es *pasa*. Va con la fase 4, junto al resto de E.
 
-- `.npz` sin `border` → ceros. **Ya está testeado** (`test_patch_dataset_border_backfill`), y es
-  el modelo a seguir.
-- `config.json` sin procedencia (`network`/`recipe`/huella) → debe leer degradando, **no
-  reventar**. Los runs de `runs/` son reales y la fase 4 les añade campos. Es la trampa más
-  probable del plan y merece su test **antes** de la fase 4.
+**Retrocompatibilidad: no hay ninguna que testear, y es una simplificación de D18.** Este
+documento pedía un test para leer `config.json` sin procedencia degradando; **D3 lo mató**: no
+queda ningún run viejo, así que todo run nace completo y un `config.json` sin procedencia es un
+error, no un caso legado (formatos.md §4.2). Lo mismo con el `.npz` sin `border`: el caso que se
+testea **no es el relleno, es la negativa** (§3, contrato ②).
+
+> Que este documento haya perdido su sección de retrocompatibilidad es el efecto que D18 buscaba:
+> **con la casa vacía, el código de migración no se escribe.**
 
 ---
 
@@ -189,8 +204,8 @@ Tan importante como lo de arriba:
 
 ## 7. Convenciones
 
-- **Datasets sintéticos diminutos**, construidos en el test. Es lo que ya hace `test_extract.py`
-  y por lo que la suite tarda 11 s. Nunca se toca `data/` ni `runs/` reales.
+- **Datasets sintéticos diminutos**, construidos en el test. Es lo que hacía `test_extract.py`
+  (en el tag) y por lo que la suite tardaba 11 s. Nunca se toca `data/` ni `runs/` reales.
 - Un test de contrato **se llama como su contrato** (`test_contract_05_...`): cuando falla, el
   nombre dice qué frontera se rompió, sin leer el código.
 - El `reason` de un `xfail` **cita el documento y la sección**. Un xfail sin razón es un test
@@ -201,14 +216,22 @@ Tan importante como lo de arriba:
 
 ## 8. Por dónde empezar
 
-1. **⑤ — la geometría.** El único roto y en verde. Barato, y hoy nada avisa.
-2. **Reproducibilidad.** Sostiene el protocolo entero y probablemente ya pasa; hay que probarlo.
-3. **Renombrar y mover** los dos tests de ② a `test_contracts.py`. Coste cero, y arranca el
-   fichero.
-4. **Los xfails** del resto (①, ③, ⑦, ⑧, ⑨, ⑩). Escribirlos **ahora**, rotos: convierten §3 en
-   una lista viva y le dan al plan su barra de progreso.
-5. **④** — escribirlo; debería pasar.
+Con el árbol vacío ya no hay un orden que elegir: **se escriben los nueve de una vez, todos en
+xfail, y son la fase 0.5 de [plan-ui.md](plan-ui.md)**. Ninguno puede pasar todavía —no hay
+`src/`— y eso es exactamente lo que los hace útiles: definen el destino antes de la primera línea
+de código.
 
-Del 4 en adelante, cada fase de plan-ui.md tiene un deber añadido: **quitar sus xfails**. Una
-fase que implementa un contrato y deja el xfail puesto no está terminada — y la suite lo dirá,
-porque el XPASS estricto la pone en rojo.
+Lo único que se recupera del tag es el **material**, no los tests:
+
+```powershell
+git show pre-rediseno:tests/test_extract.py    # cómo se construía el dataset sintético diminuto
+```
+
+Los dos tests de ② (`test_patch_dataset_border_backfill`,
+`test_border_features_change_head_and_forward`) **estaban bien escritos y eran el contrato ② sin
+saberlo** (§1.1). Se reescriben con el caso que les faltaba —que el sistema **se niegue** cuando
+la red pide `border` y el dataset no lo tiene— y con su número por nombre.
+
+Y a partir de aquí, cada fase de plan-ui.md tiene un deber añadido: **quitar sus xfails** (§3
+dice cuáles). Una fase que implementa un contrato y deja el xfail puesto **no está terminada**, y
+la suite lo dirá sola: el XPASS estricto la pone en rojo.

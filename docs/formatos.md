@@ -129,7 +129,10 @@ Cada artefacto lleva **`format_version`** (entero). Reglas:
 sitio solo cuando hay que **rechazar o migrar**, que es cuando el sniffing no basta. Lo que no es
 opcional es la §2: distinguir ausente de relleno.
 
-Los `.npz` que ya existen no tienen `format_version` ⇒ **ausente significa versión 1**.
+**`format_version` nace en 1, y no hay v0.** Con los datos borrados (D18) no queda ningún `.npz`
+anterior a los campos de §4.1: todo dataset nuevo trae `fingerprint`, `has_border` y `border`
+desde el primer día. La versión empezará a hacer trabajo el día que haya que **rechazar o
+migrar** algo — hoy no lo hay, y por eso está en 1 y quieta.
 
 ---
 
@@ -159,9 +162,9 @@ pierden, los datos siguen cargando y significan otra cosa.
 **`manifest.json`** — la descripción. `patches.npz` es la carga; **el manifest es el contrato**:
 
 ```jsonc
-{ "format_version": 2,                  // ← falta hoy
-  "fingerprint": "sha256:…",            // ← falta hoy, contrato ⑧
-  "has_border": true,                   // ← falta hoy: lo que el validador de ② consulta (§2)
+{ "format_version": 1,                  // nace en 1: con los datos borrados, no hay v0 del que venir
+  "fingerprint": "sha256:…",            // contrato ⑧
+  "has_border": true,                   // lo que el validador de ② consulta (§2)
   "source_id": "clear-paragraphs-02-8ea1ac04",
   "config": { … },                      // el PatchExtractConfig entero: n, stride, split, seed…
   "num_samples": 200, "num_patches": 9800,
