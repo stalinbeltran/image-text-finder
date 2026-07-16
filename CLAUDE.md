@@ -11,11 +11,15 @@ Ver [README.md](README.md) para montar y correr.
 
 **[docs/organizacion.md](docs/organizacion.md) es la fuente de verdad sobre cómo está
 organizado este sistema. Léelo antes de cualquier cambio y respeta sus fronteras.** No es
-documentación descriptiva: es la estructura que el proyecto sostiene a propósito, y existe
-porque luego se traslada a la UI.
+documentación descriptiva: es la estructura que el proyecto sostiene a propósito.
 
 Aplica a todo cambio, por pequeño que parezca — un campo nuevo en un formulario o una clave
 nueva en un config son exactamente donde estas fronteras se rompen.
+
+**[docs/ui.md](docs/ui.md) proyecta esa organización sobre la interfaz** — pantallas, catálogo
+de visualizaciones y reglas de forma y color. Léelo antes de tocar `web/`. Sus dos reglas:
+*una pantalla, un dominio*, y *toda vista de análisis declara qué fija, qué varía y qué mide*.
+Si contradice a organizacion.md, gana organizacion.md.
 
 ### Los dominios (resumen; el detalle está en el doc)
 
