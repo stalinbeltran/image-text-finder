@@ -25,6 +25,13 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/librerias.md](docs/librerias.md) define qué se extrae como librería reutilizable**
+(`exp-registry`, `jobq`, `convspec`, `matrixview`), qué **no**, y con qué obligaciones. Dos
+reglas: *se extrae en la segunda vez, no en la primera* — nada que exista en un solo proyecto se
+extrae, por general que parezca — y *la librería posee el mecanismo, el proyecto posee el
+significado*. **Toda librería nace con su propio CLAUDE.md**; sin él no está terminada. Cada
+extracción va enganchada a su fase de plan-ui.md, nunca como refactor aparte.
+
 ### Los dominios (resumen; el detalle está en el doc)
 
 | | Dominio | Es | Vive en |
