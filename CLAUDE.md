@@ -25,6 +25,12 @@ Si contradice a organizacion.md, gana organizacion.md.
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
 
+**[docs/glosario.md](docs/glosario.md) fija las palabras que significan dos cosas.** Cada entrada
+ya ha causado un error. Las que más: **`sample` es una imagen, no un ejemplo de entrenamiento**
+(el ejemplo es el patch — de ahí el malentendido de "980 patches de val" que en realidad son 20
+imágenes); **`model`** es red (C) o run (E), nunca a secas; **`stride`** y **`seed`** significan
+dos cosas cada uno y en prosa y en la UI van **siempre cualificados**.
+
 **[docs/formatos.md](docs/formatos.md) define los artefactos en disco y cómo evolucionan.**
 Léelo antes de añadir o cambiar un campo del `.npz`, del manifest o del `config.json` de un run.
 La regla que más se incumple: **ausente ≠ cero** — rellenar un campo que falta solo es legal si el
