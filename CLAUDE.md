@@ -7,6 +7,22 @@ Ver [README.md](README.md) para montar y correr.
 
 ---
 
+## Estado actual — léelo primero
+
+> **Diseño completo; rediseño sin empezar.** El código de `src/` y `web/` es el **anterior** al
+> diseño de `docs/`: cumple pocas de sus reglas. No lo leas como ejemplo de lo que hay que hacer.
+>
+> **Fase de [plan-ui.md](docs/plan-ui.md): 0** — las decisiones de
+> [decisiones.md](docs/decisiones.md) §1 siguen abiertas y bloquean la fase 1.
+>
+> Nada de `docs/` está ejecutado ni verificado: son especificaciones, no descripciones. Lo único
+> que corre hoy es lo que dice el README, con las trampas de "estado conocido" al final.
+
+**Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
+dónde está.
+
+---
+
 ## Regla permanente: la organización por dominios manda
 
 **[docs/organizacion.md](docs/organizacion.md) es la fuente de verdad sobre cómo está
@@ -24,6 +40,10 @@ Si contradice a organizacion.md, gana organizacion.md.
 **[docs/plan-ui.md](docs/plan-ui.md) es el plan de ejecución** de ese rediseño, por fases
 verticales (backend + front por dominio). Consúltalo para saber en qué fase estamos y qué toca.
 Cada fase acaba con la app arrancando, los tests pasando y un commit.
+
+**[docs/kernels-y-feature-maps.md](docs/kernels-y-feature-maps.md)** es material de origen, no una
+regla: cómo el proyecto hermano `sliding-window-NIST-ocr` muestra kernels y feature maps, y qué
+se porta. Léelo solo al construir V1/V2; lo vigente está destilado en ui.md §5.
 
 **[docs/decisiones.md](docs/decisiones.md) lista lo que está sin decidir y qué bloquea.**
 Consúltalo antes de empezar una fase, y **no tomes tú una decisión que esté ahí**: pregunta. Al

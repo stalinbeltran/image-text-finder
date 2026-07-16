@@ -314,12 +314,27 @@ hardcoded.
 > que lo óptimo es no predecir posiciones. Y el fallo es silencioso: sale un ganador con
 > buena cara.
 
-El objetivo tiene que ser **independiente de λ**, en métricas que ya se calculan
-(`evaluate()` devuelve las cinco): `f1` de existencia, `pos_err_px` de posición, o un
-combinado explícito de ambas. Como son **dos objetivos en tensión** — detectar vs. localizar,
-que es justo lo que λ arbitra — lo honesto es o fijar uno como restricción (*"el mejor
-`pos_err_px` entre los que tengan `f1 ≥ 0.9`"*) o mirar el frente de Pareto. Elegirlo es una
-decisión de producto, no técnica, y debe estar **declarado en el barrido**.
+El objetivo tiene que ser **independiente de λ**.
+
+**La respuesta es la F1 de párrafo** ([protocolo.md](protocolo.md) §2), y resuelve este contrato
+entero:
+
+- Es **independiente de λ por construcción**: no contiene la pérdida. La trampa de arriba
+  desaparece.
+- **Integra las dos métricas en tensión.** `f1` de existencia y `pos_err_px` tiran en direcciones
+  opuestas —detectar vs. localizar, que es lo que λ arbitra— y por eso parecía hacer falta un
+  frente de Pareto o una restricción del tipo *"el mejor `pos_err_px` entre los que tengan
+  `f1 ≥ 0.9"*. Con la F1 de párrafo no hace falta: **detectar mal rompe el IoU y localizar mal
+  también**. Es un escalar, y es el que de verdad quieres.
+- Es **barata** (~10⁴ forwards por lotes sobre val: segundos), así que puede rankear cada punto.
+
+**Pero hoy no existe: no hay ninguna métrica de párrafo en el código** (§3). Hasta que se
+escriba, cualquier barrido optimiza un proxy de fidelidad desconocida. Las métricas de patch
+siguen valiendo para elegir `best.pt` dentro de un run (baratas, por época) y para diagnosticar
+(V7/V8/V9 de ui.md) — **si el paso 2 del protocolo confirma que predicen la F1 de párrafo**.
+
+*(El frente de Pareto — V12 de ui.md — sigue siendo útil para **mirar** qué compra λ. Ya no es lo
+que decide el ganador.)*
 
 Relacionado: **parada temprana ≠ poda**. La parada temprana (`patience`, en D) mira la curva
 de *un* run. La poda (en H) compara *entre* runs y mata a los que van peor que la mediana a
@@ -420,9 +435,23 @@ Resumen accionable, de mayor a menor. Los marcados **[barrido]** son bloqueantes
 10. **El estado de un run es inferido del disco**, no explícito: `_run_status()` mira qué
     ficheros hay, así que un crash deja "running" para siempre. En un barrido de 20, los
     muertos no se distinguen de los vivos.
-11. **`smooth_l1_beta` por defecto anula el Huber** (§1, D): la pérdida de posición es MSE
+11. **No existe ninguna métrica de párrafo.** **[barrido]** `evaluate()` es todo a nivel de
+    patch. **Nadie ha medido nunca si los párrafos salen bien en la imagen completa** — que es el
+    objetivo real del proyecto y, según el contrato ⑨, el objetivo correcto del barrido. Ver
+    [protocolo.md](protocolo.md) §2.
+12. **El val de `clear-paragraphs-02` son 20 imágenes**, no 980 patches: los patches de una
+    imagen están correlacionados, así que el tamaño de muestra efectivo es ~20 y **diferencias
+    de f1 bajo ~5 % no son resolubles**. El dato es sintético y el generador está al lado: es una
+    elección por defecto, no una restricción (protocolo.md §1.1).
+13. **`border` no está en ninguno de los `.npz`, y el ejemplo del README pide
+    `border_features: true`.** El relleno silencioso con ceros falsifica el dato y el modelo ve
+    en inferencia una distribución que no entrenó ([formatos.md](formatos.md) §2).
+14. **Un dataset sin val elige `best.pt` por train loss**, sin avisar (`monitor =
+    val_metrics.get("loss", train_loss)`). Le pasa a `reducido-40`, que es el ejemplo del README
+    (protocolo.md §1.3).
+15. **`smooth_l1_beta` por defecto anula el Huber** (§1, D): la pérdida de posición es MSE
     pura sin que nadie lo haya decidido.
-12. **SGD corre sin momentum** (§1, D): cualquier barrido de `optimizer` está sesgado a favor
+16. **SGD corre sin momentum** (§1, D): cualquier barrido de `optimizer` está sesgado a favor
     de Adam.
 
 ---

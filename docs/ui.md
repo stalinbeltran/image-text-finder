@@ -350,9 +350,13 @@ post-NMS / cajas), conmutables, dice cuál perdió el párrafo. Hoy `predict_ima
 `corners` y `paragraphs`; **las crudas pre-NMS habría que exponerlas**. Sin esto, "el párrafo
 salió mal" no es diagnosticable.
 
-**V12 — Pareto.** Los runs de un barrido en el plano (`f1`, `pos_err_px`), **coloreados por λ**.
-Es la gráfica del proyecto: enseña la tensión detectar-vs-localizar que λ arbitra, y por qué un
-solo escalar no la resume (contrato ⑨).
+**V12 — Pareto.** Los runs de un barrido en el plano (`f1`, `pos_err_px`), **coloreados por λ**:
+enseña la tensión detectar-vs-localizar que λ arbitra.
+
+**Es diagnóstico, no el ranking.** El ganador lo decide la **F1 de párrafo** (contrato ⑨,
+protocolo.md §2), que es λ-independiente y ya integra las dos métricas de este plano — detectar
+mal rompe el IoU y localizar mal también. V12 sirve para **entender qué compró λ**, no para
+elegir.
 
 **V1 — kernels, y hasta dónde llegan.** Con `in_channels: 1`, los kernels de la **capa 1 son
 exactos e interpretables**: se aplican al patch mismo, y deberían salir detectores de borde
@@ -420,17 +424,15 @@ Un editor de patches queda como opción de baja prioridad; V4 y V5 lo cubren mej
 
 ## 6. Orden de construcción
 
-Las tres pantallas que faltan (Redes, Recetas, Barridos) son **un solo cambio de fondo**: darle
-identidad —nombre y almacén— a C y a D. Sin eso H no se puede construir, porque un barrido es
-literalmente "una lista de D con B y C fijos".
+**El orden lo manda [plan-ui.md](plan-ui.md), que es el plan de ejecución. Este documento no lo
+duplica**: dos documentos dueños del mismo orden se desincronizan siempre — y de hecho lo
+hicieron (§6 llegó a poner H antes que los mapas, al revés que el plan).
 
-1. **C y D como entidades** (backend + pantallas). Desbloquea todo lo demás. Los endpoints de C
-   ya existen.
-2. **La tabla por patch** (§3) → V3, V8, V7, V6. Es lo que convierte la app en instrumento.
-3. **H** sobre 1 y 2, con cola de verdad (§3 de organizacion.md: hoy `JOBS` es un hilo por job,
-   sin límite ni persistencia).
-4. **Mapas y kernels** (V2, V1) sobre E.
-5. Sondas: V11, V9, luego V5, V4, V10.
+Lo que sí es de aquí, porque son razones de diseño y no de calendario:
 
-Nota de secuencia: **V8 antes que H**. Ajustar `threshold` es gratis y post-hoc; si se entra al
-barrido sin eso, se gastan horas de CPU buscando en D lo que estaba en F.
+- **Las tres pantallas que faltan (Redes, Recetas, Barridos) son un solo cambio de fondo**: darle
+  identidad —nombre y almacén— a C y a D. Sin eso H no se puede construir, porque un barrido es
+  literalmente "una lista de D con B y C fijos". De ahí que sea la fase 3 del plan.
+- **V8 antes que H.** Ajustar `threshold` es gratis y post-hoc; si se entra al barrido sin eso,
+  se gastan horas de CPU buscando en D lo que estaba en F.
+- **La prioridad entre vistas** está en §4.1, y el plan la respeta fase a fase.
