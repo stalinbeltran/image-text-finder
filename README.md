@@ -9,13 +9,14 @@ Las imágenes las produce
 
 ---
 
-## Estado: fase 6 — mapas, kernels y el pipeline
+## Estado: fase 7 — la cola de verdad y los barridos (H)
 
 Hechas las fases **0** (decisiones), **0.5** (los contratos en xfail), **1** (esqueleto y paleta),
 **2** (Fuentes y Patches), **3** (Redes y Recetas), **4** (Entrenar y Runs), **5** (la tabla por
-patch y el diagnóstico) y **6** (kernels, feature maps y el pipeline de inferencia) de
-[docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 7**: la cola de verdad y los barridos
-(H).
+patch y el diagnóstico), **6** (kernels, feature maps y el pipeline de inferencia) y **7** (la cola
+con cancelación y persistencia, y los **Barridos** con `optuna`) de
+[docs/plan-ui.md](docs/plan-ui.md). **Están las nueve pantallas y los diez contratos** — no queda
+ningún xfail. La siguiente es la **fase 8**: las sondas (V4 occlusion, V5 scrubber, V10, V15).
 
 **Se entrena desde la UI y el run sabe de dónde salió** (dato → red → receta → run), **se puede
 mirar qué hace ese run, patch a patch** (la tabla por patch —un caché— y las vistas V3, V6, V7, V8,
@@ -43,9 +44,12 @@ git checkout pre-rediseno -- src/                    # todo el paquete
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[train,api,dev]"
+.\.venv\Scripts\python.exe -m pip install -e ".[train,api,sweep,dev]"
 cd web; npm install
 ```
+
+El extra **`sweep`** trae `optuna` (el motor de los barridos). Sin él todo lo demás funciona; solo
+`POST /sweeps` lo necesita — y su validación (el contrato ⑨) es pura y contesta sin el motor.
 
 ### Correr
 
@@ -62,10 +66,10 @@ cd web
 npm run dev                                     # http://localhost:5173
 ```
 
-Funcionan de verdad **Fuentes**, **Patches**, **Redes**, **Recetas**, **Entrenar**, **Runs**,
-**Diagnóstico** y **Predecir**: el flujo entero, de la imagen al modelo entrenado, de ahí a mirar
-qué hace y a aplicarlo a una imagen. La que queda (**Barridos**) está vacía y dice qué fase la
-construye. `/kitchen` es donde se mira la paleta y los componentes base.
+Funcionan de verdad **las nueve pantallas**: **Fuentes**, **Patches**, **Redes**, **Recetas**,
+**Entrenar**, **Barridos**, **Runs**, **Diagnóstico** y **Predecir** — el flujo entero, de la imagen
+al modelo entrenado, de ahí a mirar qué hace, a barrer recetas y a aplicarlo a una imagen.
+`/kitchen` es donde se mira la paleta y los componentes base.
 
 Las imágenes fuente salen de [image-text-sample-generator](../image-text-sample-generator) y se
 buscan en `../image-text-sample-generator/data/datasets`. Para apuntar a otro sitio:
@@ -305,6 +309,43 @@ entrenado, así que en la UI son **sliders con repintado en vivo** y mover cualq
 nada** — es un forward, no una tarde. El payload **devuelve los knobs** con los que se calculó,
 porque los sliders son en vivo y las respuestas llegan desordenadas.
 
+### Barridos: muchas recetas, con B y C fijos (fase 7)
+
+**Barridos** (`/sweeps`) explora un **espacio de recetas (D)** con el dataset (B) y la red (C)
+**fijos** — la única forma de que los puntos sean comparables (contrato ⑧). `optuna` propone los
+puntos y los **poda**; la organización sigue siendo nuestra: **un `trial` no es un run**, lanza uno
+y guarda su nombre, y ese run es un E de primera clase con `provenance.sweep` puesto.
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/sweeps" -H "Content-Type: application/json" -d '{
+  \"name\":\"lr-01\", \"patch_dataset\":\"fase3-red\", \"network\":\"cnn-a\", \"recipe\":\"baseline\",
+  \"space\":{\"lr\":{\"type\":\"float\",\"low\":1e-4,\"high\":3e-2,\"log\":true}},
+  \"objective\":\"f1\", \"strategy\":\"random\", \"budget\":{\"points\":20,\"epochs\":8,\"pruning\":true} }'
+```
+
+Cuatro cosas que hacen que un barrido signifique algo, y las cuatro se verificaron **contra la API
+de verdad** (2026-07-17, dataset sintético):
+
+- **El objetivo no puede ser `loss` si `lambda_pos` varía** (contrato ⑨): `loss = cls + λ·pos`, así
+  que λ=0 gana por definición. Es un **400** (`objective_varies_with_space`), no un aviso, y la UI
+  lo bloquea **antes de enviar**. La validación es pura: contesta sin cargar `optuna`.
+- **La poda es la palanca nº1 en CPU.** En un barrido de 30 puntos, **14 se podaron** — cortados en
+  cuanto se vieron peores que la mediana, sin gastar sus épocas completas.
+- **Sobrevive a un reinicio de la API.** Matado el proceso a mitad (**4/40 puntos, `running`**), al
+  rearrancar el `lifespan` **reanudó el barrido hasta 40/40**: el estado durable está en disco
+  (`sweeps/<name>/spec.json`, `optuna.db`, y los runs). El punto que estaba corriendo al morir se
+  repesca a `fail` y un trial nuevo ocupa su hueco.
+- **En CPU el límite de workers es 1.** Los puntos corren de uno en uno: torch ya usa todos los
+  núcleos y cada run carga su `PatchDataset` entero en RAM.
+
+`GET /sweeps/{name}` devuelve la tabla de puntos ordenada por el objetivo, que la pantalla dibuja
+como **V12** (frente de Pareto: `f1` contra `pos_err_px`, color por λ) y **V13** (coordenadas
+paralelas). **Parar** es cooperativo: corta entre trials, y el punto en curso termina su época.
+
+> **El objetivo hoy son las métricas de patch** (`f1`, `pos_err_px`) — las que ya se calculan por
+> época. La métrica de párrafo (el objetivo *real*, [docs/protocolo.md](docs/protocolo.md) §2) aún no
+> existe: depende de **D7** (bbox vs. rotación), que sigue abierta.
+
 ### La paleta se valida, no se opina
 
 ```powershell
@@ -330,13 +371,14 @@ La **barra de progreso del plan**: un test por contrato de `docs/organizacion.md
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Salida esperada hoy: **`120 passed, 1 xfailed`**, en verde y en ~19 s. Que esté en xfail no es
-deuda: es el mecanismo. Cuando una fase implementa su contrato, el test pasa, el **XPASS estricto
-pone la suite en rojo** y obliga a quitar el marcador — así "lo que falta" es una lista ejecutable
-en vez de prosa que envejece. Ver [docs/tests.md](docs/tests.md) §2.
+Salida esperada hoy: **`133 passed`**, en verde y en ~22 s. **Ya no queda ningún xfail**: la fase 7
+quitó el último (⑨), así que **los diez contratos de `docs/organizacion.md` §2 están
+implementados**. El mecanismo sigue en pie para lo que venga — un contrato aún roto lleva su test en
+`xfail(strict=True)`, y el XPASS estricto pone la suite en rojo cuando alguien lo arregla. Ver
+[docs/tests.md](docs/tests.md) §2.
 
-El que queda es el contrato ⑨ (fase 7), y **falla por lo correcto**: no existe `POST /sweeps`. La
-fase 6 quitó el ⑤ (`itf.inference.predict` importa la ventana de `itf.geometry`, no la reteclea).
+El ⑨ (`POST /sweeps` rechaza `objective=loss` si `lambda_pos` varía) lo cerró esta fase; la 6 había
+quitado el ⑤ (`itf.inference.predict` importa la ventana de `itf.geometry`, no la reteclea).
 
 ### El entorno
 
@@ -379,19 +421,22 @@ src/itf/
 ├── training/    # pérdidas, bucle, checkpoints, métricas
 ├── inference/   # load_model (④) · predict (F, 3 etapas) · kernels/feature_maps (V1/V2) · ModelCache
 ├── diagnostics/ # E×B: la tabla por patch (un CACHÉ) y sus agregados — V6, V7, V8, V9
-└── api/         # FastAPI: un recurso por dominio
+├── sweeps/      # H: spec + ⑨ (puro) · store (spec.json nuestro, optuna.db del motor) · runner (optuna)
+└── api/         # FastAPI: un recurso por dominio  ·  jobs.py: la cola (límite, cancelar, persistir)
 web/             # Vite + React
 ├── src/theme/    # tokens.css: LA PALETA, y solo aquí
 ├── src/components/  # MatrixCanvas, LayerMaps, Meter, PatchCanvas, PlotFigure, Declares…
 ├── src/screens/diagnostics/   # V1, V2, V3, V6, V7, V8, V9
+├── src/screens/sweeps/        # Barridos (H) + V12 (Pareto) + V13 (paralelas)
 ├── src/screens/Predict.tsx    # V11: las tres etapas + los knobs de F como sliders
 └── scripts/      # validate-palette.mjs
 configs/         # networks/*.yaml (redes)  ·  recipes/*.yaml (recetas)
-tests/           # test_contracts.py: un test por contrato  ·  test_diagnostics.py: las costuras
+tests/           # test_contracts.py: un test por contrato  ·  test_sweeps.py, test_jobs.py: H y la cola
 docs/            # el diseño
 ```
 
-`data/` y `runs/` son artefactos: se ignora la carga (`.npz`, `.pt`) y **se versiona la
-descripción** (configs, métricas, manifests) — ver [docs/formatos.md](docs/formatos.md) §5.
+`data/`, `runs/` y `sweeps/` son artefactos: se ignora la carga (`.npz`, `.pt`, `optuna.db`) y **se
+versiona la descripción** (configs, métricas, manifests, `spec.json`) — ver
+[docs/formatos.md](docs/formatos.md) §5.
 `data/cache/` es **derivado entero**: se recalcula exacto, así que ni se versiona ni se echa de
 menos.

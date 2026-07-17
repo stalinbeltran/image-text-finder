@@ -485,18 +485,22 @@ De mayor a menor. Los marcados **[barrido]** son bloqueantes para H.
    *Hoy*: `configs/networks/*.yaml` + `configs/recipes/*.yaml`, `/networks` y `/recipes` con sus
    dos pantallas, y `itf-train --network <nombre> --recipe <nombre>`, que es lo que hace que la
    procedencia por nombre (③) se sostenga sola.
-2. **`JOBS` no es una cola: es un `Thread` por job, sin límite.** **[barrido]**
-   `jobs.py:67` lanza un hilo por cada `submit()`. Un barrido de 20 puntos = 20
-   entrenamientos simultáneos peleándose por los mismos núcleos (torch ya usa todos), cada
-   uno ~20× más lento y **cada uno con su `PatchDataset` entero en RAM** — `dataset.py:35`
-   carga todo `X` a un tensor float32 residente (40×40 float32 = 6,4 KB/patch ⇒ 100k patches
-   ≈ 640 MB, ×2 por train+val, ×N runs). Se queda sin memoria mucho antes de terminar.
-   Hace falta **cola con límite de workers** (=1 en CPU).
-3. **El estado de los jobs vive en memoria** (`self._jobs`, hilos daemon). **[barrido]**
-   Reiniciar la API borra el historial: los runs sobreviven en disco, los jobs no. Un barrido
-   de horas no puede depender de que el proceso no se caiga.
-4. **No hay cancelar, ni parada temprana, ni poda.** **[barrido]** Un job va hasta el final
-   (`epochs` completas, siempre). En CPU es donde se quema el presupuesto (contrato ⑨).
+2. **`JOBS` no es una cola: es un `Thread` por job, sin límite.** — ✅ **arreglada en la fase 7.**
+   El `JobQueue` nació con `max_workers=1` en la fase 2 (era la trampa, no una feature que se añade
+   luego) y la fase 7 le puso persistencia y cancelación encima. Un barrido de 20 puntos = 20
+   entrenamientos simultáneos peleándose por los mismos núcleos (torch ya usa todos), cada uno ~20×
+   más lento y **cada uno con su `PatchDataset` entero en RAM** — `dataset.py:35` carga todo `X` a
+   un tensor float32 residente (40×40 float32 = 6,4 KB/patch ⇒ 100k patches ≈ 640 MB, ×2 por
+   train+val, ×N runs). **En CPU el límite es 1.**
+3. **El estado de los jobs vive en memoria** (`self._jobs`, hilos daemon). — ✅ **arreglada en la
+   fase 7.** Con `persist_dir`, cada transición se escribe y se recarga al arrancar; un job vivo al
+   morir el proceso recarga como `interrupted`. Y lo durable de verdad —el barrido— **se reanuda**:
+   `spec.json` + `optuna.db` + los runs están en disco, así que el `lifespan` re-encola lo que quedó
+   a medias. Reiniciar la API ya no borra la investigación.
+4. **No hay cancelar, ni parada temprana, ni poda.** — ✅ **arreglada en la fase 7.** Cancelación
+   cooperativa (`cancel` callback + `POST /jobs/{id}/cancel`, corta en el punto seguro), parada
+   temprana per-run (`patience`, fase 3) y **poda** entre runs (`optuna` `MedianPruner`, la palanca
+   nº1 en CPU): en un barrido de 30 puntos, 14 se podaron.
 5. **`POST /runs` sobrescribe en silencio.** **[barrido]** No comprueba si el run existe
    (`retrain` sí: 409), y `train()` hace `mkdir(exist_ok=True)` + trunca `metrics.jsonl`. Un
    barrido que autogenere nombres puede machacar sus propios resultados sin avisar.

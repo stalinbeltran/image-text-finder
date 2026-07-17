@@ -32,8 +32,8 @@ o resultados de investigación que el barrido mismo contestará.
 |---|---|---|---|
 | **D7** | ¿La métrica de párrafo soporta rotación, o compara contra el *bbox* del `quad`? | Bbox: basta con `clear-paragraphs` (`angle≈0`). Con `mixed-layout`, no | protocolo.md §2 |
 | **D8** | ¿Añadir `limit` de train a `PatchExtractConfig`? | **Sí**, ahora que `num_images` es un eje del barrido (D6): deja de ser un truco y pasa a ser un parámetro que se mide | protocolo.md §3 |
-| **D9** | Nombres de las librerías (`exp-registry`, `jobq`, `convspec`, `matrixview`) | Provisionales; decidir al extraer la primera. **Sigue abierta**: la fase 6 construyó `matrixview` aislado pero **no lo extrajo** (`claude-libs/` no existe) | librerias.md §1 |
-| **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala. **Sigue abierta**: no se ha creado el repo | librerias.md §4 |
+| **D9** | Nombres de las librerías (`exp-registry`, `jobq`, `convspec`, `matrixview`) | Provisionales; decidir al extraer la primera. **Sigue abierta**: las fases 6 y 7 construyeron `matrixview` y la cola (`jobq`) library-shaped pero **no los extrajeron** (`claude-libs/` no existe) | librerias.md §1 |
+| **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala. **Sigue abierta**: no se ha creado el repo (van cuatro candidatos sin extraer: `convspec`, `exp-registry`, `matrixview`, `jobq`) | librerias.md §4 |
 | **D11** | ¿Backportear NIST a las librerías? | **No.** Funciona; su valor ya está cobrado como evidencia | librerias.md §4 |
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
 

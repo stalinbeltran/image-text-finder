@@ -155,9 +155,16 @@ activemq-data/
 /data/patch-datasets/*/patches.npz
 /runs/*/*.pt
 /data/cache/
+# La cola es efimera: sus registros no son investigacion (fase 7). /data/ ya la cubre.
+# El barrido (H): spec.json es la descripcion (SI se versiona); optuna.db y el
+# snapshot son la carga/derivable (fase 7, formatos.md §4.5 y §5).
+/sweeps/*/optuna.db
+/sweeps/*/progress.json
+/sweeps/*/stop.json
 # La descripcion (KB, es el registro de la investigacion) SI se versiona:
 #   runs/*/config.json, metrics.jsonl, summary.json, status.json
 #   data/patch-datasets/*/manifest.json, split.json
+#   sweeps/*/spec.json
 
 # configs/networks y configs/recipes son FUENTE (los escribe una persona): se versionan.
 

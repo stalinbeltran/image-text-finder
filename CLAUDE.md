@@ -9,46 +9,50 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Fases 0, 0.5, 1, 2, 3, 4, 5 y 6 hechas (2026-07-17). La siguiente es la [fase 7](docs/plan-ui.md)**:
-> la **cola de verdad** (límite de workers = 1 en CPU, persistencia, cancelación) y los **barridos**
-> (H) con `optuna`. Es la que resucita el **contrato ⑨** (`POST /sweeps` rechaza `objective=loss` si
-> `lambda_pos` varía), su único xfail restante. **No quedan decisiones bloqueando**; lo abierto en
-> [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase.
+> **Fases 0, 0.5, 1, 2, 3, 4, 5, 6 y 7 hechas (2026-07-17). La siguiente es la [fase 8](docs/plan-ui.md)**:
+> las **sondas** (V5 scrubber, V4 occlusion, V10 flag de borde, V15 procedencia del patch). **Están
+> las nueve pantallas y los diez contratos** — **no queda ningún xfail**. **No quedan decisiones
+> bloqueando**; lo abierto en [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su
+> fase (**D7** —bbox vs. rotación— bloquea la métrica de párrafo, que es lo que le falta al barrido).
 >
-> **La fase 6 cerró el contrato ⑤**: `itf.inference.predict` importa la ventana de `itf.geometry`
-> (`extract.windows is predict.windows`) y usa `win.border` **tal cual**, sin reteclear los flags —
-> hay test (`test_contract_05`) que lo fija. Solo queda **⑨** en xfail.
+> **La fase 7 cerró el contrato ⑨**: `POST /sweeps` rechaza con 400 (`objective_varies_with_space`)
+> rankear por `loss` mientras `lambda_pos` está en el espacio — la validación es **pura**
+> (`itf.sweeps.spec.check_sweep`), así que contesta sin cargar `optuna`. Antes la 6 cerró el ⑤.
+> **No queda ningún xfail.**
 >
-> **El flujo completo funciona: dato → red → receta → run → diagnóstico → predicción**, y desde la
-> UI. Por CLI: `itf-train --name <run> --patch-dataset <B> --network <C> --recipe <D> --device cpu`.
-> Toma **nombres**, no valores: es lo que hace que la procedencia se sostenga sola.
+> **El flujo completo funciona: dato → red → receta → run → diagnóstico → predicción → barrido**, y
+> desde la UI. Por CLI: `itf-train --name <run> --patch-dataset <B> --network <C> --recipe <D>
+> --device cpu`. Toma **nombres**, no valores: es lo que hace que la procedencia se sostenga sola.
 >
 > **Ya existen**: `itf.geometry` (G), `itf.metrics` (las definiciones de los números),
 > `itf.matrixview` (matriz→payload, **sin importar nada de `itf`**, lista para extraer — ver abajo),
 > `itf.datasets` (A), `itf.patches` (B), `itf.models` (C), `itf.validation` (①② + `check_run`),
 > `itf.training` (D+E), **`itf.inference` completo** (④ `load_model`, F `predict_image` con las tres
 > etapas, V1 `kernels`, V2 `feature_maps`, `ModelCache` con clave de mtime), **`itf.diagnostics`**
-> (E×B: tabla por patch, agregados —`pr`, `error_map`, `rows`, **`coactivation`** V9— y caché) e
-> `itf.api` (todo lo anterior + **`GET /runs/{n}/kernels`**, **`POST /runs/{n}/feature-maps`**,
-> **`POST /runs/{n}/predict`** con `raw` pre-NMS, **`GET /runs/{n}/diagnostics/coactivation`**). Solo
-> falta el barrido (H). El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para
-> **algoritmos**, no para estructura.
+> (E×B: tabla por patch, agregados —`pr`, `error_map`, `rows`, **`coactivation`** V9— y caché),
+> **`itf.sweeps`** (H: `spec` puro con ⑨, `store` con `spec.json` nuestro + `optuna.db` del motor,
+> `runner` con optuna —espacio, poda, reanudación—) e `itf.api` (todo + **`/sweeps`** GET/POST/`/trials`/`/stop`,
+> **`POST /jobs/{id}/cancel`**, y el resume de barridos en el `lifespan`). La cola de verdad vive en
+> `itf.api.jobs` (**límite=1, cancelación cooperativa, persistencia** con clave por `persist_dir`).
+> El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para **algoritmos**, no para
+> estructura.
 >
-> **`itf.matrixview` está aislado pero NO extraído** (decisión de la fase 6, 2026-07-17):
+> **`itf.matrixview` y `itf.sweeps`/`jobq` están aislados pero NO extraídos** (fases 6 y 7):
 > `claude-libs/` no existe —las fases 3 y 4 tampoco extrajeron `convspec` ni `exp-registry`— y
-> extraer cierra D9/D10. Vive en `src/itf/matrixview/`, no importa nada de `itf`, así que la
-> extracción es luego un `git mv` + `pyproject.toml` (librerias.md §5). Si lo tocas, **no le metas
-> dependencias de `itf`**: eso es lo único que lo mantiene extraíble.
+> extraer cierra D9/D10. `matrixview` no importa nada de `itf`; **`itf.sweeps` está escrito
+> library-shaped** (librerias.md §2: el barrido se extrae en el 2º proyecto, no en el 1º) y la cola
+> es el germen de `jobq`. Si tocas `matrixview`, **no le metas dependencias de `itf`**: es lo único
+> que lo mantiene extraíble.
 >
-> **Las dos puertas de entrenar son una**: `POST /runs` e `itf-train` preguntan a
-> `itf.validation.check_run` y reservan con `RunStore.create`. Si añades una tercera (el barrido de
-> la fase 7), pasa por ahí: **la puerta que queda más laxa es por la que entra el barrido**.
+> **Las tres puertas de entrenar son una**: `POST /runs`, `itf-train` y **el barrido** (cada trial)
+> preguntan a `itf.validation.check_run` y reservan con `RunStore.create`. **La puerta que queda más
+> laxa es por la que entra el barrido** — y ya son tres, así que la regla dejó de ser hipotética.
 >
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *120 passed, 1 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *133 passed, 0 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
-> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Solo queda ⑨
-> (fase 7)** — la fase 6 quitó el ⑤.
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Ya no queda ningún
+> xfail**: los diez contratos están implementados.
 >
 > **La tabla por patch es un caché y no una entidad** (D1): no se nombra, no se lista, no hay
 > pantalla de Evaluaciones. Vive en `data/cache/diagnostics/` y **borrarla no pierde nada** — hay un
@@ -69,9 +73,10 @@ Ver [README.md](README.md) para montar y correr.
 > renderer** (`components/LayerMaps.tsx`): un kernel y un feature map se diferencian en qué
 > significan los números, no en qué son. **V2 abre con V3** (mismo `(run, patch)`, mismo clic en la
 > galería); **V1 y V9 son de Diagnóstico** y **V11 (las tres etapas + los sliders de F) vive en
-> Predecir**. El **trabajo de color lo declara el payload**, nunca se adivina: un peso es divergente
-> ±0 (R2), una activación mira `spec.activation` (R3) — deducirlo del dato pinta una capa `tanh` de
-> dos formas según el patch.
+> Predecir**. **V12 (Pareto) y V13 (paralelas) entraron en la fase 7**, con Plot, en la pantalla
+> **Barridos** (`screens/sweeps/`). El **trabajo de color lo declara el payload**, nunca se adivina:
+> un peso es divergente ±0 (R2), una activación mira `spec.activation` (R3) — deducirlo del dato
+> pinta una capa `tanh` de dos formas según el patch.
 >
 > El resto de `docs/` son **especificaciones, no descripciones**: lo no construido no está
 > ejecutado ni verificado. Cuando un documento cita un fichero y una línea (`app.py:61`,
@@ -192,8 +197,11 @@ doc. Respétalo explícitamente o actualiza el doc — no lo dejes implícito.
   borde es lo que sale natural** al tocar la inferencia. `test_contract_05` afirma
   `extract.windows is predict.windows` y que los flags escritos == los que dice `geometry` — no
   «¿es correcta `positions`?», sino «¿ven B y F la misma ventana?».
-- **⑨ El objetivo de un barrido no puede ser la val loss si varía `lambda_pos`** — cada punto
-  se mediría con una pérdida distinta y "ganaría" λ=0.
+- **⑨ El objetivo de un barrido no puede ser la val loss si varía `lambda_pos`** — **cerrado en la
+  fase 7.** `check_sweep` (puro, `itf.sweeps.spec`) devuelve `objective_varies_with_space` y `POST
+  /sweeps` lo convierte en 400 **antes de reservar nada**. Sigue aquí porque lo que lo sostiene es
+  una costumbre: es un barrido nuevo (una cuarta puerta) el que reintroduce el atajo de rankear por
+  `loss`. Cada punto se mediría con una pérdida distinta y "ganaría" λ=0.
 - **⑩ `batch_size` es D, no X.** Subirlo al pasar a GPU invalida la comparación con lo
   entrenado en CPU.
 

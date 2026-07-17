@@ -106,7 +106,7 @@ La columna que lleva la información es **qué fase lo quita**: es la barra de p
 | **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana (`extract.windows is predict.windows`, y los flags escritos == `geometry`) | **6** | ✅ |
 | **⑦** | dirección de dependencias | `itf.models` importa de `itf.geometry` (G) pero **no** de `itf.datasets` (A); `itf.validation` no importa nada de `itf` | **3** | ✅ |
 | **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; la semilla de B sola decide el split | **2** | ✅ |
-| **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** | xfail |
+| **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** (`objective_varies_with_space`); control: el mismo espacio con `objective=f1` **pasa** el ⑨ | **7** | ✅ |
 | **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **3** | ✅ |
 
 > **① y ② empezaron en la fase 3 y los cerró la 4** *(deuda pagada, 2026-07-16)*. La fase 3 los

@@ -396,20 +396,40 @@ errores, con el run seleccionado y la procedencia en pantalla.
   librerias.md §5 pide **antes** de extraer. La extracción queda en un `git mv`, coherente con que
   las fases 3 y 4 tampoco extrajeron `convspec` ni `exp-registry`.
 
-### Fase 7 — Cola de verdad y Barridos (H)
+### Fase 7 — Cola de verdad y Barridos (H) — ✅ **hecha (2026-07-17)** ← *cierra el ⑨*
 
-1. **Back — la cola**, que es el bloqueante real: **límite de workers (=1 en CPU)**,
-   persistencia y cancelación cooperativa. La trampa a no repetir: un hilo por job sin límite
-   (lo que había) convierte un barrido de 20 puntos en 20 entrenamientos peleándose por los
-   mismos núcleos, **cada uno con su `PatchDataset` entero en RAM**.
-2. **Back — `optuna`**: espacio, samplers, **pruners** (la palanca nº1 en CPU) y storage SQLite.
-   Sus `trials` **no son** nuestros runs: un trial lanza un run y guarda su referencia.
+1. **Back — la cola** (`itf.api.jobs`): **límite de workers (=1 en CPU)**, cancelación cooperativa
+   (un job lleva un `cancel` callback; `POST /jobs/{id}/cancel`) y persistencia (`persist_dir`: cada
+   transición al disco, un job vivo al morir el proceso recarga como `interrupted`).
+2. **Back — `optuna`** dentro de `itf.sweeps` (escrito library-shaped, **no extraído**): espacio,
+   samplers, **pruners** (`MedianPruner`, la palanca nº1 en CPU) y storage SQLite. Sus `trials`
+   **no son** nuestros runs: un trial lanza un run (con `provenance.sweep`) y guarda su nombre.
 3. **Front**: pantalla Barridos + V12 (Pareto, secuencial por λ) y V13 (paralelas).
-4. **La UI bloquea activamente objetivo = `loss` si `lambda_pos` está en el espacio** (contrato
-   ⑨). No es una nota al pie: ese error produce un ganador de buena cara.
+4. **La UI bloquea objetivo = `loss` si `lambda_pos` está en el espacio** (contrato ⑨), el mismo
+   400 que el servidor — adelantado antes de enviar.
 
-**Verificación**: un barrido corto (4 puntos × 3 épocas) completo, con poda, sobrevive a un
-reinicio de la API.
+**Verificado contra la API de verdad** (2026-07-17, dataset sintético): 133 tests pasan, **0
+xfailed** (⑨ cerrado). Un barrido de 4 puntos completa 4/4 por HTTP; en uno de 30, **14 puntos se
+podaron**; y el de 40, **matado el proceso a 4/40 `running`**, al rearrancar la API el `lifespan`
+lo **reanudó hasta 40/40** — el punto que corría al morir se repescó a `fail` y un trial nuevo ocupó
+su hueco. El estado durable es `sweeps/<name>/spec.json` + `optuna.db` + los runs.
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **La API no puede abrir la SQLite de optuna mientras el worker la tiene abierta.** El worker
+  sostiene el study todo el barrido; una segunda conexión desde el hilo de la API lo pisaba en la
+  creación del esquema (`IntegrityError` en `alembic_version`) y en los write locks. Cura: el worker
+  escribe un `progress.json` tras cada trial y la API lee **eso**, nunca la SQLite. Es un caché del
+  study, derivable, y mantiene a optuna fuera de `app.py`.
+- **La poda con solo 4 puntos no salta con el default.** `MedianPruner` necesita 5 trials para
+  tener mediana; con `n_startup_trials=1, n_warmup_steps=1` puede podar desde el segundo punto, que
+  es lo que un barrido corto necesita.
+- **El objetivo son las métricas de patch, no la de párrafo, y es a propósito.** La F1 de párrafo
+  (el objetivo *real*, protocolo.md §2) depende de **D7** (bbox vs. rotación), que sigue abierta; el
+  barrido rankea por `f1`/`pos_err_px` (λ-independientes) hasta que D7 se cierre. No se tomó una
+  decisión abierta.
+- **`itf.sweeps` es library-shaped pero NO extraído**, coherente con `matrixview` (fase 6) y con que
+  las fases 3–4 no extrajeran `convspec` ni `exp-registry`. La cola es el germen de `jobq`.
 
 ### Fase 8 — Sondas
 

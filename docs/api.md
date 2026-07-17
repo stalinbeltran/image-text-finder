@@ -355,14 +355,14 @@ se comprueba en producción:
 |---|---|---|
 | **① `patch_size == input_size`** | `POST /runs` → `400` | ✅ *fase 4*. Antes solo lo miraba `RunsPanel.tsx`, y por HTTP directo reventaba con `mat1 and mat2 shapes cannot be multiplied` **dentro del hilo del job** |
 | **③ B en uso** | `DELETE /patch-datasets/{n}` → `409` con la lista | ✅ *fase 2* |
-| **⑨ objetivo vs λ** | `POST /sweeps` → `400` | No existe. Produciría un ganador de buena cara |
+| **⑨ objetivo vs λ** | `POST /sweeps` → `400` | ✅ *fase 7*. `check_sweep` (puro) devuelve `objective_varies_with_space` **antes de reservar**; la validación no carga optuna |
 | **⑩ X fuera de D** | `device` fuera de `/recipes`, en `execution` | ✅ *fases 3–4* |
 | **R7 procedencia** | `POST /runs` exige nombres | ✅ *fase 4* |
 
 > **La regla que sostiene ① no es el endpoint: es que solo haya una puerta** *(fase 4)*. `POST /runs`
 > e `itf-train` preguntan los dos a **`itf.validation.check_run`** (`check_compatible` +
-> `check_measurable`) **antes de reservar el nombre**, y el barrido de la fase 7 será la tercera
-> puerta. Dos comprobaciones separadas se desincronizan, y la puerta que quede más laxa es por la
+> `check_measurable`) **antes de reservar el nombre**, y el barrido de la fase 7 es ya la tercera
+> puerta (cada trial pregunta a `check_run` antes de `RunStore.create`). Dos comprobaciones separadas se desincronizan, y la puerta que quede más laxa es por la
 > que entra un barrido. Validar *después* de reservar tampoco vale: deja un `runs/<name>/` muerto en
 > cada equivocación, y entonces arreglar el dataset y reintentar con el mismo nombre contesta «ese
 > run ya existe».
@@ -459,7 +459,7 @@ API"**:
 | **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` — ✅ *(y `PATCH`/`DELETE` con 409 si corre)* |
 | **5** | `/diagnostics` + los agregados (caché) — ✅ *(`pr`, `error-map`, `patches`: síncronos y todos `GET`)* |
 | **6** | `/kernels`, `/feature-maps`, `/predict` con `raw`, `/diagnostics/coactivation` — ✅ *(síncronos; el caché de modelos con clave de mtime salió de `app.py` a `itf.inference`, §0)* |
-| **7** | `/sweeps`; `/jobs/{id}/cancel` |
+| **7** | `/sweeps` (GET, POST→job con ⑨, `/{name}`, `/trials`, `/stop`); `/jobs/{id}/cancel`; la cola con límite/cancelar/persistir; el resume de barridos en el `lifespan` — ✅ |
 
 Los renombres de R2 rompen `tests/test_api.py` (fija `/datasets`) y el front actual. Como el
 front se reescribe igual, **el coste real es actualizar los tests** — y hacerlo en su fase, no
