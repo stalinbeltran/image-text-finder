@@ -21,6 +21,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
@@ -30,8 +31,10 @@ from itf.api.jobs import JobQueue
 from itf.api.schemas import (
     BuildPatchDatasetBody,
     CreateRunBody,
+    FeatureMapsBody,
     NamedNetworkBody,
     NetworkBody,
+    PredictBody,
     RecipeBody,
     RenameRunBody,
 )
@@ -40,10 +43,18 @@ from itf.diagnostics import (
     DEFAULT_CHECKPOINT,
     NotMeasurable,
     TableCache,
+    coactivation,
     error_map,
     open_diagnostics,
     pr,
     rows,
+)
+from itf.inference import (
+    ModelCache,
+    NotInspectable,
+    feature_maps,
+    kernels,
+    predict_image,
 )
 from itf.models import (
     NetworkConfig,
@@ -87,6 +98,10 @@ class Context:
     runs: RunStore
     jobs: JobQueue
     diagnostics: TableCache
+    #: Loaded networks, keyed on the checkpoint's mtime. V2 and the predict
+    #: sliders repaint live, and rebuilding the network on every tick is what
+    #: makes a live view feel broken.
+    models: ModelCache
 
 
 def get_context(request: Request) -> Context:
@@ -840,6 +855,197 @@ def register_diagnostics(app: FastAPI) -> None:
         except NotMeasurable as exc:
             raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
 
+    @app.get("/runs/{name}/diagnostics/coactivation")
+    def diagnostics_coactivation(
+        name: str,
+        split: str = "val",
+        threshold: float = Query(default=0.5, ge=0.0, le=1.0),
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V9 — given the truth was TL, which heads fired? 4×4, over the cache.
+
+        `threshold` is a query parameter, not part of the table's key: the scores
+        are stored raw, so re-deciding what "fired" means costs a comparison, not
+        a pass over the model. Same free sweep as V8.
+        """
+        diag = _diagnostics(c, name, split, checkpoint)
+        try:
+            return coactivation(diag, threshold)
+        except NotMeasurable as exc:
+            raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
+
+
+# ── F: /runs/{name}/kernels, /feature-maps, /predict ──────────────────────────
+
+
+#: `NotInspectable.code` → HTTP status. `patch_size_mismatch` is **400**: it is
+#: contract ① reaching F, and like its `POST /runs` twin the request can never
+#: work -- a 40-px network will not take a 60-px patch whatever the state is.
+#: `kernels_not_projectable` is 409: the request is fine and this network's shape
+#: is what says no.
+_INSPECT_STATUS: dict[str, int] = {
+    "patch_size_mismatch": 400,
+    "invalid_patch": 400,
+    "border_required": 400,
+    "patch_not_found": 404,
+}
+
+
+def _model_of(c: Context, name: str, checkpoint: str):
+    """The run's trained network, from the cache. Every refusal, a status code.
+
+    This function mentions HTTP in every branch, which is what makes it the
+    API's: the loading, the caching and the mtime key are all in `itf.inference`
+    (api.md §0 -- the model cache used to live in this file and was never the
+    API's).
+    """
+    _run_or_404(c, name)
+    path = c.runs.path(name) / checkpoint
+    if not path.exists():
+        state = c.runs.status(name).get("state")
+        raise conflict(
+            "run_has_no_checkpoint",
+            f"el run '{name}' no tiene '{checkpoint}' (está '{state}'): todavía no hay ningún "
+            f"modelo que mirar",
+            "espera a que termine una época, o elige otro run",
+        )
+    try:
+        return c.models.get(path, device="cpu")
+    except ValueError as exc:
+        # Contract ④: a checkpoint that cannot describe itself. `load_model` says
+        # so with a reason rather than an AttributeError.
+        raise conflict("checkpoint_unreadable", str(exc), "reentrena el run: ese .pt no es nuestro")
+
+
+def _inspect_problem(exc: NotInspectable):
+    return problem(_INSPECT_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint or None)
+
+
+def register_inference(app: FastAPI) -> None:
+    """V1, V2 and V11. **Synchronous** (R3): one forward pass, or none at all.
+
+    All three are introspection of an E, so they hang off `/runs/{name}`. The
+    kernels need only the weights; the feature maps need a patch (contract ①);
+    predict needs a whole image, which is the one question that is F's alone.
+    """
+
+    @app.get("/runs/{name}/kernels")
+    def get_kernels(
+        name: str, checkpoint: str = DEFAULT_CHECKPOINT, c: Context = Depends(get_context)
+    ) -> dict:
+        """V1 — the learned kernels of layer 1. **Layer 1 only** (D13).
+
+        Free: no input, no forward pass, just the weights. And it is the phase's
+        own verification -- if a trained run's layer 1 does not look like oriented
+        edge detectors, the network did not learn, and that is information rather
+        than a bug in the view.
+        """
+        model = _model_of(c, name, checkpoint)
+        try:
+            return kernels(model)
+        except NotInspectable as exc:
+            raise _inspect_problem(exc)
+
+    @app.post("/runs/{name}/feature-maps")
+    def post_feature_maps(
+        name: str,
+        body: FeatureMapsBody,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V2 — the activations of every layer over ONE PATCH (contract ①).
+
+        A `POST` for a read, and it is the exception R3 allows: the body may carry
+        the pixels of a patch that is stored nowhere, and a 40×40 matrix does not
+        go in a query string.
+        """
+        model = _model_of(c, name, checkpoint)
+
+        patch = body.patch
+        border = body.border
+        if patch is None:
+            # By index, out of a B. The border flags come from the dataset, so
+            # they are the real ones -- which is what makes this the path the UI
+            # uses by default.
+            if not body.patch_dataset or body.index is None:
+                raise bad_request(
+                    "patch_required",
+                    "necesito un patch: o `{patch_dataset, index}`, o `patch` con sus píxeles",
+                    "la entrada de esta vista es un patch, no una imagen (contrato ①)",
+                )
+            try:
+                data = c.patch_datasets.arrays(body.patch_dataset)
+            except (PatchDatasetNotFound, ValueError):
+                raise not_found(
+                    "patch_dataset_not_found",
+                    f"no existe el dataset de patches '{body.patch_dataset}'",
+                )
+            with data:
+                total = int(data["X"].shape[0])
+                if not 0 <= body.index < total:
+                    raise not_found(
+                        "patch_not_found",
+                        f"'{body.patch_dataset}' tiene {total} patches; pediste el {body.index}",
+                    )
+                patch = data["X"][body.index, :, :, 0].tolist()
+                border = data["border"][body.index].astype(int).tolist()
+        elif body.patch_dataset or body.index is not None:
+            # Both at once is not a convenience to resolve, it is a question:
+            # which one did you mean? Picking one silently is how a view ends up
+            # describing a patch the reader did not choose.
+            raise bad_request(
+                "patch_ambiguous",
+                "manda `{patch_dataset, index}` o `patch`, no las dos cosas",
+                "no puedo saber cuál de las dos querías mirar",
+            )
+
+        try:
+            return feature_maps(model, np.asarray(patch, dtype=np.float32), border)
+        except NotInspectable as exc:
+            raise _inspect_problem(exc)
+
+    @app.post("/runs/{name}/predict")
+    def post_predict(
+        name: str,
+        body: PredictBody,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """F — a whole image → **the three stages** (V11).
+
+        `raw` (pre-NMS), `corners` (post-NMS) and `paragraphs` (post-pairing) all
+        come back, because the failure is born in one of the three and they are
+        fixed in different places: stage 1 is the model, stages 2 and 3 are knobs.
+        Returning only the last one is what made "the paragraph came out wrong"
+        undiagnosable.
+
+        Synchronous (R3): ~700 windows in batches is a fraction of a second, which
+        is what lets the knobs be sliders instead of a form.
+        """
+        model = _model_of(c, name, checkpoint)
+        sample = _sample(c, body.source, body.index)
+        with Image.open(sample.image_path) as img:
+            image = np.asarray(img.convert("L"), dtype=np.uint8)
+
+        try:
+            payload = predict_image(
+                model,
+                image,
+                stride=body.stride,
+                threshold=body.threshold,
+                nms_radius=body.nms_radius,
+                min_size=body.min_size,
+                device="cpu",
+            )
+        except ValueError as exc:
+            # `positions` refuses when the patch is bigger than the image: a
+            # 40-px window over a 32-px thumbnail has nowhere to sit.
+            raise bad_request("image_too_small", str(exc), "elige una imagen mayor que el patch")
+        payload["source"] = body.source
+        payload["index"] = body.index
+        return payload
+
 
 # ── X: /jobs ──────────────────────────────────────────────────────────────────
 
@@ -870,6 +1076,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # N at once just fight each other and each holds its dataset in RAM.
         jobs=JobQueue(max_workers=1),
         diagnostics=TableCache(settings.diagnostics_cache_root),
+        models=ModelCache(),
     )
     # D4: closed to the front's origin, never `*`.
     app.add_middleware(
@@ -885,6 +1092,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_recipes(app)
     register_runs(app)
     register_diagnostics(app)
+    register_inference(app)
     register_jobs(app)
     return app
 

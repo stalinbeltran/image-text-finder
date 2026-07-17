@@ -462,6 +462,153 @@ export const getDiagnosticPatches = (
     `/runs/${encodeURIComponent(run)}/diagnostics/patches?${query(params)}`
   );
 
+/** V9 — **not a confusion matrix** (ui.md §4.1). The 4 heads are independent
+ *  binaries, not a softmax: a patch can fire two at once or none, so the rows sum
+ *  to nothing. `matrix[i][j]` is `P(head j fires | corner i really there)`.
+ *
+ * `truth_rate` is the **control**, and without it the view lies: a high
+ * `matrix[TL][TR]` means either "the TR head is confused by a TL" or "these
+ * patches really do contain a TR too" — opposite problems. Where the two agree,
+ * the corners simply co-occur; where `matrix` runs above `truth_rate`, that is
+ * the confusion. */
+export interface Coactivation {
+  corner_order: string[];
+  threshold: number;
+  /** Rows = the corner really there; columns = the head that fired. `null` when
+   *  no patch has that corner: not measured, and 0 would read as a measurement. */
+  matrix: (number | null)[][];
+  truth_rate: (number | null)[][];
+  /** Patches behind each row. A row of 3 paints exactly like a row of 300. */
+  counts: number[];
+  job: "sequential" | "diverging";
+}
+
+export const getCoactivation = (run: string, split: Split, threshold: number) =>
+  request<Coactivation>(
+    `/runs/${encodeURIComponent(run)}/diagnostics/coactivation?${query({ split, threshold })}`
+  );
+
+// ── F: introspection (V1, V2) and the pipeline (V11) ─────────────────────────
+
+/** One matrix, with the stats the client normalises against.
+ *
+ * `min`/`max` ride with **each** map because the normalisation is **per map**
+ * (ui.md §5): compute them across a layer instead and the quiet feature maps all
+ * render black. */
+export interface MapPayload {
+  index: number;
+  min: number;
+  max: number;
+  mean: number;
+  matrix: number[][];
+}
+
+/** A layer of matrices. One shape for V1 and V2 — a kernel and a feature map
+ *  differ in what the numbers mean, not in what they are.
+ *
+ * **`job` comes from the server and is never guessed.** The client cannot know if
+ * it holds a signed weight or a non-negative activation, and guessing is the one
+ * thing the sibling project got wrong (api.md §3, ui.md §4.0 R2). */
+export interface LayerPayload {
+  layer: number;
+  /** How many the layer really has. */
+  count: number;
+  /** How many are in this response — `max_maps` truncates at 64. */
+  shown: number;
+  truncated: boolean;
+  job: "sequential" | "diverging";
+  maps: MapPayload[];
+  spec: BlockSpec;
+  /** V2 only. */
+  height?: number;
+  width?: number;
+  /** V1 only. */
+  kernel_size?: number;
+  in_channels?: number;
+}
+
+/** V1 — layer 1 only (D13, decidido 2026-07-17).
+ *
+ * The rule is `in_channels === 1`, not "the first layer": with one input channel
+ * a filter **is** a matrix and applies to the patch itself, so what you see is
+ * exact. From layer 2 on a filter is 32 or 64 matrices over channels that are not
+ * the image, and there is no honest projection — that information is in the
+ * feature maps (V2). */
+export interface Kernels extends LayerPayload {
+  layers_in_backbone: number;
+  deep_layers_note: string;
+}
+
+export const getKernels = (run: string) =>
+  request<Kernels>(`/runs/${encodeURIComponent(run)}/kernels`);
+
+export interface FeatureMaps {
+  input_size: number;
+  layers: LayerPayload[];
+  prediction: {
+    corners: { corner: string; score: number; x: number; y: number }[];
+    corner_order: string[];
+  };
+}
+
+/** V2 — **the input is a patch** (contract ①): the patch is the real input of the
+ *  CNN. A whole image is F's question and goes to `predict`. */
+export const getFeatureMaps = (
+  run: string,
+  body: { patch_dataset: string; index: number } | { patch: number[][]; border?: number[] }
+) =>
+  request<FeatureMaps>(`/runs/${encodeURIComponent(run)}/feature-maps`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export interface DetectionDto {
+  corner: string;
+  x: number;
+  y: number;
+  score: number;
+}
+
+/** V11 — **the three stages**, not just the last one.
+ *
+ * The failure is born in exactly one of them and they are fixed in different
+ * places: stage 1 is the model (C, D); NMS and the pairing are knobs of F you
+ * turn without retraining. Without `raw`, "the paragraph came out wrong" is not
+ * diagnosable — you cannot tell a corner that was never detected from one NMS
+ * ate. */
+export interface Prediction {
+  /** Pre-NMS: what the window found, above `threshold`. */
+  raw: DetectionDto[];
+  /** Post-NMS: what survived. */
+  corners: DetectionDto[];
+  /** Post-pairing: `[x, y, w, h]` per paragraph. */
+  paragraphs: { box: number[]; score: number }[];
+  image_size: number[];
+  /** Echoed back. The sliders are live, so answers arrive out of order: without
+   *  this, a slow response overwrites a newer one. */
+  knobs: { threshold: number; stride: number; nms_radius: number; min_size: number };
+  source: string;
+  index: number;
+}
+
+/** The knobs are **F, not D** (organizacion.md §1-D): chosen per call over a
+ *  model already trained. Sweeping them costs a forward pass, not an afternoon —
+ *  which is why they are sliders and not a form you submit. */
+export interface PredictKnobs {
+  threshold: number;
+  /** The stride of INFERENCE. **Not B's**, which is part of the dataset's
+   *  identity — the shared name is a dangerous coincidence (glosario.md). */
+  stride?: number;
+  nms_radius?: number;
+  min_size: number;
+}
+
+export const predict = (run: string, source: string, index: number, knobs: PredictKnobs) =>
+  request<Prediction>(`/runs/${encodeURIComponent(run)}/predict`, {
+    method: "POST",
+    body: JSON.stringify({ source, index, ...knobs }),
+  });
+
 // ── X: jobs ──────────────────────────────────────────────────────────────────
 
 export interface Job {

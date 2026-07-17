@@ -103,7 +103,7 @@ La columna que lleva la información es **qué fase lo quita**: es la barra de p
 | **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B | **4** | ✅ |
 | **③** | B en uso | `DELETE` de un B que un run referencia → **409 con la lista** | **2** | ✅ |
 | **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** | ✅ |
-| **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **6** — `itf.geometry` nace en la 2, pero hasta que exista F no hay dos lados que comparar | xfail |
+| **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana (`extract.windows is predict.windows`, y los flags escritos == `geometry`) | **6** | ✅ |
 | **⑦** | dirección de dependencias | `itf.models` importa de `itf.geometry` (G) pero **no** de `itf.datasets` (A); `itf.validation` no importa nada de `itf` | **3** | ✅ |
 | **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; la semilla de B sola decide el split | **2** | ✅ |
 | **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** | xfail |
@@ -157,12 +157,13 @@ barato. La capa objetivo:
 |---|---|
 | `itf.geometry` (G: el vocabulario y la ventana) | — |
 | `itf.datasets` (A) | — |
+| `itf.matrixview` (matriz → payload) | **nada de `itf`** — es puro: arrays. Y así se queda: es lo que la mantiene extraíble (librerias.md §5) |
 | `itf.models` (C) | **solo `geometry`** |
 | `itf.validation` (contratos ① y ②) | **nada de `itf`** — es puro: dos dicts |
 | `itf.metrics` (qué significan los números) | **nada de `itf`** — es puro: arrays |
 | `itf.patches` (B) | `datasets`, `geometry` |
 | `itf.training` (D) | `patches`, `models`, `validation`, `metrics`, `geometry` |
-| `itf.inference` (F) | `models`, `geometry` — **no `patches`** |
+| `itf.inference` (F) | `models`, `geometry`, `matrixview` — **no `patches`** |
 | `itf.diagnostics` (E×B) | `patches`, `training`, `inference`, `metrics`, `geometry` |
 | `itf.api` | todos |
 

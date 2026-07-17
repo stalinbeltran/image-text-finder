@@ -347,18 +347,54 @@ fase se cumplió con números**:
   el validador ya los aprobó el uno contra el otro. Solo para dos clases: una tercera pediría un
   hue, y los hues son de D12.
 
-### Fase 6 — Mapas, kernels y el pipeline
+### Fase 6 — Mapas, kernels y el pipeline — ✅ **hecha (2026-07-17)** ← *cierra el ⑤*
 
 1. **Back**: `GET /runs/{name}/kernels` y `POST /runs/{name}/feature-maps` (**entrada = un
-   patch**, contrato ①). Reusar `map_payload` del proyecto hermano tal cual.
+   patch**, contrato ①). `map_payload` portado a **`itf.matrixview`**, aislado y sin importar `itf`.
 2. **Front**: V1 (kernels de capa 1, **divergente centrada en 0**) y V2 (feature maps,
-   secuencial), ambos con click → tabla de números.
-3. **Back**: exponer las detecciones **crudas pre-NMS**; **Front**: V11 (etapas del pipeline en
-   Predecir) + los knobs baratos como sliders con repintado en vivo.
+   secuencial/divergente según `spec.activation`), ambos con click → tabla de números.
+3. **Back**: `itf.inference.predict` con las detecciones **crudas pre-NMS**; **Front**: V11 (etapas
+   del pipeline en Predecir) + los knobs baratos como sliders con repintado en vivo.
 
-**Verificación**: los kernels de capa 1 de un run entrenado deben parecer **detectores de borde
-orientados**. Si parecen ruido, la red no aprendió — y eso es información, no un bug de la
-vista.
+Y de propina, porque su fase le tocaba (api.md §3): **V9** (`GET /diagnostics/coactivation`) y el
+**caché de modelos** movido de `app.py` a `itf.inference.ModelCache` (api.md §0).
+
+**Verificado**: 120 tests pasan (queda 1 xfail, ⑨). Los endpoints, **contra la API de verdad**
+sobre un run entrenado: los kernels de capa 1 salen con **estructura de signo** (job `diverging`,
+8 filtros 3×3), V2 devuelve las dos capas con su predicción, V11 da **18 crudas → 11 esquinas → 3
+párrafos** y los knobs vuelven en el payload. Front: `tsc` y `build` limpios, la paleta valida, y
+**las dos pantallas montan en Chrome headless** (Diagnóstico con V1/V9, Predecir con V11), cero
+errores, con el run seleccionado y la procedencia en pantalla.
+
+**Xfails que quita**: ⑤ (la geometría compartida). Queda ⑨ (fase 7).
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **La regla de D13 no es «capa 1», es `in_channels == 1`.** La capa 1 solo es la que la cumple: con
+  un canal de entrada un filtro **es** una matriz y se aplica al patch. Una red con `in_channels: 3`
+  tiene el mismo problema una capa antes, y servir `weight[:, 0]` ahí sería la proyección deshonesta
+  que D13 rechaza con un número de capa más convincente. Así que `kernels` se **niega** (código
+  `kernels_not_projectable`) sobre `in_channels != 1` y manda a V2, en vez de mirar solo el índice.
+- **V9 miente sin su control, y el control es la co-ocurrencia real.** `matrix[TL][TR]` alto tiene
+  dos causas opuestas —la cabeza TR confundida por un TL, **o** que esos patches de verdad llevan un
+  TR— y la matriz sola no las distingue. Sobre el run de prueba salió justo el caso que lo enseña:
+  `truth_rate` es 0 fuera de la diagonal y la cabeza TR dispara 0,36 dado un TL real ⇒ eso **es**
+  confusión, no convivencia. Sin la matriz de al lado se leería como que los párrafos comparten
+  esquina. Es la familia del moteado de V7: cierto, presentado para que la lectura obvia sea falsa.
+- **El trabajo de color se lee de `spec.activation`, no del dato.** El atajo
+  `"diverging" if maps.min() < 0 else "sequential"` es falso por patch: una capa `tanh` cuyas
+  activaciones salgan todas positivas en **este** patch volvería secuencial, y divergente en el
+  siguiente — el color significaría dos cosas en dos capturas de la misma red. Test incluido con una
+  capa `tanh` y un patch plano.
+- **El caché de modelos necesita el `mtime`, y por lo mismo que la tabla por patch (fase 5).**
+  `best.pt` se reescribe cada época que mejora, así que un caché por ruta serviría los pesos de la
+  época 5 para siempre — mirarías un run mejorar y sus kernels no cambiarían. Con la clave de mtime
+  se invalida solo; el caché viejo necesitaba un `_drop_model_cache` a mano en rename/delete, éste
+  no. Hay test que reescribe el checkpoint y comprueba que el modelo devuelto cambia.
+- **`matrixview` se construyó pero no se extrajo** (D9/D10 siguen abiertas y `claude-libs/` no
+  existe). Vive aislada en `src/itf/matrixview/`, sin un solo import de `itf` — la condición que
+  librerias.md §5 pide **antes** de extraer. La extracción queda en un `git mv`, coherente con que
+  las fases 3 y 4 tampoco extrajeron `convspec` ni `exp-registry`.
 
 ### Fase 7 — Cola de verdad y Barridos (H)
 

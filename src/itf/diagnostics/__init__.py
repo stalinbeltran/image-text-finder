@@ -16,7 +16,7 @@ and `geometry` -- it is the crossing of E and B, so of course it knows both.
 Nothing imports it back except `itf.api`.
 """
 
-from itf.diagnostics.aggregate import Diagnostics, error_map, pr, rows
+from itf.diagnostics.aggregate import Diagnostics, coactivation, error_map, pr, rows
 from itf.diagnostics.service import DEFAULT_CHECKPOINT, open_diagnostics
 from itf.diagnostics.table import (
     NotMeasurable,
@@ -33,6 +33,7 @@ __all__ = [
     "PatchTable",
     "TableCache",
     "TableKey",
+    "coactivation",
     "compute_table",
     "error_map",
     "open_diagnostics",

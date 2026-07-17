@@ -1168,3 +1168,94 @@ code {
   font-size: 12px;
   color: var(--itf-ink-secondary);
 }
+
+/* ── fase 6: V1/V2 layer maps, V9 coactivation, V11 pipeline ───────────────── */
+
+/* A layer of heat maps. `image-rendering: pixelated` on the canvases (in
+   .matrix-canvas) keeps a 3x3 kernel crisp; here we just lay them out. */
+.layer__maps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+/* V9: the fired-rate matrix and its truth-rate control, side by side and at the
+   SAME size -- the control is only a control if it is read against the other, so
+   burying it or shrinking it would defeat the point (ui.md §4.1). */
+.coactivation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 12px 0;
+}
+
+.coactivation__panel {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+/* V11: the knobs are sliders, not a form. They repaint live, so the layout keeps
+   them in view next to the image rather than in a submit-and-wait panel. */
+.controls--knobs {
+  gap: 10px 24px;
+}
+
+.knob {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 160px;
+}
+
+.knob__label {
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.knob input[type="range"] {
+  width: 100%;
+}
+
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.predict-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  max-width: 640px;
+}
+
+/* While a new prediction is in flight the last one stays on screen, dimmed. The
+   sliders are live and a blank frame between every drag step would strobe --
+   keeping the stale image is what makes the repaint read as continuous. */
+.predict-stage.is-stale {
+  opacity: 0.6;
+}
+
+.predict-stage__box {
+  fill: none;
+  stroke: var(--itf-ink);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.8;
+}
+
+.predict-stage__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+  color: var(--itf-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}

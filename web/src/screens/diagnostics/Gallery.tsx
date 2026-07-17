@@ -3,6 +3,7 @@ import { getDiagnosticPatches, type Outcome, type PatchRow, type Split } from ".
 import { Empty, ErrorNote, Loading } from "../../components/Async";
 import { Declares } from "../../components/Declares";
 import { useAsync } from "../../useAsync";
+import { FeatureMaps } from "./FeatureMaps";
 import { Prediction } from "./Prediction";
 import { Thumbnail } from "./Thumbnail";
 
@@ -142,12 +143,19 @@ export function Gallery({
       )}
 
       {selected && (
-        <Prediction
-          patchDataset={patchDataset}
-          row={selected}
-          threshold={threshold}
-          onClose={() => setSelected(null)}
-        />
+        <>
+          <Prediction
+            patchDataset={patchDataset}
+            row={selected}
+            threshold={threshold}
+            onClose={() => setSelected(null)}
+          />
+          {/* V2 fixes the same thing V3 does — this run, this patch — so it opens
+              on the same click. V3 says what the model decided; V2 says what it
+              saw on the way there. Splitting them across screens would mean
+              picking the same patch twice to ask one question. */}
+          <FeatureMaps run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
+        </>
       )}
     </section>
   );

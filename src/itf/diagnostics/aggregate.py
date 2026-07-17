@@ -240,6 +240,67 @@ def error_map(diag: Diagnostics, corner: str | None = None, bins: int | None = N
     }
 
 
+def coactivation(diag: Diagnostics, threshold: float = DEFAULT_THRESHOLD) -> dict:
+    """V9 — given the truth was TL, which heads fired? A 4×4 rate matrix.
+
+    **Not a confusion matrix, and the difference is the whole view** (ui.md §4.1).
+    The four heads are independent binaries, not a softmax: a patch can fire two
+    at once, or none, and the rows do not sum to anything. `matrix[i][j]` is
+    `P(head j fires | corner i really present)` -- the diagonal is recall, and the
+    off-diagonal is what nothing else in the catalogue shows. **TL↔TR is the
+    textbook failure here**: they are mirror images, and this is the only view
+    where that would be visible.
+
+    **`truth_rate` is the control, and without it the view lies.** `matrix[TL][TR]`
+    being high has two completely different explanations: the TR head is confused
+    by a TL, **or** these patches genuinely contain a real TR as well -- two
+    paragraphs, or one narrow enough to fit both corners in 40 px. Those demand
+    opposite responses, and the matrix alone cannot tell them apart. So
+    `truth_rate[i][j]` = `P(corner j really present | corner i really present)`
+    ships alongside: where the two agree, the head is right and the corners simply
+    co-occur; where `matrix` runs above `truth_rate`, that is the confusion.
+
+    Reading a co-occurrence as confusion is the same error V7's speckle was --
+    something true, presented so that the obvious reading of it is false.
+
+    `counts` travels for the reason it does in `error_map`: a row built on 3
+    patches paints exactly like one built on 300 (ui.md §4.1).
+    """
+    exists = diag.exists  # (M, 4) bool
+    fired = diag.table.score >= threshold  # (M, 4) bool
+
+    n = len(CORNER_NAMES)
+    matrix: list[list[float | None]] = []
+    truth_rate: list[list[float | None]] = []
+    counts = [int(exists[:, i].sum()) for i in range(n)]
+
+    for i in range(n):
+        rows_i = exists[:, i]
+        total = counts[i]
+        if total == 0:
+            # No patch has this corner, so there is no rate. **None, not 0**
+            # (formatos.md §2): 0 would read as "the head never fires for it",
+            # which is a measurement, and nothing was measured.
+            matrix.append([None] * n)
+            truth_rate.append([None] * n)
+            continue
+        matrix.append([float(fired[rows_i, j].sum()) / total for j in range(n)])
+        truth_rate.append([float(exists[rows_i, j].sum()) / total for j in range(n)])
+
+    return {
+        "corner_order": list(CORNER_NAMES),
+        "threshold": threshold,
+        #: Rows = the corner that is really there; columns = the head that fired.
+        "matrix": matrix,
+        #: Same shape, same rows: how often corner j is REALLY there too. The
+        #: baseline `matrix` has to be read against.
+        "truth_rate": truth_rate,
+        "counts": counts,
+        # A rate in [0, 1] is a magnitude, not a signed quantity: sequential (R3).
+        "job": "sequential",
+    }
+
+
 def _order_key(diag: Diagnostics, corner: int | None, order: str) -> np.ndarray:
     """The sort key, descending. NaN sinks: "no corner" is not "no error"."""
     if order == "patch":

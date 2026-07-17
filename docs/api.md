@@ -31,7 +31,7 @@ comprueba que la reconstrucción no repite el error:
 | `_split_map()` | B | `itf.patches.store.PatchDatasetStore.split_map` ✅ |
 | `_run_source()` | E→B→A (procedencia) | `itf.training.registry.RunStore` ✅ |
 | `_run_status()` | E | `itf.training.registry.RunStore.status` ✅ *(fase 4: explícito en `status.json`, no deducido)* |
-| `_MODEL_CACHE` | F | `itf.inference` — *fase 6* |
+| `_MODEL_CACHE` | F | `itf.inference.ModelCache` ✅ *(fase 6; clave `(ruta, device, mtime)`)* |
 
 ---
 
@@ -264,7 +264,7 @@ GET /runs/{name}/diagnostics/pr           curva PR + histograma      (V8)   ✅ 
       ?split=val&corner=TL
 GET /runs/{name}/diagnostics/error-map    mapa del patch             (V7)   ✅ fase 5
       ?split=val&corner=TL&bins=10
-GET /runs/{name}/diagnostics/coactivation matriz 4×4                 (V9)   — fase 6
+GET /runs/{name}/diagnostics/coactivation matriz 4×4 + truth_rate    (V9)   ✅ fase 6
 ```
 
 - **Síncronos** (R3): una pasada sobre val son ~10⁴ forwards por lotes, segundos. El primer GET
@@ -458,7 +458,7 @@ API"**:
 | **3** | `/models` → `/networks` + `DELETE` + `/validate`; **`/recipes` nuevo** — ✅ *(y el almacén con ellos: `configs/models/` → `configs/networks/`, formatos.md §4.3)* |
 | **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` — ✅ *(y `PATCH`/`DELETE` con 409 si corre)* |
 | **5** | `/diagnostics` + los agregados (caché) — ✅ *(`pr`, `error-map`, `patches`: síncronos y todos `GET`)* |
-| **6** | `/kernels`, `/feature-maps`; `raw` en predict |
+| **6** | `/kernels`, `/feature-maps`, `/predict` con `raw`, `/diagnostics/coactivation` — ✅ *(síncronos; el caché de modelos con clave de mtime salió de `app.py` a `itf.inference`, §0)* |
 | **7** | `/sweeps`; `/jobs/{id}/cancel` |
 
 Los renombres de R2 rompen `tests/test_api.py` (fija `/datasets`) y el front actual. Como el

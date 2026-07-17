@@ -9,16 +9,19 @@ Las imágenes las produce
 
 ---
 
-## Estado: fase 5 — la app se vuelve el instrumento
+## Estado: fase 6 — mapas, kernels y el pipeline
 
 Hechas las fases **0** (decisiones), **0.5** (los contratos en xfail), **1** (esqueleto y paleta),
-**2** (Fuentes y Patches), **3** (Redes y Recetas), **4** (Entrenar y Runs) y **5** (la tabla por
-patch y el diagnóstico) de [docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 6**:
-mapas, kernels y el pipeline.
+**2** (Fuentes y Patches), **3** (Redes y Recetas), **4** (Entrenar y Runs), **5** (la tabla por
+patch y el diagnóstico) y **6** (kernels, feature maps y el pipeline de inferencia) de
+[docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 7**: la cola de verdad y los barridos
+(H).
 
-**Se entrena desde la UI y el run sabe de dónde salió** (dato → red → receta → run), y desde la
-fase 5 **se puede mirar qué hace ese run, patch a patch**: la tabla por patch —un caché— y las
-vistas V3, V6, V7 y V8, más las curvas de entrenamiento en small multiples.
+**Se entrena desde la UI y el run sabe de dónde salió** (dato → red → receta → run), **se puede
+mirar qué hace ese run, patch a patch** (la tabla por patch —un caché— y las vistas V3, V6, V7, V8,
+más las curvas en small multiples), y desde la fase 6 **se puede mirar por dentro y aplicarlo a una
+imagen entera**: los kernels de la capa 1 (V1), los feature maps de un patch (V2), la co-activación
+de tipos (V9) y el pipeline de predicción con sus tres etapas (V11) en la pantalla **Predecir**.
 
 Lo que compró, medido sobre `fase4-ui` la primera vez que se usó el instrumento:
 
@@ -59,10 +62,10 @@ cd web
 npm run dev                                     # http://localhost:5173
 ```
 
-Funcionan de verdad **Fuentes**, **Patches**, **Redes**, **Recetas**, **Entrenar**, **Runs** y
-**Diagnóstico**: el flujo entero, de la imagen al modelo entrenado y de ahí a mirar qué hace. Las
-dos que quedan (Predecir, Barridos) están vacías y cada una dice qué fase la construye.
-`/kitchen` es donde se mira la paleta y los componentes base.
+Funcionan de verdad **Fuentes**, **Patches**, **Redes**, **Recetas**, **Entrenar**, **Runs**,
+**Diagnóstico** y **Predecir**: el flujo entero, de la imagen al modelo entrenado, de ahí a mirar
+qué hace y a aplicarlo a una imagen. La que queda (**Barridos**) está vacía y dice qué fase la
+construye. `/kitchen` es donde se mira la paleta y los componentes base.
 
 Las imágenes fuente salen de [image-text-sample-generator](../image-text-sample-generator) y se
 buscan en `../image-text-sample-generator/data/datasets`. Para apuntar a otro sitio:
@@ -259,6 +262,49 @@ Y si el dataset se reconstruyó bajo el mismo nombre desde que se entrenó el ru
 cuadra y el diagnóstico se niega** (contrato ⑧): su split ya no es el que ese `best.pt` usó para
 elegirse, así que los números saldrían con buena cara y medirían otra cosa.
 
+### Mirar por dentro y predecir (fase 6)
+
+**Kernels y feature maps** son introspección de un run entrenado, y su **entrada es un patch**, no
+una imagen: el patch es la entrada real de la CNN (contrato ①). Con la API corriendo:
+
+```powershell
+curl "http://127.0.0.1:8000/runs/<run>/kernels"                       # V1: pesos de la capa 1
+curl -X POST "http://127.0.0.1:8000/runs/<run>/feature-maps" -H "Content-Type: application/json" -d '{"patch_dataset":"<B>","index":0}'   # V2
+curl "http://127.0.0.1:8000/runs/<run>/diagnostics/coactivation?split=val"   # V9
+```
+
+- **V1 — kernels, y hasta dónde llegan.** Solo la **capa 1**, y no es una limitación por pereza: la
+  regla es `in_channels == 1`. Con un canal de entrada un filtro **es** una matriz 3×3 y se aplica
+  al patch mismo, así que lo que ves es exacto y **debería parecer un detector de borde orientado**
+  — si parece ruido, la red no aprendió. De la capa 2 en adelante un filtro son 32 o 64 matrices
+  sobre canales que no son la imagen: no hay proyección honesta, y el endpoint **se niega**
+  (`kernels_not_projectable`) y te manda a los feature maps. Se pintan **divergentes centrados en
+  0** (R2): un peso tiene signo, y esconderlo esconde lo que un kernel es.
+- **V9 — co-activación, con su control.** *Dado que la esquina real era TL, ¿qué cabezas
+  dispararon?* No es una matriz de confusión (las 4 cabezas son binarias independientes). Y sola
+  **miente**: que la cabeza TR dispare mucho ante un TL puede ser confusión **o** que esos patches
+  lleven de verdad un TR. Por eso viaja `truth_rate` al lado — la co-ocurrencia real — y se leen una
+  contra otra: donde la de disparos va por encima de la de verdad, **eso** es confusión.
+
+**Predecir** (`/predict`) aplica el run a una **imagen entera** y devuelve **las tres etapas**:
+
+```powershell
+curl -X POST "http://127.0.0.1:8000/runs/<run>/predict" -H "Content-Type: application/json" -d '{"source":"<fuente>","index":0,"threshold":0.5}'
+```
+
+```jsonc
+{ "raw": [ … ],          // detecciones por ventana, PRE-NMS
+  "corners": [ … ],      // tras fusionar duplicados (NMS)
+  "paragraphs": [ … ],   // tras emparejar TL→BR
+  "knobs": { "threshold": 0.5, "stride": 20, "nms_radius": 10, "min_size": 4 } }
+```
+
+Sin `raw`, «el párrafo salió mal» no es diagnosticable: no sabes si la esquina no se detectó o si la
+comió el NMS. Los cuatro **knobs son de F, no de la receta**: se ajustan post-hoc sobre el modelo ya
+entrenado, así que en la UI son **sliders con repintado en vivo** y mover cualquiera **no reentrena
+nada** — es un forward, no una tarde. El payload **devuelve los knobs** con los que se calculó,
+porque los sliders son en vivo y las respuestas llegan desordenadas.
+
 ### La paleta se valida, no se opina
 
 ```powershell
@@ -284,13 +330,13 @@ La **barra de progreso del plan**: un test por contrato de `docs/organizacion.md
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Salida esperada hoy: **`90 passed, 2 xfailed`**, en verde y en ~17 s. Que estén en xfail no es
+Salida esperada hoy: **`120 passed, 1 xfailed`**, en verde y en ~19 s. Que esté en xfail no es
 deuda: es el mecanismo. Cuando una fase implementa su contrato, el test pasa, el **XPASS estricto
 pone la suite en rojo** y obliga a quitar el marcador — así "lo que falta" es una lista ejecutable
 en vez de prosa que envejece. Ver [docs/tests.md](docs/tests.md) §2.
 
-Los 2 que quedan son los contratos ⑤ (fase 6) y ⑨ (fase 7), y **fallan por lo correcto**: no
-existen `itf.inference.predict` ni `POST /sweeps`.
+El que queda es el contrato ⑨ (fase 7), y **falla por lo correcto**: no existe `POST /sweeps`. La
+fase 6 quitó el ⑤ (`itf.inference.predict` importa la ventana de `itf.geometry`, no la reteclea).
 
 ### El entorno
 
@@ -325,18 +371,20 @@ Lee [CLAUDE.md](CLAUDE.md): abre con el estado y enlaza los once documentos. En 
 src/itf/
 ├── geometry/    # la ventana deslizante, compartida por extracción e inferencia (contrato ⑤)
 ├── metrics.py   # qué significan pos_err_px y la f1. Un sitio, dos lectores (D y el diagnóstico)
+├── matrixview/  # matriz de números -> payload (números + trabajo de color). SIN importar itf: lista para extraer
 ├── validation/  # compatibilidad B↔C: función pura de dos dicts (contratos ①②)
 ├── datasets/    # lee labels.jsonl (SAMPLE_FORMAT)
 ├── patches/     # extracción n×n -> .npz  +  torch Dataset
 ├── models/      # config -> CNN + cabeza de esquinas
 ├── training/    # pérdidas, bucle, checkpoints, métricas
-├── inference/   # detección por ventana deslizante + reconstrucción de párrafos
-├── diagnostics/ # E×B: la tabla por patch (un CACHÉ) y sus agregados — V6, V7, V8
+├── inference/   # load_model (④) · predict (F, 3 etapas) · kernels/feature_maps (V1/V2) · ModelCache
+├── diagnostics/ # E×B: la tabla por patch (un CACHÉ) y sus agregados — V6, V7, V8, V9
 └── api/         # FastAPI: un recurso por dominio
 web/             # Vite + React
 ├── src/theme/    # tokens.css: LA PALETA, y solo aquí
-├── src/components/  # MatrixCanvas, Meter, PatchCanvas, PlotFigure, TrainingCurves, Declares…
-├── src/screens/diagnostics/   # V3, V6, V7, V8
+├── src/components/  # MatrixCanvas, LayerMaps, Meter, PatchCanvas, PlotFigure, Declares…
+├── src/screens/diagnostics/   # V1, V2, V3, V6, V7, V8, V9
+├── src/screens/Predict.tsx    # V11: las tres etapas + los knobs de F como sliders
 └── scripts/      # validate-palette.mjs
 configs/         # networks/*.yaml (redes)  ·  recipes/*.yaml (recetas)
 tests/           # test_contracts.py: un test por contrato  ·  test_diagnostics.py: las costuras

@@ -368,7 +368,6 @@ def test_contract_04_a_checkpoint_that_cannot_describe_itself_is_refused(tmp_pat
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ⑤: sin implementar, plan-ui.md fase 6")
 def test_contract_05_extraction_and_inference_see_the_same_window(tmp_path):
     """Not "is `positions` correct?" but "do B and F see the same window?".
 

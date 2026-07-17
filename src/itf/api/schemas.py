@@ -87,6 +87,60 @@ class RenameRunBody(BaseModel):
     name: str = Field(min_length=1)
 
 
+class FeatureMapsBody(BaseModel):
+    """`POST /runs/{name}/feature-maps` (V2).
+
+    **The input is a patch** (contract ①): the patch is the real input of the CNN.
+    A whole image is F's question and goes to `/predict`. Two ways to name one,
+    and the pair is what makes the view usable:
+
+    - `{patch_dataset, index}` — a patch of a B, by index. Its border flags come
+      from the dataset, so they are the real ones.
+    - `{patch: [[…]], border: […]}` — the pixels inline, for a patch that is not
+      stored anywhere (V5's scrubber crops one out of an image).
+
+    `border` is optional **only because a network without `border_features` never
+    reads it**. If the network uses it and it is missing, the domain refuses --
+    zeros would mean "touches no edge", which is a claim, not a default
+    (formatos.md §2).
+    """
+
+    patch_dataset: str | None = None
+    index: int | None = None
+    #: Raw pixels, `(n, n)`, 0-255. `n` must equal the network's `input_size`.
+    patch: list[list[float]] | None = None
+    #: The 4 flags in BORDER_NAMES order: top, right, bottom, left.
+    border: list[int] | None = None
+
+
+class PredictBody(BaseModel):
+    """`POST /runs/{name}/predict` (F, V11).
+
+    `source` + `index` names an image of A; the path is resolved inside the domain
+    and never sent by the client (D4).
+
+    **The four knobs are F, not D** (organizacion.md §1-D): they are chosen per
+    call over a model that is already trained, so they are sliders with live
+    repaint rather than fields of a form you submit (ui.md §2). Sweeping them
+    costs a forward pass; putting them in D would cost afternoons.
+    """
+
+    source: str = Field(min_length=1)
+    index: int
+    #: `p(exists)` above which a detection counts.
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    #: The stride of INFERENCE, chosen per call. **Not B's stride**, which is part
+    #: of the dataset's identity -- the shared name is a dangerous coincidence
+    #: (contract ⑤, glosario.md). Defaults to half the patch.
+    stride: int | None = Field(default=None, gt=0)
+    #: Defaults to `stride / 2`: two windows are `stride` apart, so anything
+    #: closer than half of that is the same corner seen twice.
+    nms_radius: float | None = Field(default=None, ge=0.0)
+    #: Boxes thinner than this are two corners that happened to pair, not a
+    #: paragraph.
+    min_size: float = Field(default=4.0, ge=0.0)
+
+
 class RecipeBody(BaseModel):
     """`POST /recipes`. D, and only D.
 

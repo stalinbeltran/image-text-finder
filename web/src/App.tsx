@@ -6,6 +6,7 @@ import { Diagnostics } from "./screens/diagnostics/Diagnostics";
 import { Kitchen } from "./screens/Kitchen";
 import { Networks } from "./screens/Networks";
 import { Patches } from "./screens/Patches";
+import { Predict } from "./screens/Predict";
 import { Recipes } from "./screens/Recipes";
 import { Runs } from "./screens/Runs";
 import { Sources } from "./screens/Sources";
@@ -21,6 +22,7 @@ const BUILT: Record<string, () => JSX.Element> = {
   "/train": Train,
   "/runs": Runs,
   "/diagnostics": Diagnostics,
+  "/predict": Predict,
 };
 
 /** The shell: four groups, no step numbers (ui.md §1). */

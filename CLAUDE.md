@@ -9,38 +9,46 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Fases 0, 0.5, 1, 2, 3, 4 y 5 hechas (2026-07-17). La siguiente es la [fase 6](docs/plan-ui.md)**:
-> los **mapas y kernels** (V1, V2 — `GET /runs/{name}/kernels`, `POST /runs/{name}/feature-maps`,
-> **entrada = un patch**) y el **pipeline** (F: `itf.inference.predict`, ventana + NMS +
-> reconstrucción, y V11 con las crudas pre-NMS). **No quedan decisiones bloqueando**; lo abierto en
+> **Fases 0, 0.5, 1, 2, 3, 4, 5 y 6 hechas (2026-07-17). La siguiente es la [fase 7](docs/plan-ui.md)**:
+> la **cola de verdad** (límite de workers = 1 en CPU, persistencia, cancelación) y los **barridos**
+> (H) con `optuna`. Es la que resucita el **contrato ⑨** (`POST /sweeps` rechaza `objective=loss` si
+> `lambda_pos` varía), su único xfail restante. **No quedan decisiones bloqueando**; lo abierto en
 > [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase.
 >
-> **La fase 6 es la que puede resucitar el contrato ⑤**, que es su único xfail y el más importante
-> de la lista: al escribir la inferencia, **lo que sale natural es reteclear las seis líneas de la
-> ventana** en vez de importarlas de `itf.geometry`. El test está puesto para que no cuele.
+> **La fase 6 cerró el contrato ⑤**: `itf.inference.predict` importa la ventana de `itf.geometry`
+> (`extract.windows is predict.windows`) y usa `win.border` **tal cual**, sin reteclear los flags —
+> hay test (`test_contract_05`) que lo fija. Solo queda **⑨** en xfail.
 >
-> **El flujo completo funciona: dato → red → receta → run → diagnóstico**, y desde la UI. Por CLI:
-> `itf-train --name <run> --patch-dataset <B> --network <C> --recipe <D> --device cpu`. Toma
-> **nombres**, no valores: es lo que hace que la procedencia se sostenga sola.
+> **El flujo completo funciona: dato → red → receta → run → diagnóstico → predicción**, y desde la
+> UI. Por CLI: `itf-train --name <run> --patch-dataset <B> --network <C> --recipe <D> --device cpu`.
+> Toma **nombres**, no valores: es lo que hace que la procedencia se sostenga sola.
 >
-> **Ya existen**: `itf.geometry` (G), `itf.metrics` (las definiciones de los números), `itf.datasets`
-> (A), `itf.patches` (B), `itf.models` (C), `itf.validation` (①② + `check_run`), `itf.training`
-> (D+E), `itf.inference.load_model` (④, lo único de F), **`itf.diagnostics`** (E×B: la tabla por
-> patch, sus agregados y su caché) e `itf.api` (`/sources`, `/patch-datasets`, `/jobs`, `/networks`,
-> `/recipes`, `/runs`, **`/runs/{n}/diagnostics/{pr,error-map,patches}`**). Faltan
-> `itf.inference.predict` (F) y el barrido (H). El código anterior sigue en el tag **`pre-rediseno`**
-> — consúltalo para **algoritmos**, no para estructura:
-> `git show pre-rediseno:src/itf/inference/predict.py`.
+> **Ya existen**: `itf.geometry` (G), `itf.metrics` (las definiciones de los números),
+> `itf.matrixview` (matriz→payload, **sin importar nada de `itf`**, lista para extraer — ver abajo),
+> `itf.datasets` (A), `itf.patches` (B), `itf.models` (C), `itf.validation` (①② + `check_run`),
+> `itf.training` (D+E), **`itf.inference` completo** (④ `load_model`, F `predict_image` con las tres
+> etapas, V1 `kernels`, V2 `feature_maps`, `ModelCache` con clave de mtime), **`itf.diagnostics`**
+> (E×B: tabla por patch, agregados —`pr`, `error_map`, `rows`, **`coactivation`** V9— y caché) e
+> `itf.api` (todo lo anterior + **`GET /runs/{n}/kernels`**, **`POST /runs/{n}/feature-maps`**,
+> **`POST /runs/{n}/predict`** con `raw` pre-NMS, **`GET /runs/{n}/diagnostics/coactivation`**). Solo
+> falta el barrido (H). El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para
+> **algoritmos**, no para estructura.
+>
+> **`itf.matrixview` está aislado pero NO extraído** (decisión de la fase 6, 2026-07-17):
+> `claude-libs/` no existe —las fases 3 y 4 tampoco extrajeron `convspec` ni `exp-registry`— y
+> extraer cierra D9/D10. Vive en `src/itf/matrixview/`, no importa nada de `itf`, así que la
+> extracción es luego un `git mv` + `pyproject.toml` (librerias.md §5). Si lo tocas, **no le metas
+> dependencias de `itf`**: eso es lo único que lo mantiene extraíble.
 >
 > **Las dos puertas de entrenar son una**: `POST /runs` e `itf-train` preguntan a
 > `itf.validation.check_run` y reservan con `RunStore.create`. Si añades una tercera (el barrido de
 > la fase 7), pasa por ahí: **la puerta que queda más laxa es por la que entra el barrido**.
 >
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *90 passed, 2 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *120 passed, 1 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
-> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Quedan ⑤ (fase 6)
-> y ⑨ (fase 7)** — la fase 5 no tenía ninguno que quitar.
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Solo queda ⑨
+> (fase 7)** — la fase 6 quitó el ⑤.
 >
 > **La tabla por patch es un caché y no una entidad** (D1): no se nombra, no se lista, no hay
 > pantalla de Evaluaciones. Vive en `data/cache/diagnostics/` y **borrarla no pierde nada** — hay un
@@ -56,8 +64,14 @@ Ver [README.md](README.md) para montar y correr.
 > **Arrancar**: `.\.venv\Scripts\python -m itf.api` (8000) y `cd web && npm run dev` (5173). El
 > front proxya `/api` al backend. **La paleta vive en `web/src/theme/tokens.css` y solo ahí** —
 > `npm run validate:palette` la valida parseando ese fichero. Si tocas un color, córrelo: no se
-> elige a ojo (D12). **Observable Plot entró en la fase 5** (V8, V14); las matrices (V1, V2, V4, V7)
-> siguen en canvas a mano, y eso es deliberado (ui.md §0).
+> elige a ojo (D12). **Observable Plot entró en la fase 5** (V8, V14); las matrices (V1, V2, V7, V9)
+> siguen en canvas a mano (`MatrixCanvas`), y eso es deliberado (ui.md §0). **V1 y V2 comparten
+> renderer** (`components/LayerMaps.tsx`): un kernel y un feature map se diferencian en qué
+> significan los números, no en qué son. **V2 abre con V3** (mismo `(run, patch)`, mismo clic en la
+> galería); **V1 y V9 son de Diagnóstico** y **V11 (las tres etapas + los sliders de F) vive en
+> Predecir**. El **trabajo de color lo declara el payload**, nunca se adivina: un peso es divergente
+> ±0 (R2), una activación mira `spec.activation` (R3) — deducirlo del dato pinta una capa `tanh` de
+> dos formas según el patch.
 >
 > El resto de `docs/` son **especificaciones, no descripciones**: lo no construido no está
 > ejecutado ni verificado. Cuando un documento cita un fichero y una línea (`app.py:61`,
@@ -148,6 +162,7 @@ extracción va enganchada a su fase de plan-ui.md, nunca como refactor aparte.
 | **F** | Inferencia | Aplicar un E a una imagen completa | `inference/predict.py` |
 | **G** | Vocabulario | Nombres de esquina/borde, geometría de la ventana | *disperso* |
 | **E×B** | Diagnóstico | La tabla por patch y lo que se lee de ella. **Un caché, no un dominio** (D1) | `diagnostics/`, `data/cache/` |
+| **—** | matrixview | Matriz de números → payload (números + min/max/mean + trabajo de color). **Aislada, sin importar `itf`; lista para extraer** | `matrixview/` |
 | **X** | Ejecución | `device`, `num_workers`, concurrencia. **Cuesta tiempo, no cambia el resultado** | `api/jobs.py` |
 
 ### Antes de tocar nada, pregúntate a qué dominio pertenece
@@ -171,10 +186,12 @@ doc. Respétalo explícitamente o actualiza el doc — no lo dejes implícito.
   que lo sostiene es una costumbre: **toda puerta que entrene pregunta a `itf.validation.check_run`
   antes de reservar el nombre**. Hoy son dos (`POST /runs`, `itf-train`); el barrido será la
   tercera. Una puerta que se salte el validador vuelve a reventar dentro del hilo del job.
-- **⑤ La geometría de la ventana** está **duplicada** entre `patches/extract.py` e
-  `inference/predict.py` (que además importa la privada `_positions`). Si tocas una, toca la
-  otra: no hay test que lo pille. *(En el diseño nuevo vive en `itf.geometry`; el riesgo es que la
-  duplicación **vuelva** al escribir F en la fase 6, que es lo que sale natural.)*
+- **⑤ La geometría de la ventana** — **cerrado en la fase 6.** Vive en `itf.geometry.windows` y la
+  importan B (`patches/extract.py`) y F (`inference/predict.py`); F usa `win.border` **tal cual**.
+  Sigue aquí porque lo que lo sostiene es una costumbre: **reteclear las seis líneas de los flags de
+  borde es lo que sale natural** al tocar la inferencia. `test_contract_05` afirma
+  `extract.windows is predict.windows` y que los flags escritos == los que dice `geometry` — no
+  «¿es correcta `positions`?», sino «¿ven B y F la misma ventana?».
 - **⑨ El objetivo de un barrido no puede ser la val loss si varía `lambda_pos`** — cada punto
   se mediría con una pérdida distinta y "ganaría" λ=0.
 - **⑩ `batch_size` es D, no X.** Subirlo al pasar a GPU invalida la comparación con lo

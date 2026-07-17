@@ -3,8 +3,10 @@ import { listRuns, type RunRow, type Split } from "../../api";
 import { Empty, ErrorNote, Loading } from "../../components/Async";
 import { CORNER_NAMES } from "../../theme/palette";
 import { useAsync } from "../../useAsync";
+import { Coactivation } from "./Coactivation";
 import { ErrorByPosition } from "./ErrorByPosition";
 import { Gallery } from "./Gallery";
+import { Kernels } from "./Kernels";
 import { ScoresPr } from "./ScoresPr";
 
 /** Diagnóstico (E × B) — **the corazón** of ui.md §1, and where the app stops
@@ -117,6 +119,10 @@ export function Diagnostics() {
             onThreshold={setThreshold}
           />
           <ErrorByPosition run={selected.name} split={split} corner={corner} />
+          {/* V9 reads the same cached table as V7/V8: given the truth, which
+              heads fired. It fixes the run and the split, not a corner — it is
+              about all four at once — so it sits with the split-level views. */}
+          <Coactivation run={selected.name} split={split} threshold={threshold} />
           <Gallery
             run={selected.name}
             patchDataset={selected.provenance!.patch_dataset.name}
@@ -124,6 +130,10 @@ export function Diagnostics() {
             corner={corner}
             threshold={threshold}
           />
+          {/* V1 fixes only the run: no split, no patch, no forward pass — just the
+              weights. Last because it answers a different question (did the net
+              learn?) from the split-level diagnosis above it. */}
+          <Kernels run={selected.name} />
         </>
       )}
     </section>

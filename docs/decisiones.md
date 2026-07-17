@@ -32,10 +32,9 @@ o resultados de investigación que el barrido mismo contestará.
 |---|---|---|---|
 | **D7** | ¿La métrica de párrafo soporta rotación, o compara contra el *bbox* del `quad`? | Bbox: basta con `clear-paragraphs` (`angle≈0`). Con `mixed-layout`, no | protocolo.md §2 |
 | **D8** | ¿Añadir `limit` de train a `PatchExtractConfig`? | **Sí**, ahora que `num_images` es un eje del barrido (D6): deja de ser un truco y pasa a ser un parámetro que se mide | protocolo.md §3 |
-| **D9** | Nombres de las librerías (`exp-registry`, `jobq`, `convspec`, `matrixview`) | Provisionales; decidir al extraer la primera | librerias.md §1 |
-| **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala | librerias.md §4 |
+| **D9** | Nombres de las librerías (`exp-registry`, `jobq`, `convspec`, `matrixview`) | Provisionales; decidir al extraer la primera. **Sigue abierta**: la fase 6 construyó `matrixview` aislado pero **no lo extrajo** (`claude-libs/` no existe) | librerias.md §1 |
+| **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala. **Sigue abierta**: no se ha creado el repo | librerias.md §4 |
 | **D11** | ¿Backportear NIST a las librerías? | **No.** Funciona; su valor ya está cobrado como evidencia | librerias.md §4 |
-| **D13** | Kernels profundos: ¿corte del canal 0, todos los canales, o nada? | Nada: de la capa 2 en adelante la información está en los feature maps | ui.md §4.1 |
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
 
 ---
@@ -70,3 +69,4 @@ coste sin necesidad.
 | **D3** | *Muerta con D18*: no quedan `config.json` viejos que migrar ni degradar | — | 2026-07-16 |
 | **D15** | *Muerta con D18*: sin código viejo no hay franjas ni big-bang que elegir | — | 2026-07-16 |
 | **D6** | El **tamaño del dataset y las fracciones son variables de investigación**, no ajustes: entran al barrido. Consecuencia: hace falta un **holdout fuera de B**, viable porque la F1 de párrafo se mide **por imagen** | protocolo.md §3, organizacion.md ⑧ | 2026-07-16 |
+| **D13** | **Kernels profundos: nada.** La regla real es `in_channels == 1` (no «la capa 1»): con un canal un filtro **es** una matriz y es exacto. De la capa 2 en adelante (32, 64… canales) no hay proyección honesta a una matriz, y esa información está en los feature maps (V2). `GET /kernels` sirve solo la capa 1 y se **niega** (`kernels_not_projectable`) sobre `in_channels != 1` | ui.md §4.1, `itf.inference.kernels` | 2026-07-17 |
