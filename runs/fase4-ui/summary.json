@@ -1,0 +1,31 @@
+{
+  "run": "fase4-ui",
+  "epochs_run": 2,
+  "epochs_requested": 2,
+  "stopped_early": false,
+  "cancelled": false,
+  "monitor": "val_loss",
+  "best": 0.8602307364344597,
+  "final": {
+    "epoch": 2,
+    "train_loss": 0.9429306533278489,
+    "val": {
+      "loss": 0.8602307364344597,
+      "cls_loss": 0.6104154922068119,
+      "pos_loss": 0.2498152432963252,
+      "exists_acc": 0.8288265306122449,
+      "precision": 0.5576148267526189,
+      "recall": 0.8501228501228502,
+      "f1": 0.6734793187347932,
+      "pos_err_px": 12.065373966676304
+    },
+    "lr": 0.001,
+    "seconds": 23.218
+  },
+  "corner_order": [
+    "TL",
+    "TR",
+    "BR",
+    "BL"
+  ]
+}

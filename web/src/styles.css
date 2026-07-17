@@ -1,0 +1,860 @@
+/* Layout and chrome. The palette is in theme/tokens.css and only there --
+ * nothing in this file declares a colour literal, so `npm run validate:palette`
+ * validates every colour that ships. */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.92em;
+  color: var(--itf-ink-secondary);
+}
+
+/* ── shell ─────────────────────────────────────────────────────────────────── */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--itf-surface);
+  border-bottom: 1px solid var(--itf-hairline);
+}
+
+.app__title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.app__body {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+}
+
+/* ── nav: four groups, NO step numbers (ui.md §1) ──────────────────────────── */
+
+.nav {
+  width: 200px;
+  flex: none;
+  padding: 20px 12px;
+  background: var(--itf-surface);
+  border-right: 1px solid var(--itf-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.nav__group--foot {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--itf-hairline);
+}
+
+.nav__group-label {
+  margin: 0 0 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--itf-ink-muted);
+}
+
+.nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav__link {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: var(--itf-ink-secondary);
+  text-decoration: none;
+}
+
+.nav__link:hover {
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+}
+
+.nav__link.is-active {
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+  font-weight: 600;
+}
+
+/* ── main ──────────────────────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 24px 28px 64px;
+}
+
+.screen {
+  max-width: 860px;
+}
+
+.screen__title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.screen__lede {
+  margin: 0 0 28px;
+  max-width: 65ch;
+  color: var(--itf-ink-secondary);
+  line-height: 1.55;
+}
+
+.screen__section {
+  margin: 36px 0 6px;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.screen__note {
+  margin: 0 0 16px;
+  max-width: 65ch;
+  color: var(--itf-ink-secondary);
+  line-height: 1.55;
+}
+
+/* ── loading / error / empty (plan-ui.md fase 1.1) ─────────────────────────── */
+
+.async {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.async--loading,
+.async--empty {
+  color: var(--itf-ink-muted);
+}
+
+.async--error {
+  padding: 12px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--itf-status-critical);
+  background: color-mix(in srgb, var(--itf-status-critical) 8%, transparent);
+}
+
+.async__message {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* R4: the hint is the half that says how to fix it. It is not fine print. */
+.async__hint {
+  margin: 6px 0 0;
+  color: var(--itf-ink-secondary);
+}
+
+.async__code {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--itf-ink-muted);
+}
+
+.not-built {
+  padding: 20px;
+  border: 1px dashed var(--itf-axis);
+  border-radius: 6px;
+  color: var(--itf-ink-muted);
+}
+
+.not-built__domain {
+  margin: 0;
+  font-weight: 600;
+  color: var(--itf-ink-secondary);
+}
+
+.not-built__phase {
+  margin: 4px 0 0;
+}
+
+/* ── theme toggle ──────────────────────────────────────────────────────────── */
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+}
+
+.theme-toggle__select {
+  font: inherit;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--itf-axis);
+  background: var(--itf-surface);
+  color: var(--itf-ink);
+}
+
+/* ── MatrixCanvas ──────────────────────────────────────────────────────────── */
+
+.matrix-canvas {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.matrix-canvas__canvas {
+  /* So a 3x3 kernel reads as 3 crisp cells and not an interpolated smear. */
+  image-rendering: pixelated;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 3px;
+  display: block;
+}
+
+.matrix-canvas.is-selected .matrix-canvas__canvas {
+  outline: 2px solid var(--itf-ink-secondary);
+  outline-offset: 2px;
+}
+
+.matrix-canvas__canvas:focus-visible {
+  outline: 2px solid var(--itf-corner-tl);
+  outline-offset: 2px;
+}
+
+.matrix-canvas__label {
+  font-size: 12px;
+  color: var(--itf-ink-muted);
+}
+
+/* ── Meter ─────────────────────────────────────────────────────────────────── */
+
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 180px;
+}
+
+.meter__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.meter__swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+/* The swatch and the fill carry identity; the text stays in ink tokens. */
+[data-corner="TL"] { background: var(--itf-corner-tl); }
+[data-corner="TR"] { background: var(--itf-corner-tr); }
+[data-corner="BR"] { background: var(--itf-corner-br); }
+[data-corner="BL"] { background: var(--itf-corner-bl); }
+
+.meter__label {
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.meter__value {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+}
+
+.meter__track {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  overflow: hidden;
+}
+
+.meter__fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+/* The threshold mark is the point of a meter: p=0.6 means nothing until you can
+   see which side of the line it fell on. */
+.meter__threshold {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--itf-ink);
+  transform: translateX(-1px);
+}
+
+/* ── NumberTable (R5: the accessible twin of every heat map) ───────────────── */
+
+.number-table__scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.number-table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+}
+
+/* A caption inherits the table's width, and these tables are narrow (a 3x3 kernel
+   is ~165px), so it wraps mid-phrase. It may run wider than the table; the
+   scroll container catches it. */
+.number-table__caption {
+  text-align: left;
+  padding-bottom: 6px;
+  color: var(--itf-ink-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.number-table__cell {
+  border: 1px solid var(--itf-hairline);
+  padding: 3px 6px;
+  text-align: right;
+}
+
+.number-table__value {
+  color: var(--itf-ink);
+}
+
+/* ── tables, cards, forms ──────────────────────────────────────────────────── */
+
+.screen--wide {
+  max-width: 1000px;
+}
+
+.table__scroll {
+  overflow-x: auto;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 6px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th,
+.table td {
+  padding: 7px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--itf-hairline);
+}
+
+.table th {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--itf-ink-muted);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr.is-selected {
+  background: color-mix(in srgb, var(--itf-corner-tl) 8%, transparent);
+}
+
+.table__num {
+  text-align: right;
+}
+
+.card {
+  margin: 16px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 8px;
+  background: var(--itf-surface);
+}
+
+.card--form {
+  border-color: var(--itf-axis);
+}
+
+.card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.card__section {
+  margin: 18px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--itf-ink-muted);
+}
+
+.card__hint,
+.field__hint {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--itf-ink-muted);
+  font-size: 11px;
+}
+
+.card__foot {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0;
+  align-content: start;
+}
+
+.facts--inline {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.facts--inline dt {
+  margin-bottom: 2px;
+}
+
+.facts dt {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.facts--inline dd {
+  margin-bottom: 6px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.button {
+  font: inherit;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--itf-axis);
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  border-color: var(--itf-ink-muted);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button--quiet {
+  font-weight: 400;
+  color: var(--itf-ink-secondary);
+}
+
+.form__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 18px;
+}
+
+.form__grid--three {
+  grid-template-columns: repeat(3, minmax(80px, 160px));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.field__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  font: inherit;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--itf-axis);
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+}
+
+.field--check input {
+  width: auto;
+}
+
+.async--warning {
+  padding: 10px 12px;
+  margin: 10px 0;
+  border-radius: 6px;
+  border: 1px solid var(--itf-status-warning);
+  background: color-mix(in srgb, var(--itf-status-warning) 10%, transparent);
+}
+
+.job-state {
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-state[data-state="error"] {
+  color: var(--itf-status-critical);
+}
+
+/* ── runs ──────────────────────────────────────────────────────────────────── */
+
+.row-actions--tight {
+  margin: 0;
+  gap: 6px;
+}
+
+/* The run's state, EXPLICIT (formatos.md §4.2). Never deduced from which files
+   exist -- that is what left a crashed run reading "running" forever, and in a
+   20-point sweep made the dead indistinguishable from the living.
+
+   The status hues are their own tokens, not the categorical 4: those four slots
+   belong to the corner types and follow the ENTITY, always and everywhere (R1).
+   Spending one of them on "running" would break that identity. */
+.run-state {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--itf-axis);
+  color: var(--itf-ink-secondary);
+  vertical-align: middle;
+}
+
+.run-state[data-state="running"],
+.run-state[data-state="queued"] {
+  border-color: var(--itf-status-warning);
+  color: color-mix(in srgb, var(--itf-status-warning) 70%, var(--itf-ink));
+}
+
+.run-state[data-state="done"] {
+  border-color: var(--itf-status-good);
+  color: color-mix(in srgb, var(--itf-status-good) 70%, var(--itf-ink));
+}
+
+.run-state[data-state="error"] {
+  border-color: var(--itf-status-critical);
+  color: var(--itf-status-critical);
+}
+
+.pair-ok {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--itf-status-good) 70%, var(--itf-ink));
+}
+
+/* ── splits and imbalance ──────────────────────────────────────────────────── */
+
+.splits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
+
+.splits__row {
+  display: grid;
+  grid-template-columns: 44px 1fr 72px;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.splits__label {
+  color: var(--itf-ink-secondary);
+}
+
+.splits__track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  overflow: hidden;
+}
+
+/* The splits are ORDINAL (train/val/test is a sequence, not identities), so they
+   take one hue in monotone steps -- not four categorical slots. Those belong to
+   the corners and to nothing else. */
+.splits__fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.splits__fill[data-split="train"] { background: var(--itf-seq-5); }
+.splits__fill[data-split="val"]   { background: var(--itf-seq-3); }
+.splits__fill[data-split="test"]  { background: var(--itf-seq-1); }
+
+.splits__value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--itf-ink-secondary);
+}
+
+.imbalance {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px 18px;
+  max-width: 620px;
+}
+
+.imbalance__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+
+.imbalance__value {
+  margin: 5px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.imbalance__ratio {
+  color: var(--itf-ink-muted);
+  margin-left: 4px;
+}
+
+/* ── networks: the spatial trace ───────────────────────────────────────────── */
+
+.trace {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace__step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trace__size {
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  font-weight: 600;
+}
+
+.trace__arrow {
+  color: var(--itf-ink-muted);
+}
+
+.trace__channels {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+}
+
+.form__grid--block {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 6px;
+  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+}
+
+/* ── recipes ───────────────────────────────────────────────────────────────── */
+
+.fact dt {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+  /* The definition rides on the title attribute; the dotted underline is what
+     says there is one to read. */
+  border-bottom: 1px dotted var(--itf-axis);
+  display: inline;
+  cursor: help;
+}
+
+.fact dd {
+  margin: 2px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Marks the two knobs that came back on their own once, from a default.
+   Almost every trap in this project was a default nobody chose. */
+.field__trap {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--itf-ink);
+  background: color-mix(in srgb, var(--itf-status-warning) 40%, transparent);
+  cursor: help;
+}
+
+/* ── sources ───────────────────────────────────────────────────────────────── */
+
+.thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 20px;
+}
+
+.thumbs__item {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 4px;
+  background: var(--itf-surface);
+  cursor: pointer;
+  line-height: 0;
+  overflow: hidden;
+}
+
+.thumbs__item.is-selected {
+  outline: 2px solid var(--itf-corner-tl);
+  outline-offset: 1px;
+}
+
+.thumbs__item img {
+  width: 72px;
+  height: auto;
+  display: block;
+}
+
+.thumbs__label {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 1px 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--itf-surface);
+  background: var(--itf-ink);
+  border-radius: 3px 0 0 0;
+}
+
+.sample-view {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.sample-view__stage {
+  position: relative;
+  flex: 1 1 420px;
+  max-width: 640px;
+  border: 1px solid var(--itf-hairline);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sample-view__stage img {
+  width: 100%;
+  display: block;
+}
+
+.sample-view__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.sample-view__quad {
+  fill: color-mix(in srgb, var(--itf-corner-tl) 12%, transparent);
+  stroke: var(--itf-corner-tl);
+  stroke-width: 1.5;
+}
+
+/* R1 again: the same TL colour here as in the meters and in every other view.
+   The colour follows the entity, everywhere. */
+[data-corner-fill="TL"] { fill: var(--itf-corner-tl); }
+[data-corner-fill="TR"] { fill: var(--itf-corner-tr); }
+[data-corner-fill="BR"] { fill: var(--itf-corner-br); }
+[data-corner-fill="BL"] { fill: var(--itf-corner-bl); }
+
+/* ── kitchen ───────────────────────────────────────────────────────────────── */
+
+.kitchen__meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px 20px;
+  max-width: 560px;
+}
+
+.kitchen__row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}

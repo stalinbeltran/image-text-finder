@@ -1,0 +1,756 @@
+"""The REST API: one resource per domain (api.md R1).
+
+**This layer owns HTTP and nothing else**: routes, codes, serialisation, turning
+domain errors into responses. Everything else lives under `itf` and must work
+without the API -- `itf-extract` is the proof.
+
+The rule that keeps it that way, and it is mechanical: **if a function here does
+not mention HTTP, it is not the API's.** The old `app.py` was 511 lines with
+`_discover_datasets`, `_split_map`, `_run_source`, `_run_status` and the model
+cache inside it. None of them mention HTTP. None of them are here.
+
+Names (R2): `/sources` (A), not `/datasets` -- because `/patch-datasets` are
+datasets too. And `/models` never comes back: "model" is the ambiguous word, it
+means C or E depending on who is speaking (glosario.md §1).
+"""
+
+from __future__ import annotations
+
+import io
+import json
+from dataclasses import dataclass
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, Query, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from PIL import Image
+
+from itf.api.errors import bad_request, conflict, not_found
+from itf.api.jobs import JobQueue
+from itf.api.schemas import (
+    BuildPatchDatasetBody,
+    CreateRunBody,
+    NamedNetworkBody,
+    NetworkBody,
+    RecipeBody,
+    RenameRunBody,
+)
+from itf.datasets import SourceDataset, discover_sources
+from itf.models import (
+    NetworkConfig,
+    NetworkNotFound,
+    NetworkStore,
+    build_model,
+    count_params,
+    flat_features,
+    spatial_trace,
+)
+from itf.patches import SPLIT_NAMES, PatchExtractConfig, SplitConfig, extract_dataset
+from itf.patches.store import PatchDatasetNotFound, PatchDatasetStore
+from itf.settings import Settings
+from itf.training import (
+    LIVE_STATES,
+    Recipe,
+    RecipeNotFound,
+    RecipeStore,
+    RunExists,
+    RunNotFound,
+    RunStore,
+    build_provenance,
+)
+from itf.training.loop import RunSpec, frozen_config, train
+from itf.validation import check_run
+
+
+@dataclass(frozen=True)
+class Context:
+    """Everything a route needs, built once and passed in.
+
+    Explicit rather than module-level singletons: it is what lets a test point
+    the API at a temp directory instead of at the real `data/` and `runs/`
+    (tests.md §7 -- a test never touches those).
+    """
+
+    settings: Settings
+    patch_datasets: PatchDatasetStore
+    networks: NetworkStore
+    recipes: RecipeStore
+    runs: RunStore
+    jobs: JobQueue
+
+
+def get_context(request: Request) -> Context:
+    return request.app.state.context
+
+
+# ── A: /sources ───────────────────────────────────────────────────────────────
+
+
+def _source_path(c: Context, source_id: str) -> Path:
+    """Resolve a source id to a directory, refusing anything outside the root.
+
+    The client sends an ID, never a path: the path is derived here. That is the
+    D4 shape -- `GET /image?path=C:\\whatever` is gone, and with it the hole
+    where any page you visited could enumerate your disk.
+
+    Resolve FIRST, check AFTER: checked before resolving, `../..` walks straight
+    out of the root and the check reads as if it passed.
+    """
+    root = c.settings.datasets_root.resolve()
+    candidate = (root / source_id).resolve()
+    if candidate != root and root not in candidate.parents:
+        raise not_found(
+            "source_not_found",
+            f"no existe la fuente '{source_id}'",
+            f"mira GET /sources; la raíz es {root}",
+        )
+    if not (candidate / "labels.jsonl").exists():
+        raise not_found(
+            "source_not_found",
+            f"no existe la fuente '{source_id}'",
+            f"mira GET /sources; la raíz es {root}",
+        )
+    return candidate
+
+
+def _sample(c: Context, source_id: str, index: int):
+    ds = SourceDataset(_source_path(c, source_id))
+    for s in ds.samples():
+        if s.index == index:
+            return s
+    raise not_found("sample_not_found", f"la fuente '{source_id}' no tiene la imagen {index}")
+
+
+def register_sources(app: FastAPI) -> None:
+    @app.get("/sources")
+    def list_sources(c: Context = Depends(get_context)) -> dict:
+        out = []
+        for path in discover_sources(c.settings.datasets_root):
+            ds = SourceDataset(path)
+            samples = ds.samples()
+            out.append(
+                {
+                    "id": path.relative_to(c.settings.datasets_root).as_posix(),
+                    "source_id": ds.id,
+                    "num_samples": len(samples),
+                    "num_overlapping": sum(1 for s in samples if s.has_overlap),
+                }
+            )
+        return {"sources": out, "root": str(c.settings.datasets_root)}
+
+    @app.get("/sources/{source_id:path}/samples")
+    def list_samples(
+        source_id: str, patch_dataset: str | None = None, c: Context = Depends(get_context)
+    ) -> dict:
+        """The images of a source, optionally annotated with their split.
+
+        `?patch_dataset=` is the legitimate A×B crossing (contract ⑥): it is what
+        lets Predecir say "only the test images". A view, not a structural
+        coupling -- the split comes from B's `split.json`, and A knows nothing.
+        """
+        ds = SourceDataset(_source_path(c, source_id))
+        split_of: dict[int, str] = {}
+        if patch_dataset:
+            try:
+                split_of = c.patch_datasets.split_map(patch_dataset)
+            except (PatchDatasetNotFound, ValueError):
+                raise not_found(
+                    "patch_dataset_not_found",
+                    f"no existe el dataset de patches '{patch_dataset}'",
+                )
+        return {
+            "samples": [
+                {
+                    "index": s.index,
+                    "width": s.width,
+                    "height": s.height,
+                    "has_overlap": s.has_overlap,
+                    "num_blocks": len(s.blocks),
+                    "split": split_of.get(s.index),
+                }
+                for s in ds.samples()
+            ]
+        }
+
+    @app.get("/sources/{source_id:path}/samples/{index}/geometry")
+    def sample_geometry(source_id: str, index: int, c: Context = Depends(get_context)) -> dict:
+        """The ground truth of one image: the quads, in pixels.
+
+        Numbers, not a rendered image -- the browser draws them. Same reasoning
+        as `map_payload`: the server sends data, the client decides the colour.
+        """
+        s = _sample(c, source_id, index)
+        return {
+            "index": s.index,
+            "width": s.width,
+            "height": s.height,
+            "has_overlap": s.has_overlap,
+            "blocks": [
+                {"block_id": b.block_id, "kind": b.kind, "angle": b.angle, "quad": b.quad.tolist()}
+                for b in s.blocks
+            ],
+        }
+
+    @app.get("/sources/{source_id:path}/samples/{index}/image")
+    def sample_image(
+        source_id: str,
+        index: int,
+        w: int | None = Query(default=None, gt=0),
+        c: Context = Depends(get_context),
+    ) -> Response:
+        """The image itself. `?w=` for thumbnails."""
+        s = _sample(c, source_id, index)
+        with Image.open(s.image_path) as img:
+            img = img.convert("L")
+            if w and w < img.width:
+                img = img.resize((w, round(img.height * w / img.width)), Image.LANCZOS)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+        return Response(content=buf.getvalue(), media_type="image/png")
+
+
+# ── B: /patch-datasets ────────────────────────────────────────────────────────
+
+
+def register_patch_datasets(app: FastAPI) -> None:
+    @app.get("/patch-datasets")
+    def list_patch_datasets(c: Context = Depends(get_context)) -> dict:
+        return {
+            "patch_datasets": [
+                {"name": name, "manifest": c.patch_datasets.manifest(name)}
+                for name in c.patch_datasets.names()
+            ]
+        }
+
+    @app.get("/patch-datasets/{name}")
+    def get_patch_dataset(name: str, c: Context = Depends(get_context)) -> dict:
+        try:
+            manifest = c.patch_datasets.manifest(name)
+        except (PatchDatasetNotFound, ValueError):
+            raise not_found("patch_dataset_not_found", f"no existe el dataset de patches '{name}'")
+        return {
+            "name": name,
+            "manifest": manifest,
+            "fingerprint": manifest.get("fingerprint"),
+            # What makes the 409 possible, and what makes it informative.
+            "used_by": c.runs.using_patch_dataset(name),
+        }
+
+    @app.post("/patch-datasets", status_code=202)
+    def build_patch_dataset(body: BuildPatchDatasetBody, c: Context = Depends(get_context)) -> dict:
+        """→ job (R3: minutes, so 202 and a job, not 200 and a lie).
+
+        Refuses to overwrite. That is the trap `POST /runs` had: `mkdir(exist_ok=
+        True)` plus truncating destroys results with no warning, and a sweep that
+        auto-generates names is exactly who steps on it.
+        """
+        try:
+            target = c.patch_datasets.path(body.name)
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc), "usa un nombre sin barras ni '..'")
+        if c.patch_datasets.exists(body.name):
+            raise conflict(
+                "patch_dataset_exists",
+                f"ya existe un dataset de patches llamado '{body.name}'",
+                "elige otro nombre, o borra el que hay primero",
+            )
+        source_path = _source_path(c, body.source)
+        config = PatchExtractConfig(
+            source=str(source_path),
+            out=str(target),
+            patch_size=body.patch_size,
+            stride=body.stride,
+            target_kinds=body.target_kinds,
+            drop_overlap=body.drop_overlap,
+            split=SplitConfig(**body.split.model_dump()),
+            seed=body.seed,
+        )
+        job = c.jobs.submit(
+            "build-patch-dataset",
+            lambda: extract_dataset(config)["manifest"],
+            detail={"name": body.name, "source": body.source},
+        )
+        return job.as_dict()
+
+    @app.delete("/patch-datasets/{name}", status_code=204)
+    def delete_patch_dataset(name: str, c: Context = Depends(get_context)) -> Response:
+        """409 if any run references it, and the body says WHICH (contract ③).
+
+        Deleting a B in use does not break loudly: it leaves every run that
+        pointed at it without provenance, in silence. So the check is the
+        endpoint's job, and the list of runs IS the answer to "why not".
+        """
+        try:
+            exists = c.patch_datasets.exists(name)
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        if not exists:
+            raise not_found("patch_dataset_not_found", f"no existe el dataset de patches '{name}'")
+
+        used_by = c.runs.using_patch_dataset(name)
+        if used_by:
+            raise conflict(
+                "patch_dataset_in_use",
+                f"'{name}' lo usan {len(used_by)} run(s): {', '.join(used_by)}",
+                "borra esos runs primero, o quédate el dataset: sin él pierden su procedencia",
+                used_by=used_by,
+            )
+        c.patch_datasets.delete(name)
+        return Response(status_code=204)
+
+    @app.get("/patch-datasets/{name}/patches/{index}")
+    def get_patch(name: str, index: int, c: Context = Depends(get_context)) -> dict:
+        """One patch: pixels, label, border flags and provenance.
+
+        The real input of the CNN (contract ①), which is why this -- and not a
+        whole image -- is what the feature-map view takes. Returns `sample_idx`
+        and `patch_xy` too: they have been in the `.npz` all along with nobody
+        reading them, and they are the patch's provenance (V15).
+        """
+        try:
+            manifest = c.patch_datasets.manifest(name)
+            data = c.patch_datasets.arrays(name)
+        except (PatchDatasetNotFound, ValueError):
+            raise not_found("patch_dataset_not_found", f"no existe el dataset de patches '{name}'")
+        with data:
+            total = int(data["X"].shape[0])
+            if not 0 <= index < total:
+                raise not_found("patch_not_found", f"'{name}' tiene {total} patches; pediste el {index}")
+            return {
+                "index": index,
+                "patch": data["X"][index, :, :, 0].astype(int).tolist(),
+                "label": data["y"][index].tolist(),
+                "border": data["border"][index].astype(int).tolist(),
+                "sample_idx": int(data["sample_idx"][index]),
+                "patch_xy": data["patch_xy"][index].astype(int).tolist(),
+                "split": SPLIT_NAMES[int(data["split"][index])],
+                "corner_order": manifest["corner_order"],
+                "border_order": manifest["border_order"],
+            }
+
+
+# ── C: /networks ──────────────────────────────────────────────────────────────
+
+
+def _describe_network(config: dict) -> dict:
+    """Spatial trace + parameter count. Pure, synchronous, cheap.
+
+    `POST /networks/validate` makes the check a FUNCTION OF THE API rather than a
+    side effect of training: the old flow only told you a layer did not fit by
+    exploding inside a job.
+    """
+    cfg = NetworkConfig.from_dict(config)
+    trace = spatial_trace(cfg)
+    model = build_model(cfg)
+    return {
+        "valid": True,
+        "trace": trace,
+        "num_params": count_params(model),
+        # The FLATTENED CONV features -- not what the head receives. With
+        # `border_features` the head gets flat + 4, and reporting that number
+        # under the name `flat_features` would quietly be wrong by 4.
+        "flat_features": flat_features(cfg),
+    }
+
+
+def register_networks(app: FastAPI) -> None:
+    @app.get("/networks")
+    def list_networks(c: Context = Depends(get_context)) -> dict:
+        return {"networks": [{"name": n, "config": c.networks.get(n)} for n in c.networks.names()]}
+
+    @app.get("/networks/{name}")
+    def get_network(name: str, c: Context = Depends(get_context)) -> dict:
+        try:
+            return {"name": name, "config": c.networks.get(name)}
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{name}'")
+
+    @app.post("/networks/validate")
+    def validate_network(body: NetworkBody) -> dict:
+        """Does this architecture even fit? Synchronous, no saving, milliseconds.
+
+        Feeds the Redes screen live. A network that does not fit answers 400 with
+        WHICH layer, at what size, and how to fix it.
+        """
+        try:
+            return _describe_network(body.model_dump())
+        except ValueError as exc:
+            raise bad_request("layer_does_not_fit", str(exc), "baja el pool o el stride, o sube input_size")
+
+    @app.post("/networks", status_code=201)
+    def create_network(body: NamedNetworkBody, c: Context = Depends(get_context)) -> dict:
+        payload = body.model_dump()
+        name = payload.pop("name")
+        try:
+            if c.networks.exists(name):
+                raise conflict("network_exists", f"ya existe una red llamada '{name}'", "elige otro nombre")
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        # It must not be saveable if it does not build: a stored network that
+        # explodes at training time is the failure this endpoint exists to stop.
+        try:
+            _describe_network(payload)
+        except ValueError as exc:
+            raise bad_request("layer_does_not_fit", str(exc), "baja el pool o el stride, o sube input_size")
+        c.networks.save(name, payload)
+        return {"name": name, "config": c.networks.get(name)}
+
+    @app.delete("/networks/{name}", status_code=204)
+    def delete_network(name: str, c: Context = Depends(get_context)) -> Response:
+        try:
+            c.networks.delete(name)
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{name}'")
+        return Response(status_code=204)
+
+
+# ── D: /recipes ───────────────────────────────────────────────────────────────
+
+
+def register_recipes(app: FastAPI) -> None:
+    @app.get("/recipes")
+    def list_recipes(c: Context = Depends(get_context)) -> dict:
+        return {"recipes": [{"name": n, "recipe": c.recipes.get(n).as_dict()} for n in c.recipes.names()]}
+
+    @app.get("/recipes/{name}")
+    def get_recipe(name: str, c: Context = Depends(get_context)) -> dict:
+        try:
+            return {"name": name, "recipe": c.recipes.get(name).as_dict()}
+        except (RecipeNotFound, ValueError):
+            raise not_found("recipe_not_found", f"no existe la receta '{name}'")
+
+    @app.post("/recipes", status_code=201)
+    def create_recipe(body: RecipeBody, c: Context = Depends(get_context)) -> dict:
+        payload = body.model_dump()
+        name = payload.pop("name")
+        try:
+            if c.recipes.exists(name):
+                raise conflict("recipe_exists", f"ya existe una receta llamada '{name}'", "elige otro nombre")
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        try:
+            recipe = Recipe.from_dict(payload)
+        except ValueError as exc:
+            raise bad_request("invalid_recipe", str(exc))
+        c.recipes.save(name, recipe)
+        return {"name": name, "recipe": recipe.as_dict()}
+
+    @app.delete("/recipes/{name}", status_code=204)
+    def delete_recipe(name: str, c: Context = Depends(get_context)) -> Response:
+        try:
+            c.recipes.delete(name)
+        except (RecipeNotFound, ValueError):
+            raise not_found("recipe_not_found", f"no existe la receta '{name}'")
+        return Response(status_code=204)
+
+
+# ── E: /runs ──────────────────────────────────────────────────────────────────
+
+
+def _run_or_404(c: Context, name: str) -> None:
+    try:
+        exists = c.runs.exists(name)
+    except ValueError as exc:
+        raise bad_request("invalid_name", str(exc))
+    if not exists:
+        raise not_found("run_not_found", f"no existe el run '{name}'", "mira GET /runs")
+
+
+#: Everything a half-written or half-deleted run can throw at a reader. A run is
+#: being written WHILE this list is being read -- `write_text` is not atomic, and
+#: a delete can land between `names()` and the reads below -- so a torn file is
+#: normal, not corruption.
+_UNREADABLE = (RunNotFound, json.JSONDecodeError, OSError)
+
+
+def _run_summary_row(c: Context, name: str) -> dict:
+    """One row of `GET /runs`. **No metrics** (R5): state, provenance, aggregates.
+
+    `seconds_per_epoch` is what Entrenar estimates the cost of a new run with. It
+    is an aggregate, so it is computed here rather than by shipping the epoch
+    records to the browser to average (R6) -- and it is `null`, never 0, when the
+    run has not finished an epoch: 0 would read as "instant".
+
+    **Every read here is guarded, not just the config.** One unreadable run must
+    degrade to one bad row, never to a 500 -- because a 500 here is not "one run
+    is broken", it is *the Runs screen shows nothing at all, for every run*.
+    """
+    row: dict = {
+        "name": name,
+        "state": "error",
+        "provenance": None,
+        "seconds_per_epoch": None,
+        "summary": None,
+    }
+    try:
+        row["state"] = c.runs.status(name).get("state")
+        row["seconds_per_epoch"] = c.runs.seconds_per_epoch(name)
+        row["summary"] = c.runs.summary(name)
+        row["provenance"] = c.runs.config(name).get("provenance")
+    except _UNREADABLE as exc:
+        row["error"] = f"el run no se puede leer entero: {type(exc).__name__}"
+        return row
+    if row["provenance"] is None:
+        # **Said out loud, not degraded.** A run with no provenance is not a
+        # legacy case to read around: D3 killed the degrading reader, so every
+        # run born from fase 4 on has the block (formatos.md §4.2). One from
+        # before it -- fase 3's own verification left exactly one -- cannot say
+        # which C or D it came from, and nothing can recover that. Showing it as
+        # a run like any other is what would be dishonest: it is not comparable
+        # with anything.
+        row["error"] = (
+            "este run no tiene procedencia: es anterior a la fase 4, así que no puede decir "
+            "de qué red ni de qué receta salió. No es comparable: bórralo y reentrénalo."
+        )
+    return row
+
+
+def register_runs(app: FastAPI) -> None:
+    @app.get("/runs")
+    def list_runs(c: Context = Depends(get_context)) -> dict:
+        return {"runs": [_run_summary_row(c, name) for name in c.runs.names()]}
+
+    @app.post("/runs", status_code=202)
+    def create_run(body: CreateRunBody, c: Context = Depends(get_context)) -> dict:
+        """→ job (R3: training is minutes to hours).
+
+        **This is where the API earns its salary** (api.md §4). Everything it
+        refuses here, it refuses in milliseconds and BEFORE the job exists. The
+        old code validated nothing: a `patch_size` mismatch showed up half an
+        hour later, inside the job thread, as `mat1 and mat2 shapes cannot be
+        multiplied` -- a message that says nothing about the actual problem.
+        """
+        try:
+            taken = c.runs.exists(body.name)
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc), "usa un nombre sin barras ni '..'")
+        if taken:
+            # The trap, and it is not hypothetical: `mkdir(exist_ok=True)` plus
+            # truncating `metrics.jsonl` destroyed a finished run without a word,
+            # and a sweep that auto-generates names is exactly who steps on it.
+            raise conflict(
+                "run_exists",
+                f"ya existe un run llamado '{body.name}'",
+                "elige otro nombre, o borra ese run primero: no se sobrescribe nunca",
+            )
+
+        try:
+            network = c.networks.get(body.network)
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{body.network}'")
+        try:
+            recipe = c.recipes.get(body.recipe)
+        except RecipeNotFound:
+            raise not_found("recipe_not_found", f"no existe la receta '{body.recipe}'")
+        except ValueError as exc:
+            # The recipe exists but does not parse -- a hand-edited YAML with a
+            # typo'd field. "It does not exist" would send you looking in the
+            # wrong place (R4: an error says why).
+            raise bad_request(
+                "invalid_recipe",
+                f"la receta '{body.recipe}' no es válida: {exc}",
+                f"arregla {c.recipes.path(body.recipe).name}, o guárdala otra vez desde Recetas",
+            )
+        try:
+            manifest = c.patch_datasets.manifest(body.patch_dataset)
+        except (PatchDatasetNotFound, ValueError):
+            raise not_found(
+                "patch_dataset_not_found",
+                f"no existe el dataset de patches '{body.patch_dataset}'",
+            )
+
+        # `format_version` is the FILE's, not the network's (formatos.md §4.3).
+        # Frozen inside the run it would fossilise in the checkpoint and in the
+        # provenance, where it means nothing.
+        network.pop("format_version", None)
+
+        # Contracts ① and ②, in one call, before the job exists -- and before the
+        # name is reserved, so a refusal leaves nothing behind. A pure function of
+        # two dicts: no torch, milliseconds (organizacion.md §2). `itf-train` asks
+        # the very same function, which is what keeps the two doors identical.
+        problems = check_run(manifest, network)
+        if problems:
+            # `code` is the first problem's, so the UI can switch on the usual
+            # single-reason case exactly as R4 describes; `problems` carries all
+            # of them, because a dataset that mismatches on both `patch_size` and
+            # `border_features` should be one 400 with two lines, not two round
+            # trips (itf.validation returns them all for that reason).
+            raise bad_request(
+                problems[0]["code"],
+                "; ".join(p["message"] for p in problems),
+                problems[0]["hint"],
+                problems=problems,
+            )
+
+        spec = RunSpec(
+            data=str(c.patch_datasets.path(body.patch_dataset)),
+            out=str(c.runs.path(body.name)),
+            network=network,
+            provenance=build_provenance(
+                patch_dataset={
+                    "name": body.patch_dataset,
+                    "fingerprint": manifest["fingerprint"],
+                },
+                network={"name": body.network, "value": network},
+                recipe={"name": body.recipe, "value": recipe.as_dict()},
+                sweep=None,
+            ),
+            recipe=recipe,
+            device=body.device,
+            num_workers=body.num_workers,
+        )
+
+        try:
+            # The same gate `itf-train` passes through. Reserving BEFORE queueing
+            # is what makes the name taken from this instant: two POSTs racing for
+            # one name give a 202 and a 409, never two runs writing one directory.
+            c.runs.create(body.name, frozen_config(spec))
+        except RunExists:
+            raise conflict("run_exists", f"ya existe un run llamado '{body.name}'")
+
+        def run_training() -> dict:
+            # `marking_failures` is what stops a run that dies before its first
+            # epoch from sitting at `queued` forever: the job would know, but the
+            # job's state lives in memory and the run's lives on disk.
+            with c.runs.marking_failures(body.name):
+                return train(spec, should_stop=lambda: c.runs.stop_requested(body.name))
+
+        job = c.jobs.submit("train", run_training, detail={"run": body.name})
+        return job.as_dict()
+
+    @app.get("/runs/{name}")
+    def get_run(name: str, c: Context = Depends(get_context)) -> dict:
+        """State, config, provenance and checkpoints. **No metrics** (R5).
+
+        Metrics come from `/runs/{name}/metrics?since=N`. Bundling them here is
+        what made watching a run cost more with every epoch: the UI polls this in
+        a loop, and the old version returned the whole history each time.
+        """
+        _run_or_404(c, name)
+        try:
+            config = c.runs.config(name)
+        except (RunNotFound, json.JSONDecodeError) as exc:
+            raise not_found(
+                "run_config_unreadable",
+                f"el run '{name}' no tiene un config.json legible: {exc}",
+                "un run sin config es un run corrupto: bórralo",
+            )
+        return {
+            "name": name,
+            "state": c.runs.status(name),
+            "config": config,
+            # Contract ③ (D2). By NAME, which is what lets you ask "which runs
+            # used network X?" without diffing dictionaries by hand.
+            "provenance": config.get("provenance"),
+            "checkpoints": c.runs.checkpoints(name),
+            "summary": c.runs.summary(name),
+            "seconds_per_epoch": c.runs.seconds_per_epoch(name),
+        }
+
+    @app.get("/runs/{name}/metrics")
+    def get_run_metrics(
+        name: str, since: int = Query(default=0, ge=0), c: Context = Depends(get_context)
+    ) -> dict:
+        """Incremental polling (R5): `{records, next}`. Never the whole history."""
+        _run_or_404(c, name)
+        return c.runs.metrics(name, since=since)
+
+    @app.post("/runs/{name}/stop", status_code=202)
+    def stop_run(name: str, c: Context = Depends(get_context)) -> dict:
+        """Cooperative cancellation: it cuts at the end of the current epoch.
+
+        202, not 200: the run is still going when this answers. Nothing is
+        killed -- the epoch finishes, its metrics and checkpoint land, and the
+        run closes as `cancelled`.
+        """
+        _run_or_404(c, name)
+        state = c.runs.status(name).get("state")
+        if state not in LIVE_STATES:
+            raise conflict(
+                "run_not_running",
+                f"el run '{name}' ya está '{state}': no hay nada que parar",
+            )
+        c.runs.request_stop(name)
+        return {"name": name, "state": state, "stop_requested": True}
+
+    @app.patch("/runs/{name}")
+    def rename_run(name: str, body: RenameRunBody, c: Context = Depends(get_context)) -> dict:
+        _run_or_404(c, name)
+        if c.runs.is_live(name):
+            # Moving the directory out from under the loop would leave it writing
+            # metrics into a path that no longer exists.
+            raise conflict(
+                "run_running",
+                f"el run '{name}' está corriendo",
+                "párala primero con POST /runs/{name}/stop",
+            )
+        try:
+            c.runs.rename(name, body.name)
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        except RunExists:
+            raise conflict("run_exists", f"ya existe un run llamado '{body.name}'")
+        return {"name": body.name}
+
+    @app.delete("/runs/{name}", status_code=204)
+    def delete_run(name: str, c: Context = Depends(get_context)) -> Response:
+        _run_or_404(c, name)
+        if c.runs.is_live(name):
+            raise conflict(
+                "run_running",
+                f"el run '{name}' está corriendo",
+                "párala primero con POST /runs/{name}/stop",
+            )
+        # (Fase 7 adds the other half of this check: a run a sweep references
+        # cannot go either, or the sweep loses a point of its space.)
+        c.runs.delete(name)
+        return Response(status_code=204)
+
+
+# ── X: /jobs ──────────────────────────────────────────────────────────────────
+
+
+def register_jobs(app: FastAPI) -> None:
+    @app.get("/jobs")
+    def list_jobs(c: Context = Depends(get_context)) -> dict:
+        return {"jobs": [j.as_dict() for j in c.jobs.list()], "max_workers": c.jobs.max_workers}
+
+    @app.get("/jobs/{job_id}")
+    def get_job(job_id: str, c: Context = Depends(get_context)) -> dict:
+        job = c.jobs.get(job_id)
+        if job is None:
+            raise not_found("job_not_found", f"no existe el job '{job_id}'")
+        return job.as_dict()
+
+
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or Settings.from_env()
+    app = FastAPI(title="image-text-finder", version="0.1.0")
+    app.state.context = Context(
+        settings=settings,
+        patch_datasets=PatchDatasetStore(settings.patch_datasets_root),
+        networks=NetworkStore(settings.networks_root),
+        recipes=RecipeStore(settings.recipes_root),
+        runs=RunStore(settings.runs_root),
+        # On CPU the limit is 1: torch already uses every core inside one run, so
+        # N at once just fight each other and each holds its dataset in RAM.
+        jobs=JobQueue(max_workers=1),
+    )
+    # D4: closed to the front's origin, never `*`.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(settings.cors_origins),
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    register_sources(app)
+    register_patch_datasets(app)
+    register_networks(app)
+    register_recipes(app)
+    register_runs(app)
+    register_jobs(app)
+    return app
+
+
+app = create_app()

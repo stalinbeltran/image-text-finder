@@ -1,0 +1,150 @@
+/* Design tokens — the palette is HERE and only here.
+ *
+ * ui.md §4.0 R6: the palette is passed through the colourblindness validator, in
+ * light and in dark, before being called good. It is not chosen by eye.
+ *
+ *   npm run validate:palette
+ *
+ * That script parses THIS file, so it validates what actually ships. The blocks
+ * below are delimited by `@palette` markers -- the parser keys on them, so do not
+ * remove them.
+ *
+ * Every value is a step of the documented reference palette. The four corner
+ * slots are its first four (blue, green, magenta, yellow), which is the subset
+ * the enumeration picked: of the 70 ways to choose 4 of the 8 documented hues,
+ * only 2 clear every gate in BOTH modes on the all-pairs list, and this is the
+ * best of the two. See docs/ui.md §4.0 R1.
+ *
+ * Why all-pairs and not adjacent: the corner colours meet each other with nothing
+ * in between -- four meters side by side (V3), four overlays on one image (V11),
+ * a 4x4 grid (V9). Any two of the four can touch, which is the scatter case, and
+ * the adjacent-only check would hide a collapse.
+ */
+
+/* @palette light */
+:root {
+  color-scheme: light;
+
+  /* Surfaces and ink */
+  --itf-surface: #fcfcfb;
+  --itf-plane: #f9f9f7;
+  --itf-ink: #0b0b0b;
+  --itf-ink-secondary: #52514e;
+  --itf-ink-muted: #898781;
+  --itf-grid: #e1e0d9;
+  --itf-axis: #c3c2b7;
+  --itf-hairline: rgba(11, 11, 11, 0.1);
+
+  /* Categorical: the 4 corner types (R1).
+   * Fixed slots in CORNER_NAMES order. The colour follows the ENTITY, never its
+   * rank: filtering or reordering never repaints the survivors. */
+  --itf-corner-tl: #2a78d6;
+  --itf-corner-tr: #008300;
+  --itf-corner-br: #e87ba4;
+  --itf-corner-bl: #eda100;
+
+  /* Sequential: magnitude (R3). One hue, light->dark.
+   * Step 0 means "near zero" and recedes toward the surface. */
+  --itf-seq-0: #cde2fb;
+  --itf-seq-1: #9ec5f4;
+  --itf-seq-2: #6da7ec;
+  --itf-seq-3: #3987e5;
+  --itf-seq-4: #256abf;
+  --itf-seq-5: #184f95;
+  --itf-seq-6: #0d366b;
+
+  /* Diverging: polarity (R2). Kernels are signed data.
+   * Neutral GREY at 0 -- never a tint at the midpoint, or the sign structure
+   * (what excites vs what inhibits, which is what a kernel IS) goes invisible. */
+  --itf-div-neg: #2a78d6;
+  --itf-div-mid: #f0efec;
+  --itf-div-pos: #e34948;
+
+  /* Status: reserved meaning, never "series 5". Always with icon + label. */
+  --itf-status-good: #0ca30c;
+  --itf-status-warning: #fab219;
+  --itf-status-critical: #d03b3b;
+}
+/* @end */
+
+/* The dark steps are the SAME hues re-stepped for the dark surface, not another
+ * palette. Declared under both scopes on purpose: the media query covers the OS
+ * setting, the [data-theme] scope covers an explicit toggle, and the toggle must
+ * win both ways. The two blocks must stay identical -- and they are not trusted
+ * to: `npm run validate:palette` diffs them and fails if they drift. */
+
+@media (prefers-color-scheme: dark) {
+  /* @palette dark-media */
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --itf-surface: #1a1a19;
+    --itf-plane: #0d0d0d;
+    --itf-ink: #ffffff;
+    --itf-ink-secondary: #c3c2b7;
+    --itf-ink-muted: #898781;
+    --itf-grid: #2c2c2a;
+    --itf-axis: #383835;
+    --itf-hairline: rgba(255, 255, 255, 0.1);
+
+    --itf-corner-tl: #3987e5;
+    --itf-corner-tr: #008300;
+    --itf-corner-br: #d55181;
+    --itf-corner-bl: #c98500;
+
+    /* The sequential ramp FLIPS ANCHOR in dark: "near zero" is the step that
+     * recedes into the surface, and the surface is now dark. */
+    --itf-seq-0: #0d366b;
+    --itf-seq-1: #184f95;
+    --itf-seq-2: #256abf;
+    --itf-seq-3: #3987e5;
+    --itf-seq-4: #6da7ec;
+    --itf-seq-5: #9ec5f4;
+    --itf-seq-6: #cde2fb;
+
+    --itf-div-neg: #3987e5;
+    --itf-div-mid: #383835;
+    --itf-div-pos: #e66767;
+
+    --itf-status-good: #0ca30c;
+    --itf-status-warning: #fab219;
+    --itf-status-critical: #d03b3b;
+  }
+  /* @end */
+}
+
+/* @palette dark-toggle */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --itf-surface: #1a1a19;
+  --itf-plane: #0d0d0d;
+  --itf-ink: #ffffff;
+  --itf-ink-secondary: #c3c2b7;
+  --itf-ink-muted: #898781;
+  --itf-grid: #2c2c2a;
+  --itf-axis: #383835;
+  --itf-hairline: rgba(255, 255, 255, 0.1);
+
+  --itf-corner-tl: #3987e5;
+  --itf-corner-tr: #008300;
+  --itf-corner-br: #d55181;
+  --itf-corner-bl: #c98500;
+
+  --itf-seq-0: #0d366b;
+  --itf-seq-1: #184f95;
+  --itf-seq-2: #256abf;
+  --itf-seq-3: #3987e5;
+  --itf-seq-4: #6da7ec;
+  --itf-seq-5: #9ec5f4;
+  --itf-seq-6: #cde2fb;
+
+  --itf-div-neg: #3987e5;
+  --itf-div-mid: #383835;
+  --itf-div-pos: #e66767;
+
+  --itf-status-good: #0ca30c;
+  --itf-status-warning: #fab219;
+  --itf-status-critical: #d03b3b;
+}
+/* @end */

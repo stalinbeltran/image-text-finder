@@ -1,0 +1,56 @@
+# D — la receta de referencia del proyecto.
+#
+# Es la que el paso 1 del protocolo corre con 5 semillas para medir el suelo de
+# ruido (protocolo.md §4). A partir de ese número, toda diferencia por debajo de
+# la banda es un EMPATE — y esta receta es el punto de comparación de todo lo
+# demás.
+#
+# Lo que NO está aquí, y su ausencia es el contrato ⑩: `device` y `num_workers`.
+# Cuestan tiempo, no resultado. Si vivieran aquí, la misma receta entrenada en
+# CPU y en GPU daría dos ficheros distintos y parecería dos recetas — y todo lo
+# entrenado hoy en CPU quedaría incomparable con lo de mañana.
+format_version: 1
+
+# ── Optimización ────────────────────────────────────────────────────────────
+lr: 0.001
+optimizer: adam
+# Solo aplica a sgd/rmsprop. Está aquí puesto A PROPÓSITO: el default de SGD en
+# torch es 0, y el código anterior solo le pasaba lr y weight_decay — así que
+# barrer `optimizer` comparaba Adam contra un SGD lisiado.
+momentum: 0.9
+weight_decay: 0.0
+# Es D, no X, por mucho que apetezca subirlo al ver VRAM: cambia los pesos, y
+# además está acoplado a lr. Un batch mayor en GPU es un PUNTO NUEVO del espacio.
+batch_size: 64
+grad_clip: 0.0
+
+# ── Duración y programación ─────────────────────────────────────────────────
+epochs: 20
+# `none` deja lr constante. Es la omisión más cara del catálogo: con schedule, el
+# lr inicial óptimo es otro número, así que barrer lr sin él optimiza para un
+# régimen que luego no usas. La baseline lo deja en none a propósito — es la
+# referencia, no la mejor receta.
+scheduler: none
+warmup_epochs: 0
+patience: 0
+min_delta: 0.0
+
+# ── Pérdida ─────────────────────────────────────────────────────────────────
+# Arbitra "¿hay esquina?" contra "¿dónde exactamente?".
+lambda_pos: 1.0
+# El desbalance real medido es 3.9:1 (20,5 % de positivos): modesto, no brutal.
+# Sácalo del manifest de TU dataset — cambia con cada uno. Vacío = sin peso.
+pos_weight: null
+# A PROPÓSITO. El default de PyTorch es 1.0 y las coordenadas van normalizadas a
+# [0,1] => |error| < 1 siempre => la pérdida de posición nunca sale de la rama
+# cuadrática: es MSE pura y el Huber no se activa jamás. 0.05 ≈ 2 px en un patch
+# de 40.
+smooth_l1_beta: 0.05
+
+# ── Selección y reproducibilidad ────────────────────────────────────────────
+# NO puede ser val_loss si algún día barres lambda_pos: cada punto se mediría con
+# una pérdida distinta y λ=0 ganaría por definición (contrato ⑨).
+monitor: val_loss
+# La semilla de D: init de pesos y shuffle. No es un hiperparámetro a optimizar,
+# es el EJE DE RÉPLICA. Distinta de la semilla del dataset, que fija el split.
+seed: 1
