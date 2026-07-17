@@ -10,6 +10,7 @@ import { Predict } from "./screens/Predict";
 import { Recipes } from "./screens/Recipes";
 import { Runs } from "./screens/Runs";
 import { Sources } from "./screens/Sources";
+import { Sweeps } from "./screens/sweeps/Sweeps";
 import { Train } from "./screens/Train";
 
 /** The screens that exist. The rest fall through to NotBuiltYet, which names
@@ -20,6 +21,7 @@ const BUILT: Record<string, () => JSX.Element> = {
   "/networks": Networks,
   "/recipes": Recipes,
   "/train": Train,
+  "/sweeps": Sweeps,
   "/runs": Runs,
   "/diagnostics": Diagnostics,
   "/predict": Predict,

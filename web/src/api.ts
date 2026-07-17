@@ -609,12 +609,114 @@ export const predict = (run: string, source: string, index: number, knobs: Predi
     body: JSON.stringify({ source, index, ...knobs }),
   });
 
+// ── H: sweeps ──────────────────────────────────────────────────────────────────
+
+/** A distribution over one recipe field. `float`/`int` are a range (optionally
+ *  log); `categorical` is a list of choices. Mirrors `itf.sweeps.spec`. */
+export type Distribution =
+  | { type: "float"; low: number; high: number; log?: boolean }
+  | { type: "int"; low: number; high: number; log?: boolean }
+  | { type: "categorical"; choices: (string | number)[] };
+
+export type Objective = "f1" | "pos_err_px" | "loss";
+export type Strategy = "random" | "tpe" | "grid";
+
+/** Which way each objective is "better". The Pareto view needs it to know which
+ *  corner is the good one. Mirrors `OBJECTIVE_DIRECTION`. */
+export const OBJECTIVE_DIRECTION: Record<Objective, "maximize" | "minimize"> = {
+  f1: "maximize",
+  pos_err_px: "minimize",
+  loss: "minimize",
+};
+
+export interface SweepBudget {
+  points: number;
+  epochs: number;
+  pruning: boolean;
+}
+
+export interface CreateSweepBody {
+  name: string;
+  patch_dataset: string;
+  network: string;
+  recipe?: string | null;
+  space: Record<string, Distribution>;
+  objective: Objective;
+  strategy: Strategy;
+  budget: SweepBudget;
+  seed?: number;
+}
+
+export interface Trial {
+  number: number;
+  state: "complete" | "pruned" | "running" | "fail" | "waiting";
+  run: string | null;
+  params: Record<string, number | string>;
+  value: number | null;
+  /** Recorded for every trial whatever the objective, so V12 can draw the
+   *  (f1, pos_err_px) Pareto view no matter what this sweep ranked by. */
+  f1: number | null;
+  pos_err_px: number | null;
+  epochs_run: number | null;
+}
+
+export interface SweepBest {
+  number: number;
+  run: string | null;
+  value: number;
+  params: Record<string, number | string>;
+}
+
+export interface SweepProgress {
+  name: string;
+  objective: Objective;
+  direction: "maximize" | "minimize";
+  budget: SweepBudget;
+  space: Record<string, Distribution>;
+  patch_dataset: string;
+  network: string;
+  trials: Trial[];
+  completed: number;
+  best: SweepBest | null;
+}
+
+export interface SweepDetail extends SweepProgress {
+  spec: CreateSweepBody & { seed: number };
+  state: Job["state"];
+}
+
+export interface SweepRow {
+  name: string;
+  state: Job["state"];
+  objective: Objective;
+  patch_dataset: string;
+  network: string;
+  completed: number;
+  points: number;
+  best: SweepBest | null;
+}
+
+export const listSweeps = () => request<{ sweeps: SweepRow[] }>("/sweeps");
+
+export const getSweep = (name: string) =>
+  request<SweepDetail>(`/sweeps/${encodeURIComponent(name)}`);
+
+export const createSweep = (body: CreateSweepBody) =>
+  request<Job>("/sweeps", { method: "POST", body: JSON.stringify(body) });
+
+export const stopSweep = (name: string) =>
+  request<{ name: string; stop_requested: boolean }>(
+    `/sweeps/${encodeURIComponent(name)}/stop`,
+    { method: "POST" }
+  );
+
 // ── X: jobs ──────────────────────────────────────────────────────────────────
 
 export interface Job {
   id: string;
   kind: string;
-  state: "queued" | "running" | "done" | "error";
+  /** `interrupted` is what a restart leaves; `cancelled` is a cooperative stop. */
+  state: "queued" | "running" | "done" | "error" | "cancelled" | "interrupted";
   detail: Record<string, unknown>;
   result: unknown;
   error: string | null;
@@ -623,3 +725,6 @@ export interface Job {
 }
 
 export const getJob = (id: string) => request<Job>(`/jobs/${id}`);
+
+export const cancelJob = (id: string) =>
+  request<Job>(`/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
