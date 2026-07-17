@@ -858,3 +858,313 @@ code {
   flex-wrap: wrap;
   align-items: flex-start;
 }
+
+/* ── diagnóstico (E × B) — fase 5 ───────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: flex-end;
+  margin: 16px 0 8px;
+}
+
+.field--inline {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.diagnostics__provenance {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--itf-hairline);
+}
+
+/* One analysis view: a declaration, then what it shows. */
+.view {
+  margin: 28px 0;
+  padding-top: 18px;
+  border-top: 1px solid var(--itf-hairline);
+}
+
+.view__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--itf-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* R4: small multiples, never one plot with two y-axes. Side by side when there
+   is room, stacked when there is not -- the x axis is shared either way. */
+.view__charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 8px 24px;
+  align-items: start;
+}
+
+/* Regla 2 made visible: what a view fixes, varies and measures. */
+.declares__title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+
+.declares__view {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 4px;
+  border-radius: 4px;
+  border: 1px solid var(--itf-axis);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--itf-ink-secondary);
+  vertical-align: 1px;
+}
+
+.declares__control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.declares__control > div {
+  display: flex;
+  gap: 6px;
+}
+
+.declares__control dt {
+  color: var(--itf-ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.declares__control dd {
+  margin: 0;
+  color: var(--itf-ink-secondary);
+}
+
+.declares__note {
+  margin: 0 0 12px;
+  max-width: 74ch;
+  font-size: 13px;
+  color: var(--itf-ink-secondary);
+}
+
+.plot-figure {
+  overflow-x: auto;
+}
+
+/* Plot returns a bare <svg> normally, but a <figure> wrapping legend + chart
+   when `legend: true` -- and a <figure> takes the browser's default 40px side
+   margins. Measured: the panel with a legend came out 540 px wide starting at
+   x=287 while its siblings were 620 px at x=247, so **the aligned epoch axis R4
+   asks for was not aligned at all**, and only on the one panel with a legend.
+   Nothing looks broken when that happens; the columns just quietly stop lining
+   up, which is the comparison the whole layout exists to support. */
+.plot-figure figure {
+  margin: 0;
+}
+
+/* The knob of F: post-hoc, free, and shared by the three views. */
+.threshold {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 20px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--itf-plane);
+  border: 1px solid var(--itf-hairline);
+}
+
+.threshold__control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.threshold__control input[type="range"] {
+  width: 220px;
+}
+
+.threshold__readout {
+  margin: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--itf-ink-secondary);
+}
+
+.error-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.error-map__legend {
+  max-width: 44ch;
+}
+
+.table--dense th,
+.table--dense td {
+  padding: 3px 6px;
+  font-size: 12px;
+}
+
+/* "—", never a 0: nothing landed here, which is not the same as no error. */
+.table__absent {
+  color: var(--itf-ink-muted);
+}
+
+/* ── V6: the gallery ────────────────────────────────────────────────────────── */
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.gallery__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px;
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--itf-hairline);
+  background: var(--itf-plane);
+  color: var(--itf-ink);
+  cursor: pointer;
+}
+
+.gallery__item:hover {
+  border-color: var(--itf-ink-muted);
+}
+
+.gallery__item.is-selected {
+  border-color: var(--itf-ink);
+}
+
+.gallery__placeholder {
+  width: 112px;
+  height: 112px;
+  border-radius: 3px;
+  background: var(--itf-grid);
+}
+
+.gallery__caption {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery__error {
+  font-weight: 600;
+}
+
+.gallery__origin {
+  font-size: 11px;
+  color: var(--itf-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── V3: the patch and its prediction ───────────────────────────────────────── */
+
+.patch-canvas {
+  margin: 0;
+}
+
+.patch-canvas__canvas {
+  display: block;
+  border-radius: 3px;
+  border: 1px solid var(--itf-hairline);
+  /* The extractor cuts the source images ALREADY pixelated (ui.md §5): smoothing
+     would show a blur the model never saw. */
+  image-rendering: pixelated;
+}
+
+.patch-canvas__label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+}
+
+.prediction {
+  margin-top: 16px;
+}
+
+.prediction__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.prediction__meters {
+  display: grid;
+  gap: 12px;
+  min-width: 240px;
+  flex: 1;
+}
+
+.prediction__verdict {
+  margin: 2px 0 0;
+  font-size: 12px;
+}
+
+/* Status hues: reserved meaning, and ALWAYS with the word next to them -- never
+   colour alone, and never one of the four corner slots (those follow the entity,
+   R1). */
+[data-verdict] {
+  font-weight: 600;
+}
+
+[data-verdict="tp"],
+[data-verdict="tn"] {
+  color: var(--itf-status-good);
+}
+
+[data-verdict="fp"] {
+  color: var(--itf-status-warning);
+}
+
+[data-verdict="fn"] {
+  color: var(--itf-status-critical);
+}
+
+/* ── V14: the training curves ───────────────────────────────────────────────── */
+
+/* R4: "gráficas separadas o small multiples, APILADAS y con el eje x (época)
+   ALINEADO". Stacked and one column is not a layout preference -- the alignment
+   is the whole mechanism. Side by side, each panel gets its own x range and
+   comparing across them is guesswork again, which is the thing a dual axis does
+   wrong. Same width, same left margin => the epochs line up down the column. */
+.small-multiples {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 2px;
+  margin: 10px 0 4px;
+  max-width: 620px;
+}
+
+.small-multiples__panel {
+  margin: 0;
+}
+
+.small-multiples__label {
+  font-size: 12px;
+  color: var(--itf-ink-secondary);
+}

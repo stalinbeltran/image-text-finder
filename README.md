@@ -9,17 +9,25 @@ Las imágenes las produce
 
 ---
 
-## Estado: fase 4 — el flujo completo funciona
+## Estado: fase 5 — la app se vuelve el instrumento
 
 Hechas las fases **0** (decisiones), **0.5** (los contratos en xfail), **1** (esqueleto y paleta),
-**2** (Fuentes y Patches), **3** (Redes y Recetas) y **4** (Entrenar y Runs) de
-[docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 5**: la tabla por patch y el
-diagnóstico.
+**2** (Fuentes y Patches), **3** (Redes y Recetas), **4** (Entrenar y Runs) y **5** (la tabla por
+patch y el diagnóstico) de [docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 6**:
+mapas, kernels y el pipeline.
 
-**Ya se entrena desde la UI, y el run sabe de dónde salió**: dato → red → receta → run. La fase 4
-trajo la **procedencia por nombre** (contrato ③), el `POST /runs` que valida **antes** de crear
-nada, el **409 que no sobrescribe nunca** un run, las métricas incrementales (`?since=`) y la
-**parada cooperativa**. Lo que sigue **añade capacidad**, no cierra huecos.
+**Se entrena desde la UI y el run sabe de dónde salió** (dato → red → receta → run), y desde la
+fase 5 **se puede mirar qué hace ese run, patch a patch**: la tabla por patch —un caché— y las
+vistas V3, V6, V7 y V8, más las curvas de entrenamiento en small multiples.
+
+Lo que compró, medido sobre `fase4-ui` la primera vez que se usó el instrumento:
+
+- **El umbral sale gratis**: f1 **0,673** con `threshold` 0,50 y **0,728** con 0,64 — post-hoc,
+  sobre scores ya guardados, **sin reentrenar ni un batch**. Y ahí está por qué V8 va antes que el
+  barrido: eso es F, y buscarlo en D cuesta horas de CPU por punto.
+- **V7 dice qué dominio arreglar**: el error en el **borde** del patch es **16,4 px** contra
+  **9,1 px** en el centro — casi el doble. Eso apunta a bajar el `stride` de B, no a meter
+  filtros en C.
 
 El código anterior sigue recuperable en el tag **`pre-rediseno`**:
 
@@ -51,10 +59,10 @@ cd web
 npm run dev                                     # http://localhost:5173
 ```
 
-Funcionan de verdad **Fuentes**, **Patches**, **Redes**, **Recetas**, **Entrenar** y **Runs**: el
-flujo entero, de la imagen al modelo entrenado. Las tres que quedan (Diagnóstico, Predecir,
-Barridos) están vacías y cada una dice qué fase la construye. `/kitchen` es donde se mira la
-paleta y los componentes base.
+Funcionan de verdad **Fuentes**, **Patches**, **Redes**, **Recetas**, **Entrenar**, **Runs** y
+**Diagnóstico**: el flujo entero, de la imagen al modelo entrenado y de ahí a mirar qué hace. Las
+dos que quedan (Predecir, Barridos) están vacías y cada una dice qué fase la construye.
+`/kitchen` es donde se mira la paleta y los componentes base.
 
 Las imágenes fuente salen de [image-text-sample-generator](../image-text-sample-generator) y se
 buscan en `../image-text-sample-generator/data/datasets`. Para apuntar a otro sitio:
@@ -170,9 +178,10 @@ estimar, aunque tenga las métricas: no puede decir de qué dataset salió.
 
 **Runs** (`/runs`) enseña de qué B, C y D salió cada uno **por nombre**, con la huella de B, el
 commit y el entorno. Las métricas llegan **incrementalmente** (`?since=`): nunca se reenvía el
-historial. Van como **números y no como gráfica** a propósito — `loss ≈ 0.28`, `f1 ≈ 0.77` y
-`pos_err_px ≈ 11` son tres escalas, y superponerlas inventaría una correlación (docs/ui.md R4).
-Las curvas en small multiples son de la fase 5.
+historial. Y desde la fase 5 van también como **curvas: tres paneles apilados** (V14) —
+`loss ≈ 0.28`, `f1 ≈ 0.77` y `pos_err_px ≈ 11` son tres escalas, así que **nunca comparten
+gráfica ni doble eje** (docs/ui.md R4). Apilados y con el eje de épocas **alineado**: eso es lo
+que deja compararlos sin que la gráfica invente la correlación por ti.
 
 **Parar** es cooperativo: el run **termina la época** en curso —métricas escritas, checkpoint
 guardado— y cierra como `cancelled`, no como `done`. Verificado a mano: parado en la época 2, cerró
@@ -189,6 +198,66 @@ elige otro nombre, o borra ese run primero: no se sobrescribe nunca
 
 Era una trampa medida del código anterior (`mkdir(exist_ok=True)` + truncar `metrics.jsonl`), y
 quien la pisa es justo un barrido que autogenera nombres.
+
+### Diagnóstico: qué hace el run, patch a patch
+
+**Diagnóstico** (`/diagnostics`) elige un run y un split y enseña tres vistas que leen **una sola
+pasada** sobre ese split. Esa pasada es una **tabla por patch** (`score`, posición predicha, error
+en px, por esquina) y es un **caché**, no una entidad: se puede recalcular exacta a partir del run,
+la huella de B y el split, así que no se nombra, no se lista y **borrarla no pierde nada**
+(D1). Vive en `data/cache/diagnostics/`, gitignoreada.
+
+También responde por HTTP, que es donde se ve lo que compra. Con la API corriendo:
+
+```powershell
+curl "http://127.0.0.1:8000/runs/fase4-ui/diagnostics/pr?split=val&corner=TL"
+curl "http://127.0.0.1:8000/runs/fase4-ui/diagnostics/error-map?split=val&bins=10"
+curl "http://127.0.0.1:8000/runs/fase4-ui/diagnostics/patches?split=val&outcome=fp&threshold=0.9"
+```
+
+Medido de punta a punta el 2026-07-17 sobre `fase4-ui` (980 patches de val):
+
+| | |
+|---|---|
+| Primer GET (calcula la tabla) | **1,0 s** |
+| Segundo GET (lee el caché) | **0,025 s** |
+| Otro agregado sobre la misma tabla | **0,014 s** |
+
+Por eso `/diagnostics` es **síncrono y no un job** (docs/api.md R3). El día que necesite un 202,
+la tabla dejó de ser barata y el umbral gratis se fue con ella.
+
+**V8 — el barrido gratis.** Los scores están guardados, así que mover el `threshold` **no vuelve a
+correr el modelo**: es filtrar una columna. Sobre `fase4-ui`, f1 **0,673** en 0,50 y **0,728** en
+0,64 — **+0,055 sin reentrenar nada**. Y el desbalance que sale solo es **20,5 % de positivos
+(3,9:1)**, exactamente el que documenta [docs/protocolo.md](docs/protocolo.md) §1.
+
+**V7 — qué dominio arreglar.** Sobre `fase4-ui`: **borde 16,4 px vs centro 9,1 px**. El error se
+concentra en los bordes del patch —esquinas medio visibles— y eso se arregla **bajando el `stride`
+de B**, no metiendo filtros en C. Sin esta vista, ese diagnóstico se confunde sistemáticamente con
+«la red es pequeña».
+
+> **`bins` no es 40, y es un hallazgo de la fase 5.** [docs/ui.md](docs/ui.md) §4.1 pedía un mapa
+> 40×40; con ~200 esquinas de un tipo repartidas en 1600 celdas eso son **0,1 muestras por celda** y
+> el mapa sale **moteado: cierto e ilegible**. A 10×10 (celdas de 4 px, ~8 esquinas cada una) la
+> estructura borde-vs-centro se ve de un vistazo. La resolución es un control, y el ratio ~2× sale
+> igual a 10×10 que a 40×40 — o sea que es real, no un artefacto del binning.
+
+**V6 y V3.** La galería va **peor-primero** y se filtra por resultado (`fp`, `fn`, aciertos…) al
+umbral que tengas puesto — otra vez, sin recalcular. Un clic abre **V3**: el patch con las 4
+esquinas, cuatro *meters* contra el umbral y el error dibujado como la línea entre dónde estaba la
+esquina (el anillo) y dónde la puso el modelo (el punto).
+
+Todo lo que no se puede medir **se niega con la razón y el arreglo**, nunca con un número inventado:
+
+```
+GET /runs/fase3-01/diagnostics/pr    -> 409 run_without_provenance
+  "no tiene procedencia: no puede decir de qué dataset salió, así que no hay contra qué
+   diagnosticarlo" -> "es anterior a la fase 4. Bórralo y reentrénalo: no es comparable con nada"
+```
+
+Y si el dataset se reconstruyó bajo el mismo nombre desde que se entrenó el run, **la huella no
+cuadra y el diagnóstico se niega** (contrato ⑧): su split ya no es el que ese `best.pt` usó para
+elegirse, así que los números saldrían con buena cara y medirían otra cosa.
 
 ### La paleta se valida, no se opina
 
@@ -215,7 +284,7 @@ La **barra de progreso del plan**: un test por contrato de `docs/organizacion.md
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Salida esperada hoy: **`68 passed, 2 xfailed`**, en verde y en ~12 s. Que estén en xfail no es
+Salida esperada hoy: **`90 passed, 2 xfailed`**, en verde y en ~17 s. Que estén en xfail no es
 deuda: es el mecanismo. Cuando una fase implementa su contrato, el test pasa, el **XPASS estricto
 pone la suite en rojo** y obliga a quitar el marcador — así "lo que falta" es una lista ejecutable
 en vez de prosa que envejece. Ver [docs/tests.md](docs/tests.md) §2.
@@ -255,21 +324,26 @@ Lee [CLAUDE.md](CLAUDE.md): abre con el estado y enlaza los once documentos. En 
 ```
 src/itf/
 ├── geometry/    # la ventana deslizante, compartida por extracción e inferencia (contrato ⑤)
+├── metrics.py   # qué significan pos_err_px y la f1. Un sitio, dos lectores (D y el diagnóstico)
 ├── validation/  # compatibilidad B↔C: función pura de dos dicts (contratos ①②)
 ├── datasets/    # lee labels.jsonl (SAMPLE_FORMAT)
 ├── patches/     # extracción n×n -> .npz  +  torch Dataset
 ├── models/      # config -> CNN + cabeza de esquinas
 ├── training/    # pérdidas, bucle, checkpoints, métricas
 ├── inference/   # detección por ventana deslizante + reconstrucción de párrafos
+├── diagnostics/ # E×B: la tabla por patch (un CACHÉ) y sus agregados — V6, V7, V8
 └── api/         # FastAPI: un recurso por dominio
-web/             # Vite + React — ya existe (fase 1)
+web/             # Vite + React
 ├── src/theme/    # tokens.css: LA PALETA, y solo aquí
-├── src/components/  # MatrixCanvas, Meter, NumberTable, Async
+├── src/components/  # MatrixCanvas, Meter, PatchCanvas, PlotFigure, TrainingCurves, Declares…
+├── src/screens/diagnostics/   # V3, V6, V7, V8
 └── scripts/      # validate-palette.mjs
 configs/         # networks/*.yaml (redes)  ·  recipes/*.yaml (recetas)
-tests/           # test_contracts.py: un test por contrato — ya existe
+tests/           # test_contracts.py: un test por contrato  ·  test_diagnostics.py: las costuras
 docs/            # el diseño
 ```
 
 `data/` y `runs/` son artefactos: se ignora la carga (`.npz`, `.pt`) y **se versiona la
 descripción** (configs, métricas, manifests) — ver [docs/formatos.md](docs/formatos.md) §5.
+`data/cache/` es **derivado entero**: se recalcula exacto, así que ni se versiona ni se echa de
+menos.

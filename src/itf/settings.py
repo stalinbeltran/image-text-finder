@@ -34,6 +34,11 @@ class Settings:
     #: versioned in git, written by a person (formatos.md §4.3).
     networks_root: Path
     recipes_root: Path
+    #: The per-patch tables (D1). A CACHE: recomputable exactly from run +
+    #: fingerprint + split, so deleting it loses nothing and `/data/cache/` is
+    #: gitignored. It has a root of its own because it is the one directory in
+    #: the project that is safe to throw away at any moment.
+    diagnostics_cache_root: Path
     #: Every root a client-supplied path is allowed to resolve under (D4).
     allowed_roots: tuple[Path, ...]
     cors_origins: tuple[str, ...]
@@ -66,6 +71,10 @@ class Settings:
             # the rename cost nothing (formatos.md §4.3).
             networks_root=configs_root / "networks",
             recipes_root=configs_root / "recipes",
+            # `/data/cache/` is already gitignored, which is the point: this
+            # directory is derived, and D5's criterion is that what can be
+            # recomputed is not kept.
+            diagnostics_cache_root=data_root / "cache" / "diagnostics",
             allowed_roots=(datasets_root, *extra_roots),
             cors_origins=tuple(o.strip() for o in origins.split(",") if o.strip()),
         )

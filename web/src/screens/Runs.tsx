@@ -11,7 +11,9 @@ import {
   type RunRow,
 } from "../api";
 import { ErrorNote, Empty, Loading, type ApiProblem } from "../components/Async";
+import { TrainingCurves } from "../components/TrainingCurves";
 import { useAsync } from "../useAsync";
+import { Link } from "react-router-dom";
 
 /** Runs (E) — the trained model: weights + metrics + provenance.
  *
@@ -94,6 +96,14 @@ function RunCard({ run, onChange }: { run: RunRow; onChange: () => void }) {
           {run.name} <span className="run-state" data-state={run.state}>{STATE_LABEL[run.state] ?? run.state}</span>
         </h2>
         <div className="row-actions row-actions--tight">
+          {/* The entrance to Diagnóstico (ui.md §2). Only for a run that has
+              provenance: without it there is no B to measure against, and the
+              screen would only be able to refuse. */}
+          {run.provenance && !isLive && (
+            <Link className="button button--quiet" to="/diagnostics">
+              Diagnóstico
+            </Link>
+          )}
           {isLive && (
             <button className="button button--quiet" onClick={() => act(() => stopRun(run.name))}>
               Parar
@@ -204,11 +214,14 @@ function ProvenanceFacts({ provenance: p }: { provenance: Provenance }) {
 
 /** The live readout, polled incrementally (R5).
  *
- * **Numbers, not a chart, and that is deliberate.** `loss ≈ 0.28`, `f1 ≈ 0.77`
- * and `pos_err_px ≈ 11` are three different scales: putting them on one plot with
- * two y-axes invents a correlation that is not in the data (R4). The training
- * curves are small multiples and they belong to fase 5 — a wrong chart now would
- * be worse than no chart.
+ * **The curves are small multiples** (V14, R4), which is what fase 4 deferred to
+ * here rather than drawing a wrong chart in the meantime: `loss ≈ 0.28`,
+ * `f1 ≈ 0.77` and `pos_err_px ≈ 11` are three scales, and one plot with two
+ * y-axes would invent a correlation that is not in the data.
+ *
+ * The last epochs stay as numbers under them. That is not redundancy: a curve
+ * answers "where is this going", a table answers "what exactly was epoch 17" —
+ * and it is the same R5 twin the maps have.
  */
 function Progress({ run }: { run: RunRow }) {
   const [records, setRecords] = useState<EpochRecord[]>([]);
@@ -265,6 +278,9 @@ function Progress({ run }: { run: RunRow }) {
           {total ? ` de ${total}` : ""} · {run.seconds_per_epoch?.toFixed(1)} s/época de media
         </span>
       </p>
+      {/* V14. Three panels with the epoch axis aligned — never one plot with two
+          y-axes (R4). */}
+      <TrainingCurves records={records} />
       <div className="table__scroll">
         <table className="table">
           <thead>

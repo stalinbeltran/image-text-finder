@@ -26,6 +26,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from itf.geometry import CORNER_NAMES
+from itf.metrics import DEFAULT_THRESHOLD, position_error_px, prf1
 from itf.models import build_model
 from itf.patches.dataset import PatchDataset
 from itf.training.losses import CornerLoss
@@ -158,6 +159,12 @@ def evaluate(model, loader, loss_fn, device, patch_size: int) -> dict:
     real objective and the correct thing for a sweep to rank by. These stay
     useful for choosing a checkpoint and for diagnosis -- IF step 2 of the
     protocol confirms they predict the paragraph F1.
+
+    **The definitions of `pos_err_px` and of the P/R/F1 come from `itf.metrics`,
+    not from here** (fase 5). The per-patch table behind V7 and V8 measures the
+    same two things over the same split, so a second copy of these formulas would
+    let the error map and this curve disagree while both are called `pos_err_px`
+    -- silently, which is the ⑤-shaped failure.
     """
     model.eval()
     tot_loss = tot_cls = tot_pos = 0.0
@@ -174,7 +181,7 @@ def evaluate(model, loader, loss_fn, device, patch_size: int) -> dict:
         tot_pos += float(out["pos_loss"])
         n_batches += 1
 
-        pred_pos = torch.sigmoid(pred[..., 0]) > 0.5
+        pred_pos = torch.sigmoid(pred[..., 0]) > DEFAULT_THRESHOLD
         tgt_pos = y[..., 0] > 0.5
         tp += int((pred_pos & tgt_pos).sum())
         fp += int((pred_pos & ~tgt_pos).sum())
@@ -182,21 +189,16 @@ def evaluate(model, loader, loss_fn, device, patch_size: int) -> dict:
         tn += int((~pred_pos & ~tgt_pos).sum())
 
         if tgt_pos.any():
-            err = (pred[..., 1:3] - y[..., 1:3]).abs().sum(-1)  # (B, 4), patch units
-            pos_err_sum += float(err[tgt_pos].sum()) * patch_size
+            err_px = position_error_px(pred[..., 1:3], y[..., 1:3], patch_size)  # (B, 4)
+            pos_err_sum += float(err_px[tgt_pos].sum())
             pos_count += int(tgt_pos.sum())
 
-    precision = tp / (tp + fp) if (tp + fp) else 0.0
-    recall = tp / (tp + fn) if (tp + fn) else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0.0
     return {
         "loss": tot_loss / max(n_batches, 1),
         "cls_loss": tot_cls / max(n_batches, 1),
         "pos_loss": tot_pos / max(n_batches, 1),
         "exists_acc": (tp + tn) / max(tp + tn + fp + fn, 1),
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
+        **prf1(tp, fp, fn),
         # None, not 0: no corners means "not measured", and a 0 would read as
         # "perfect" (formatos.md §2 again).
         "pos_err_px": pos_err_sum / pos_count if pos_count else None,

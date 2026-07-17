@@ -349,6 +349,119 @@ export const renameRun = (name: string, newName: string) =>
 export const deleteRun = (name: string) =>
   request<void>(`/runs/${encodeURIComponent(name)}`, { method: "DELETE" });
 
+// ── B: one patch (fase 2's endpoint, which V3 and V6 read) ───────────────────
+
+export interface Patch {
+  index: number;
+  /** (n, n) greyscale 0–255. The REAL input of the CNN (contract ①). */
+  patch: number[][];
+  /** (4, 3) — `[exists, x, y]` per corner, in `corner_order`. */
+  label: number[][];
+  border: number[];
+  /** V15: which image of A this came from, and where in it. */
+  sample_idx: number;
+  patch_xy: number[];
+  split: string;
+  corner_order: string[];
+  border_order: string[];
+}
+
+export const getPatch = (dataset: string, index: number) =>
+  request<Patch>(`/patch-datasets/${encodeURIComponent(dataset)}/patches/${index}`);
+
+// ── E×B: diagnostics (D1: a CACHE, so every route is an idempotent GET) ──────
+
+/** V8. The curve is 101 thresholds computed off STORED scores: choosing one
+ *  never runs the model again, which is why this view comes before the sweep. */
+export interface PrCurve {
+  corner: string;
+  positives: number;
+  negatives: number;
+  /** The imbalance. ~20 % positives is why accuracy misleads and PR informs. */
+  positive_rate: number | null;
+  curve: { threshold: number; precision: number; recall: number; f1: number }[];
+  /** The best-F1 threshold, REPORTED not applied: picking one is a decision. */
+  best: { threshold: number; precision: number; recall: number; f1: number } | null;
+  default_threshold: number;
+  histogram: { edges: number[]; positive: number[]; negative: number[] };
+}
+
+/** V7. `matrix[y][x]` is `null` where no corner ever landed — **not 0**, which
+ *  would paint "perfect" over the parts of the patch the data never covered. */
+export interface ErrorMap {
+  corner: string;
+  patch_size: number;
+  /** Cells per side. ui.md says 40×40; with ~200 corners that is 0.1 samples per
+   *  cell and the map is speckle, so the resolution is a knob (see the backend's
+   *  `DEFAULT_ERROR_MAP_BINS`). `bins === patch_size` is the full-resolution map. */
+  bins: number;
+  /** Px of the patch per cell — what the axes are labelled in. */
+  cell_px: number;
+  matrix: (number | null)[][];
+  counts: number[][];
+  samples: number;
+  /** The payload declares the colour work: the client cannot know (api.md §3). */
+  job: "sequential" | "diverging";
+}
+
+/** V6. No pixels: a row says WHICH patch it is and B serves the patch. */
+export interface PatchRow {
+  patch_idx: number;
+  sample_idx: number;
+  patch_xy: number[];
+  score: number[];
+  xy_pred: number[][];
+  xy_true: number[][];
+  exists: boolean[];
+  /** `null` where there is no real corner: nothing to localise, not zero error. */
+  err_px: (number | null)[];
+}
+
+export interface PatchPage {
+  total: number;
+  offset: number;
+  limit: number;
+  threshold: number;
+  rows: PatchRow[];
+  corner_order: string[];
+}
+
+export type Split = "train" | "val" | "test";
+export type Corner = "TL" | "TR" | "BR" | "BL";
+export type Outcome = "all" | "tp" | "fp" | "fn" | "tn";
+
+const query = (params: Record<string, string | number | undefined>) =>
+  Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== "")
+    .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`)
+    .join("&");
+
+export const getPrCurve = (run: string, split: Split, corner?: string) =>
+  request<PrCurve>(
+    `/runs/${encodeURIComponent(run)}/diagnostics/pr?${query({ split, corner })}`
+  );
+
+export const getErrorMap = (run: string, split: Split, corner?: string, bins?: number) =>
+  request<ErrorMap>(
+    `/runs/${encodeURIComponent(run)}/diagnostics/error-map?${query({ split, corner, bins })}`
+  );
+
+export const getDiagnosticPatches = (
+  run: string,
+  params: {
+    split: Split;
+    corner?: string;
+    outcome?: Outcome;
+    order?: string;
+    threshold?: number;
+    offset?: number;
+    limit?: number;
+  }
+) =>
+  request<PatchPage>(
+    `/runs/${encodeURIComponent(run)}/diagnostics/patches?${query(params)}`
+  );
+
 // ── X: jobs ──────────────────────────────────────────────────────────────────
 
 export interface Job {

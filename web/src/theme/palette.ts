@@ -30,6 +30,50 @@ export function cornerColors(root: Element = document.documentElement): Record<C
   };
 }
 
+/** The two-class categorical pair: the diverging ramp's two ENDS.
+ *
+ * V8 colours "has a corner" against "has not" and V14 colours train against val
+ * (ui.md §4.1 calls both "categórica" with two classes), and neither may borrow
+ * from the four corner slots. R1 nails those to the ENTITY: TL is that blue
+ * everywhere in the app, so painting "positive" in TR's green while a corner
+ * selector sits on the same screen would make one colour mean two things.
+ *
+ * The diverging ends are the right answer rather than a leftover: the pair is
+ * already in the fixed palette (D12 -- no new hues are ever generated), the two
+ * are opposite tints, and the validator cleared them against each other in both
+ * modes precisely because a diverging ramp's job is to keep its extremes apart.
+ * These are two classes in tension, which is what the shape is for.
+ *
+ * Never for more than two classes: a third would need a hue, and hues are D12's.
+ */
+export function polarityColors(root: Element = document.documentElement): {
+  positive: string;
+  negative: string;
+} {
+  return {
+    positive: read("--itf-div-pos", root),
+    negative: read("--itf-div-neg", root),
+  };
+}
+
+/** The ink and rules Plot needs. Plot builds an SVG with its own defaults, so
+ *  without these the axes arrive in Plot's greys and go invisible in dark. */
+export function inkColors(root: Element = document.documentElement): {
+  ink: string;
+  secondary: string;
+  muted: string;
+  grid: string;
+  surface: string;
+} {
+  return {
+    ink: read("--itf-ink", root),
+    secondary: read("--itf-ink-secondary", root),
+    muted: read("--itf-ink-muted", root),
+    grid: read("--itf-grid", root),
+    surface: read("--itf-surface", root),
+  };
+}
+
 export type Rgb = [number, number, number];
 
 function parseColor(css: string): Rgb {

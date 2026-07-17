@@ -268,7 +268,7 @@ es solo el 400, es que **no se crea ni el job ni el run**.
 > A partir de aquí el flujo completo funciona: dato → red → receta → run. Lo que sigue **añade
 > capacidad**.
 
-### Fase 5 — La tabla por patch y el diagnóstico ← *la app se vuelve instrumento*
+### Fase 5 — La tabla por patch y el diagnóstico — ✅ **hecha (2026-07-17)** ← *la app se vuelve instrumento*
 
 1. **Back**: la operación **E × split de B → tabla por patch** (`.npz`, el idioma del proyecto),
    con `score`, `(x,y)` predicho y real, error px, `sample_idx`, `patch_xy`.
@@ -280,7 +280,72 @@ es solo el 400, es que **no se crea ni el job ni el run**.
 
 **Por qué aquí y no después**: V8 deja elegir `threshold` **gratis y post-hoc**. Entrar al
 barrido sin ella es gastar horas de CPU buscando en D lo que estaba en F.
-**Verificación**: correr la tabla sobre un run existente; V7 y V8 pintan.
+
+**Verificado**: 90 tests pasan (siguen 2 en xfail: ⑤ y ⑨). Diagnóstico abierto **en Chrome de
+verdad** sobre `fase4-ui` × val de `fase3-red`, con clic real en la galería. **Y la promesa de la
+fase se cumplió con números**:
+
+- **El umbral es gratis y se nota**: f1 **0,673** en `threshold` 0,50 → **0,728** en 0,64, post-hoc
+  y sin reentrenar. La tabla se calcula en **1,0 s**; los GET siguientes van a **0,025 s** y otro
+  agregado sobre la misma tabla, a **0,014 s**. Por eso `/diagnostics` es síncrono (R3).
+- **V7 dijo algo la primera vez que se miró**: error **16,4 px en el borde** del patch contra
+  **9,1 px en el centro**. Es exactamente el diagnóstico que ui.md §4.1 le pide — apunta al
+  `stride` de B, no a los filtros de C — y sin la vista se habría leído como «la red es pequeña».
+- **El desbalance sale solo y cuadra**: **20,5 % de positivos, 3,88:1** sobre el val de
+  `fase3-red`, contra el 20,5 % / 3,9:1 que documenta protocolo.md §1.
+
+**Xfails que quita**: ninguno — no le tocaba ninguno. Quedan ⑤ (fase 6) y ⑨ (fase 7).
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **`pos_err_px` se calculaba en dos sitios, y ahora se calcula en uno** (`itf.metrics`). No era un
+  problema visible: era la forma exacta del contrato ⑤ con otro nombre. `evaluate()` escribe
+  `pos_err_px` cada época y la tabla lo escribe por patch para V7 — dos copias de una fórmula que
+  **tienen que coincidir**, sin nada que lo comprobara. El test que lo cierra no pregunta «¿es
+  correcta `position_error_px`?» (los dos lados llaman a la misma función: no puede divergir) sino
+  **«¿mide la tabla lo mismo que reportó el run?»** — y sobre datos reales sale idéntico hasta el
+  último decimal: `f1` 0,673479 por los dos caminos. Eso es tests.md §1.2 aplicado antes de que
+  doliera.
+- **Y unificarlas movió un número, medido y no supuesto.** Reentrenar `fase4-ui` tras el refactor da
+  `loss`, `f1`, `precision` y `recall` **idénticos bit a bit** —o sea, los pesos no se tocan— y
+  `pos_err_px` 12,427402796 contra 12,427402806: **asociatividad de float32**, porque `evaluate()`
+  antes sumaba en unidades de patch y escalaba el total en float64, y ahora escala por elemento y
+  suma valores 40× mayores en float32. El orden nuevo es **el correcto**: es lo que hace que el
+  número del run sea exactamente la media de lo que la tabla guarda. ~1e-9 está muy por debajo de
+  lo resoluble (protocolo.md §1), pero queda escrito en vez de esperando a ser un misterio.
+- **El mapa 40×40 de V7 no se puede leer, y no es culpa de la vista: es del dato.** ui.md §4.1 pide
+  40×40; con ~200 esquinas de un tipo repartidas en 1600 celdas son **0,1 muestras por celda** y
+  sale moteado — **cierto e ilegible**, que es la peor combinación: parece estructura. A 10×10
+  (celdas de 4 px, ~8 esquinas cada una) el borde-vs-centro se ve de un vistazo, y el ratio ~2×
+  **sale igual a las dos resoluciones**, así que es real y no un artefacto del binning. La
+  resolución es un control (`?bins=`), no una constante: la resolución legible **crece con el
+  dataset**, y `bins = patch_size` sigue dando el mapa que el documento describe.
+- **La clave del caché necesita el `mtime` del checkpoint, y D1 no lo pedía.** «Run + huella de B +
+  split» solo identifica una tabla si un run es inmutable, y **no lo es mientras entrena**:
+  `best.pt` se reescribe en cada época que mejora. Sin el mtime, abrir Diagnóstico en la época 5 y
+  otra vez en la 20 contesta la tabla de la 5 las dos veces — un caché mintiendo con buena cara.
+  El caché de modelos del código viejo ya usaba mtime por la misma razón (organizacion.md §2-④).
+- **Una escala log dejó una gráfica sin barras, y con cara de gráfica.** El histograma de V8 nació
+  en log «por el desbalance»: un `rectY` va desde un y=0 implícito, `log(0)` no existe, y Plot
+  **descarta cada barra en silencio** dejando los ejes puestos. Se vio contando `rect` en el SVG
+  (0 de 40), no mirando. Y la escala no hacía falta: el desbalance es 3,9:1, «modesto, no brutal»
+  (organizacion.md §1-D), así que lineal se lee perfectamente. *(Dos series de `rect` sobre el
+  mismo rango x tampoco se apilan: se tapan. Van media caja cada una.)*
+- **El eje alineado de R4 no estaba alineado, y solo en el panel con leyenda.** Plot devuelve un
+  `<svg>` pelado, pero un `<figure>` cuando le pides `legend: true` — y un `figure` se lleva los
+  **márgenes por defecto del navegador (40 px)**. Medido: ese panel salía de 540 px empezando en
+  x=287 y sus hermanos de 620 en x=247. R4 pide small multiples *apiladas y con el eje x alineado*
+  porque **la alineación es el mecanismo entero**; rota, no se rompe nada — las columnas
+  simplemente dejan de poder compararse, que es justo para lo que existen.
+- **Un canvas no se repinta cuando cambia el tema, y `MatrixCanvas` lo arrastraba desde la fase 1.**
+  La cascada se re-resuelve sola; un canvas ya pintado y un SVG ya construido, no. Se ve ahora
+  porque V7 pone un mapa grande al lado del toggle. Lo cierra `useThemeVersion` (observa
+  `data-theme` **y** la media query, que son las dos formas en que tokens.css cambia de modo).
+- **Las dos clases de V8 y V14 no pueden pedir prestado un slot de esquina** (R1: el color sigue a
+  la entidad, y el selector de esquina está en la misma pantalla). Usan **los dos extremos de la
+  rampa divergente**: ya están en la paleta fija (D12 no genera hues nuevos), son tintas opuestas y
+  el validador ya los aprobó el uno contra el otro. Solo para dos clases: una tercera pediría un
+  hue, y los hues son de D12.
 
 ### Fase 6 — Mapas, kernels y el pipeline
 

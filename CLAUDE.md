@@ -9,43 +9,55 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Fases 0, 0.5, 1, 2, 3 y 4 hechas (2026-07-16). La siguiente es la [fase 5](docs/plan-ui.md)**:
-> la **tabla por patch** (E × split de B → `.npz`, un caché) y el diagnóstico — V3, V6, V7 y **V8**,
-> que deja elegir `threshold` post-hoc y gratis. Entrar al barrido sin V8 es gastar horas de CPU
-> buscando en D lo que estaba en F. **No quedan decisiones bloqueando**; lo abierto en
+> **Fases 0, 0.5, 1, 2, 3, 4 y 5 hechas (2026-07-17). La siguiente es la [fase 6](docs/plan-ui.md)**:
+> los **mapas y kernels** (V1, V2 — `GET /runs/{name}/kernels`, `POST /runs/{name}/feature-maps`,
+> **entrada = un patch**) y el **pipeline** (F: `itf.inference.predict`, ventana + NMS +
+> reconstrucción, y V11 con las crudas pre-NMS). **No quedan decisiones bloqueando**; lo abierto en
 > [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase.
 >
-> **El flujo completo funciona: dato → red → receta → run**, y desde la UI. Lo que sigue **añade
-> capacidad**, no cierra huecos. Por CLI: `itf-train --name <run> --patch-dataset <B> --network <C>
-> --recipe <D> --device cpu`. Toma **nombres**, no valores: es lo que hace que la procedencia se
-> sostenga sola.
+> **La fase 6 es la que puede resucitar el contrato ⑤**, que es su único xfail y el más importante
+> de la lista: al escribir la inferencia, **lo que sale natural es reteclear las seis líneas de la
+> ventana** en vez de importarlas de `itf.geometry`. El test está puesto para que no cuele.
 >
-> **Ya existen**: `itf.geometry` (G), `itf.datasets` (A), `itf.patches` (B), `itf.models` (C),
-> `itf.validation` (①② + `check_run`), `itf.training` (D+E: `recipe`, `losses`, `loop`, `cli`,
-> `registry`, `provenance`), `itf.inference.load_model` (④, lo único de F) y `itf.api`
-> (`/sources`, `/patch-datasets`, `/jobs`, `/networks`, `/recipes`, **`/runs`**). Faltan
-> `itf.inference.predict` (F, ventana + NMS + reconstrucción), el diagnóstico (E×B) y el barrido (H).
-> El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para **algoritmos**, no para
-> estructura: `git show pre-rediseno:src/itf/training/losses.py`.
+> **El flujo completo funciona: dato → red → receta → run → diagnóstico**, y desde la UI. Por CLI:
+> `itf-train --name <run> --patch-dataset <B> --network <C> --recipe <D> --device cpu`. Toma
+> **nombres**, no valores: es lo que hace que la procedencia se sostenga sola.
+>
+> **Ya existen**: `itf.geometry` (G), `itf.metrics` (las definiciones de los números), `itf.datasets`
+> (A), `itf.patches` (B), `itf.models` (C), `itf.validation` (①② + `check_run`), `itf.training`
+> (D+E), `itf.inference.load_model` (④, lo único de F), **`itf.diagnostics`** (E×B: la tabla por
+> patch, sus agregados y su caché) e `itf.api` (`/sources`, `/patch-datasets`, `/jobs`, `/networks`,
+> `/recipes`, `/runs`, **`/runs/{n}/diagnostics/{pr,error-map,patches}`**). Faltan
+> `itf.inference.predict` (F) y el barrido (H). El código anterior sigue en el tag **`pre-rediseno`**
+> — consúltalo para **algoritmos**, no para estructura:
+> `git show pre-rediseno:src/itf/inference/predict.py`.
 >
 > **Las dos puertas de entrenar son una**: `POST /runs` e `itf-train` preguntan a
 > `itf.validation.check_run` y reservan con `RunStore.create`. Si añades una tercera (el barrido de
 > la fase 7), pasa por ahí: **la puerta que queda más laxa es por la que entra el barrido**.
 >
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *68 passed, 2 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *90 passed, 2 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
-> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. La fase 4 quitó ③ y
-> ④, y pagó la deuda de ① y ② extendiéndolos a HTTP. **Quedan ⑤ (fase 6) y ⑨ (fase 7)**.
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Quedan ⑤ (fase 6)
+> y ⑨ (fase 7)** — la fase 5 no tenía ninguno que quitar.
+>
+> **La tabla por patch es un caché y no una entidad** (D1): no se nombra, no se lista, no hay
+> pantalla de Evaluaciones. Vive en `data/cache/diagnostics/` y **borrarla no pierde nada** — hay un
+> test que lo afirma. Su clave lleva el **mtime del checkpoint**, que D1 no pedía: sin él, un run
+> vivo (que reescribe `best.pt` cada época que mejora) serviría para siempre la tabla de la primera
+> vez que lo miraste.
 >
 > **`runs/fase3-01` no tiene procedencia** y el API lo dice en voz alta: es de la fase 3, anterior
 > al contrato ③, y no puede decir de qué red salió. **No se construye ningún lector que degrade**
 > (eso es lo que mató D3): o se borra y se reentrena, o se queda como está y la pantalla lo marca.
+> Diagnóstico se **niega** sobre él con la razón — sin procedencia no hay B contra el que medir.
 >
 > **Arrancar**: `.\.venv\Scripts\python -m itf.api` (8000) y `cd web && npm run dev` (5173). El
 > front proxya `/api` al backend. **La paleta vive en `web/src/theme/tokens.css` y solo ahí** —
 > `npm run validate:palette` la valida parseando ese fichero. Si tocas un color, córrelo: no se
-> elige a ojo (D12).
+> elige a ojo (D12). **Observable Plot entró en la fase 5** (V8, V14); las matrices (V1, V2, V4, V7)
+> siguen en canvas a mano, y eso es deliberado (ui.md §0).
 >
 > El resto de `docs/` son **especificaciones, no descripciones**: lo no construido no está
 > ejecutado ni verificado. Cuando un documento cita un fichero y una línea (`app.py:61`,
@@ -135,6 +147,7 @@ extracción va enganchada a su fase de plan-ui.md, nunca como refactor aparte.
 | **H** | Barrido | Espacio de D con B y C fijos → muchos E | *no existe aún* |
 | **F** | Inferencia | Aplicar un E a una imagen completa | `inference/predict.py` |
 | **G** | Vocabulario | Nombres de esquina/borde, geometría de la ventana | *disperso* |
+| **E×B** | Diagnóstico | La tabla por patch y lo que se lee de ella. **Un caché, no un dominio** (D1) | `diagnostics/`, `data/cache/` |
 | **X** | Ejecución | `device`, `num_workers`, concurrencia. **Cuesta tiempo, no cambia el resultado** | `api/jobs.py` |
 
 ### Antes de tocar nada, pregúntate a qué dominio pertenece
@@ -234,3 +247,16 @@ aparecieron por no elegir. Construir desde cero **no protege de ellas: las invit
   no lo estaba. **Nombra la fuente entera**; `itf-extract` las lista si te equivocas.
 - **Optimizar un proxy sin validarlo**: no existía ninguna métrica de párrafo — todo era a nivel
   de patch. La F1 de párrafo es el objetivo real y **es barata** (protocolo.md §2).
+- **Definir un número dos veces**: `pos_err_px` lo escribían `evaluate()` (por época) y la tabla
+  por patch (por patch), con la fórmula copiada. Es el contrato ⑤ con otro nombre — **dos copias
+  que tienen que coincidir y nada que lo compruebe** — y si divergen, V7 y la curva del run
+  describen cosas distintas con el mismo nombre, en silencio. Vive en **`itf.metrics`**, y el test
+  no pregunta si la función es correcta (los dos lados llaman a la misma: no puede divergir) sino
+  **si la tabla mide lo que el run reportó**. *(Fase 5.)*
+- **Una gráfica vacía tiene cara de gráfica**: en escala log, un `rectY` de Plot va desde un y=0
+  implícito, `log(0)` no existe y **Plot descarta todas las barras sin avisar**, dejando los ejes.
+  Se caza contando marcas en el SVG, no mirando. Y dos series de `rect` sobre el mismo rango x **se
+  tapan**, no se agrupan. *(Fase 5.)*
+- **Un mapa moteado parece estructura**: el 40×40 de V7 con ~200 esquinas son 0,1 muestras por
+  celda — **cierto e ilegible**, que es peor que ilegible. Enseña siempre cuántas muestras hay
+  detrás de una celda. *(Fase 5.)*

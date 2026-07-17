@@ -49,10 +49,18 @@ organizacion.md, que son justo los bloqueantes del barrido:
 > organizacion.md. No dejar que la librería dicte la estructura: sus `trials` no son nuestros
 > runs — un trial *lanza* un run y guarda su referencia.
 
-**`@observablehq/plot`** (front, para V8, V12, V13, V14) — gramática de gráficos concisa, hecha
-para exploración: un histograma o un scatter con leyenda de color son 3–5 líneas. Cubre lo que
-hoy no existe y sería tedioso a mano, sobre todo **V13 (coordenadas paralelas)**. Se monta con
-`useEffect` + `ref` + `replaceChildren` (patrón estándar, Plot devuelve un nodo DOM).
+**`@observablehq/plot`** (front, para V8, V12, V13, V14) — **entró en la fase 5** (0.6.17).
+Gramática de gráficos concisa, hecha para exploración: un histograma o un scatter con leyenda de
+color son 3–5 líneas. Cubre lo que hoy no existe y sería tedioso a mano, sobre todo **V13
+(coordenadas paralelas)**. Se monta con `useEffect` + `ref` + `replaceChildren` (patrón estándar,
+Plot devuelve un nodo DOM) — en `components/PlotFigure.tsx`, que además le pasa la tinta de
+tokens.css (Plot trae sus propios grises y desaparecen en oscuro) y lo repinta al cambiar de modo.
+
+> **Dos cosas que Plot hace y hay que saber, las dos medidas en la fase 5.** Devuelve un `<svg>`
+> pelado, pero un **`<figure>`** cuando le pides `legend: true` — y un `figure` se lleva los
+> márgenes por defecto del navegador, que descuadró el eje alineado de R4 en el único panel con
+> leyenda. Y en escala **log**, un `rectY` (que va desde un y=0 implícito) **desaparece sin
+> avisar**, dejando los ejes puestos y la gráfica vacía con cara de gráfica.
 
 #### No se añaden, y por qué
 
@@ -266,6 +274,14 @@ de V11. El color sigue a la entidad, nunca a su rango: filtrar o reordenar **no 
 supervivientes. Son 4 series, que es justo donde entra el suelo de daltonismo → **etiquetado
 directo obligatorio**, no cortesía. Y 4 está bajo el techo de 8: nunca se generan hues nuevos.
 
+> **Corolario, y hacía falta escribirlo** *(fase 5)*: hay vistas con una dimensión categórica de
+> **dos** clases que **no es la esquina** — positivo/negativo en V8, train/val en V14 — y **no
+> pueden coger prestado un slot de esquina**. Si "positivo" se pinta del verde de TR mientras el
+> selector de esquina está en la misma pantalla, un color significa dos cosas. Se usan **los dos
+> extremos de la rampa divergente**: ya están en la paleta fija, son tintas opuestas, y el
+> validador los aprueba el uno contra el otro en ambos modos — que es literalmente el trabajo de
+> una divergente. **Solo para dos clases**: una tercera pediría un hue nuevo, y eso es de D12.
+
 > **Y aquí las 4 esquinas se miden con la lista dura: `--pairs all`, no adyacentes.** La
 > comprobación por defecto solo mira pares vecinos, y vale cuando lo único que se toca son
 > vecinos (una pila, unas barras). Aquí **cualquiera de las cuatro puede quedar pegada a
@@ -339,12 +355,23 @@ una tarta.
 
 Las que merecen detalle:
 
-**V7 — error por posición dentro del patch.** Mapa de calor 40×40: para cada esquina positiva,
-dónde caía de verdad y cuánto erró el modelo. **Es la vista que dice qué dominio arreglar**: si
-el error se concentra en los bordes del patch (esquinas medio visibles), la respuesta es **bajar
-el `stride` de B**, no meter filtros en C. Sin esta vista, ese diagnóstico se confunde
+**V7 — error por posición dentro del patch.** Mapa de calor: para cada esquina positiva, dónde
+caía de verdad y cuánto erró el modelo. **Es la vista que dice qué dominio arreglar**: si el error
+se concentra en los bordes del patch (esquinas medio visibles), la respuesta es **bajar el
+`stride` de B**, no meter filtros en C. Sin esta vista, ese diagnóstico se confunde
 sistemáticamente con "la red es pequeña". La más valiosa del catálogo para la pregunta real del
-proyecto.
+proyecto — y **lo fue la primera vez que se miró**: sobre `fase4-ui`, **16,4 px en el borde contra
+9,1 px en el centro**.
+
+> **La resolución es un control, no 40×40** *(fase 5, 2026-07-17)*. Este documento decía «40×40», y
+> **el dato no da para eso**: ~200 esquinas de un tipo repartidas en 1600 celdas son **0,1 muestras
+> por celda**, así que el mapa sale **moteado — cierto e ilegible**, que es peor que ilegible a
+> secas porque el moteado parece estructura. A **10×10** (celdas de 4 px, ~8 esquinas cada una) el
+> borde-vs-centro se ve de un vistazo. No es una corrección al documento sino una consecuencia de
+> los datos: la resolución legible **crece con el dataset** (D6 traerá ~10× más), y `bins =
+> patch_size` sigue dando exactamente el mapa de aquí. Lo que sí es regla: la vista **enseña cuántas
+> esquinas hay detrás de cada celda**, porque una celda de 2 muestras y una de 200 se pintan igual.
+> Y el ratio ~2× sale idéntico a 10×10 y a 40×40 ⇒ es real, no un artefacto del binning.
 
 **V8 — histograma de scores + curva PR.** Separabilidad de positivos vs negativos, por tipo de
 esquina. El desbalance es de **3,9:1** (20,5 % de positivos en `clear-paragraphs-02`): bastante

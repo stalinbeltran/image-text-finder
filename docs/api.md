@@ -258,20 +258,40 @@ Todos los endpoints son **`GET` idempotentes** sobre `(run, split)`; la tabla se
 GET y se invalida sola si cambian el run, la huella de B o los knobs.
 
 ```
-GET /runs/{name}/diagnostics/patches      tabla filtrada y paginada  (V6)
-      ?split=val&outcome=&corner=&order=error&offset=&limit=
-GET /runs/{name}/diagnostics/pr           curva PR + histograma      (V8)
+GET /runs/{name}/diagnostics/patches      tabla filtrada y paginada  (V6)   ✅ fase 5
+      ?split=val&outcome=&corner=&order=error&threshold=&offset=&limit=
+GET /runs/{name}/diagnostics/pr           curva PR + histograma      (V8)   ✅ fase 5
       ?split=val&corner=TL
-GET /runs/{name}/diagnostics/error-map    mapa 40×40                 (V7)
-GET /runs/{name}/diagnostics/coactivation matriz 4×4                 (V9)
+GET /runs/{name}/diagnostics/error-map    mapa del patch             (V7)   ✅ fase 5
+      ?split=val&corner=TL&bins=10
+GET /runs/{name}/diagnostics/coactivation matriz 4×4                 (V9)   — fase 6
 ```
 
 - **Síncronos** (R3): una pasada sobre val son ~10⁴ forwards por lotes, segundos. El primer GET
-  paga; los demás leen el caché.
+  paga; los demás leen el caché. **Medido**: 1,0 s / 0,025 s / 0,014 s (formatos.md §4.4). El día
+  que esto pida un 202, la tabla dejó de ser barata y el umbral gratis se fue con ella.
 - **Agregados en el servidor** (R6): `pr`, `error-map` y `coactivation` devuelven el resultado ya
-  hecho. El navegador **nunca** recibe 10⁵ filas; `patches` va filtrado y paginado.
+  hecho. El navegador **nunca** recibe 10⁵ filas; `patches` va filtrado y paginado — y `limit` va
+  **acotado por la ruta**, no por convenio: sin tope, un `?limit=100000` sirve la tabla entera con
+  un 200 educado.
 - **La curva PR se calcula sobre los scores cacheados**: barrer `threshold` **no vuelve a correr
-  el modelo**. Ahí está el ahorro de horas de CPU.
+  el modelo**. Ahí está el ahorro de horas de CPU. `threshold` es un parámetro de **consulta**, no
+  de la clave del caché, y esa distinción es el ahorro entero (formatos.md §4.4).
+- **`bins` (V7) es la resolución del mapa**, y existe porque 40×40 es ilegible con este dato
+  (ui.md §4.1): `bins = patch_size` da el mapa a resolución completa.
+- **Todo lo que no se puede medir se niega con la razón y el arreglo** (R4), nunca con un número
+  inventado. Los códigos, y el status que le toca a cada uno:
+
+| Código | | Cuándo |
+|---|---|---|
+| `run_not_found`, `patch_dataset_missing` | **404** | No existe eso que nombras |
+| `unknown_split`, `unknown_corner`, `unknown_outcome`, `unknown_order`, `invalid_bins` | **400** | La petición no puede funcionar **nunca**: arregla la petición |
+| `run_without_provenance`, `run_has_no_checkpoint`, `patch_dataset_changed`, `split_empty` | **409** | La petición está bien y **el estado dice que no**: arregla el dato |
+
+> **`patch_dataset_changed` es el contrato ⑧ cobrándose su huella** *(fase 5)*. Si B se reconstruyó
+> bajo el mismo nombre desde que se entrenó el run, su split ya **no es** el que ese `best.pt` usó
+> para elegirse: diagnosticar contra él da números con buena cara que miden otra cosa. Una ruta
+> reconstruida sigue apuntando igual; **solo la huella se entera**. Por eso es un 409 y no un aviso.
 
 ### `/runs/{name}` — introspección (V1, V2, V4)
 
@@ -437,7 +457,7 @@ API"**:
 | **2** | `/datasets` → `/sources`; `DELETE /patch-datasets` + `used_by`; `/sources/{id}/samples/{i}/image`; CORS — ✅ |
 | **3** | `/models` → `/networks` + `DELETE` + `/validate`; **`/recipes` nuevo** — ✅ *(y el almacén con ellos: `configs/models/` → `configs/networks/`, formatos.md §4.3)* |
 | **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` — ✅ *(y `PATCH`/`DELETE` con 409 si corre)* |
-| **5** | `/diagnostics` + los agregados (caché) |
+| **5** | `/diagnostics` + los agregados (caché) — ✅ *(`pr`, `error-map`, `patches`: síncronos y todos `GET`)* |
 | **6** | `/kernels`, `/feature-maps`; `raw` en predict |
 | **7** | `/sweeps`; `/jobs/{id}/cancel` |
 

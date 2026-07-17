@@ -68,6 +68,10 @@ class Layout:
     runs: Path
     networks: Path
     recipes: Path
+    #: The diagnostics table cache (D1). Throwaway like the rest -- and here that
+    #: is not just hygiene: a cache keyed on a run name would hand one test's
+    #: table to another if they shared a root.
+    cache: Path
 
     def write_source(self, name: str = "tiny", **kwargs) -> str:
         write_tiny_source(self.datasets / name, **kwargs)
@@ -154,6 +158,7 @@ def layout(tmp_path: Path) -> Layout:
         runs=tmp_path / "runs",
         networks=tmp_path / "configs" / "networks",
         recipes=tmp_path / "configs" / "recipes",
+        cache=tmp_path / "cache" / "diagnostics",
     )
 
 
@@ -179,6 +184,7 @@ def itf_api(layout: Layout):
         runs_root=layout.runs,
         networks_root=layout.networks,
         recipes_root=layout.recipes,
+        diagnostics_cache_root=layout.cache,
         allowed_roots=(layout.datasets,),
         cors_origins=("http://localhost:5173",),
     )

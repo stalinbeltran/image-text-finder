@@ -159,10 +159,21 @@ barato. La capa objetivo:
 | `itf.datasets` (A) | — |
 | `itf.models` (C) | **solo `geometry`** |
 | `itf.validation` (contratos ① y ②) | **nada de `itf`** — es puro: dos dicts |
+| `itf.metrics` (qué significan los números) | **nada de `itf`** — es puro: arrays |
 | `itf.patches` (B) | `datasets`, `geometry` |
-| `itf.training` (D) | `patches`, `models`, `validation`, `geometry` |
+| `itf.training` (D) | `patches`, `models`, `validation`, `metrics`, `geometry` |
 | `itf.inference` (F) | `models`, `geometry` — **no `patches`** |
+| `itf.diagnostics` (E×B) | `patches`, `training`, `inference`, `metrics`, `geometry` |
 | `itf.api` | todos |
+
+> **`itf.metrics` nació en la fase 5, y por la razón de `itf.geometry`** — no importa nada de `itf`
+> porque toma **arrays, no objetos**: no sabe qué es un run ni un dataset. `pos_err_px` se
+> calculaba en dos sitios (`evaluate()` cada época; la tabla por patch para V7) y **tenían que
+> coincidir sin que nada lo comprobara**: la forma exacta del ⑤ con otro nombre. El sitio correcto
+> se construye cuando aparece el segundo lector, no cuando duele.
+>
+> **`itf.diagnostics` está arriba, y eso es correcto**: es el cruce de E y B, así que conoce a los
+> dos por definición. Lo que no puede es que alguien importe **de** él, salvo `itf.api`.
 
 > **`itf.models` importa de `geometry`, y eso *es* el arreglo del ⑦, no una excepción a él.**
 > Una versión anterior de esta tabla decía «nada de `itf`» para C, y se contradecía con su propio

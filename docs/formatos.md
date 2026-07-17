@@ -299,10 +299,26 @@ y los cuatro ya tienen identidad ⇒ **se puede recalcular exacta ⇒ es un cach
 criterio de §5. No se nombra, no se lista, no se versiona, no tiene CRUD ni pantalla — y las
 cuatro vistas de diagnóstico (V6–V9) salen igual.
 
-- **Clave**: `(run, fingerprint de B, split, knobs)`. Si cambia cualquiera, se recalcula.
-- **Ubicación**: un directorio de caché, gitignoreado. Borrarlo no pierde nada.
+- **Clave**: `(run, fingerprint de B, split, checkpoint + su mtime, knobs)`. Si cambia
+  cualquiera, se recalcula.
+- **Ubicación**: `data/cache/diagnostics/`, gitignoreado. Borrarlo no pierde nada.
 - **Coste de rehacerla**: segundos (~10⁴ forwards por lotes). Por eso puede ser síncrona (R3 de
-  api.md).
+  api.md). **Medido** (fase 5, 980 patches de val): **1,0 s** la primera vez, **0,025 s** leyendo
+  el caché, **0,014 s** otro agregado sobre la misma tabla.
+
+> **El `mtime` del checkpoint entra en la clave, y este documento no lo pedía** *(fase 5)*. «Run»
+> solo identifica una tabla si un run es **inmutable**, y no lo es mientras entrena: `best.pt` se
+> reescribe en cada época que mejora. Sin el mtime, abrir Diagnóstico en la época 5 y otra vez en
+> la 20 contesta **la tabla de la época 5 las dos veces**, sin que nada chirríe. El caché de
+> modelos del código viejo se invalidaba por mtime por exactamente esta razón (organizacion.md
+> §2-④).
+
+> **`knobs` está vacío, y a propósito** *(fase 5)*. El único que podría entrar es `threshold`, y
+> **no debe**: se aplica al agregar, sobre los scores guardados, que es lo que hace que V8 sea
+> gratis. Metido en la clave, el caché se re-keyaría en cada punto de la curva y V8 costaría una
+> pasada por umbral — o sea, justo las horas de CPU que esta tabla existe para no gastar. El campo
+> está para que un knob futuro que **sí** cambie los números tenga dónde ir: no encontrarlo es
+> como no se acabaría añadiendo.
 
 > Lo que **no** se puede recalcular es el **criterio humano** — que a ti te interesaran "los
 > patches donde falla el TL". Si algún día se quiere volver a una búsqueda guardada (y de ahí

@@ -25,7 +25,7 @@ from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 
-from itf.api.errors import bad_request, conflict, not_found
+from itf.api.errors import bad_request, conflict, not_found, problem
 from itf.api.jobs import JobQueue
 from itf.api.schemas import (
     BuildPatchDatasetBody,
@@ -36,6 +36,15 @@ from itf.api.schemas import (
     RenameRunBody,
 )
 from itf.datasets import SourceDataset, discover_sources
+from itf.diagnostics import (
+    DEFAULT_CHECKPOINT,
+    NotMeasurable,
+    TableCache,
+    error_map,
+    open_diagnostics,
+    pr,
+    rows,
+)
 from itf.models import (
     NetworkConfig,
     NetworkNotFound,
@@ -77,6 +86,7 @@ class Context:
     recipes: RecipeStore
     runs: RunStore
     jobs: JobQueue
+    diagnostics: TableCache
 
 
 def get_context(request: Request) -> Context:
@@ -707,6 +717,130 @@ def register_runs(app: FastAPI) -> None:
         return Response(status_code=204)
 
 
+# ── E×B: /runs/{name}/diagnostics ─────────────────────────────────────────────
+
+
+#: `NotMeasurable.code` → HTTP status. The default is 409 because that is what
+#: most of these are: the request is well formed and the state says no -- the run
+#: never trained, its dataset was rebuilt underneath it. 400 is for a request that
+#: could never work whatever the state (an unknown split, an unknown corner), and
+#: 404 for a name that is not there.
+_DIAGNOSTIC_STATUS: dict[str, int] = {
+    "run_not_found": 404,
+    "patch_dataset_missing": 404,
+    "unknown_split": 400,
+    "unknown_corner": 400,
+    "unknown_outcome": 400,
+    "unknown_order": 400,
+}
+
+
+def _diagnostics(c: Context, name: str, split: str, checkpoint: str):
+    """Open the table, turning every refusal into its status code (R4).
+
+    The whole HTTP contribution of this resource. Everything that decides
+    anything -- following the provenance, checking the fingerprint, computing or
+    reusing the table -- is in `itf.diagnostics`, because none of it mentions
+    HTTP (api.md §0).
+    """
+    try:
+        return open_diagnostics(
+            runs=c.runs,
+            patch_datasets=c.patch_datasets,
+            cache=c.diagnostics,
+            run=name,
+            split=split,
+            checkpoint=checkpoint,
+        )
+    except NotMeasurable as exc:
+        raise problem(
+            _DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint or None
+        )
+
+
+def register_diagnostics(app: FastAPI) -> None:
+    """The substrate of ui.md §3. **A cache, not an entity** (D1).
+
+    So: no `POST` that creates one, no id, no listing, nothing to name. Every
+    route is a `GET` over `(run, split)`, idempotent, and the table behind them is
+    computed on the first one and invalidated by its own key.
+
+    **Synchronous, not a job** (R3), and that is a statement: one pass over val is
+    ~10⁴ forwards in batches -- seconds. If it ever needs a job, the table stopped
+    being cheap and V8's free threshold sweep went with it.
+    """
+
+    @app.get("/runs/{name}/diagnostics/pr")
+    def diagnostics_pr(
+        name: str,
+        split: str = "val",
+        corner: str | None = None,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V8 — score histogram + PR curve. Every threshold, zero forwards."""
+        diag = _diagnostics(c, name, split, checkpoint)
+        try:
+            return pr(diag, corner)
+        except NotMeasurable as exc:
+            raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
+
+    @app.get("/runs/{name}/diagnostics/error-map")
+    def diagnostics_error_map(
+        name: str,
+        split: str = "val",
+        corner: str | None = None,
+        bins: int | None = Query(default=None, ge=1),
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V7 — where in the patch the corner was, and how far off we were.
+
+        `bins` is the map's resolution. It is a query parameter and not a fixed
+        40 because the readable resolution follows the amount of data, not the
+        patch (see `DEFAULT_ERROR_MAP_BINS`); `bins=patch_size` is the
+        full-resolution map ui.md §4.1 describes.
+        """
+        diag = _diagnostics(c, name, split, checkpoint)
+        try:
+            return error_map(diag, corner, bins)
+        except NotMeasurable as exc:
+            raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
+
+    @app.get("/runs/{name}/diagnostics/patches")
+    def diagnostics_patches(
+        name: str,
+        split: str = "val",
+        corner: str | None = None,
+        outcome: str = "all",
+        order: str = "error",
+        threshold: float = Query(default=0.5, ge=0.0, le=1.0),
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=24, ge=1, le=200),
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V6 — the worst-first gallery. **Filtered and paginated** (R6).
+
+        `limit` is capped rather than trusted: this is the one diagnostics route
+        that serves rows, and an unbounded one would happily ship the whole 10⁵-row
+        table -- which is the exact thing R6 exists to prevent.
+        """
+        diag = _diagnostics(c, name, split, checkpoint)
+        try:
+            return rows(
+                diag,
+                corner=corner,
+                outcome=outcome,
+                order=order,
+                threshold=threshold,
+                offset=offset,
+                limit=limit,
+            )
+        except NotMeasurable as exc:
+            raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
+
+
 # ── X: /jobs ──────────────────────────────────────────────────────────────────
 
 
@@ -735,6 +869,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # On CPU the limit is 1: torch already uses every core inside one run, so
         # N at once just fight each other and each holds its dataset in RAM.
         jobs=JobQueue(max_workers=1),
+        diagnostics=TableCache(settings.diagnostics_cache_root),
     )
     # D4: closed to the front's origin, never `*`.
     app.add_middleware(
@@ -749,6 +884,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_networks(app)
     register_recipes(app)
     register_runs(app)
+    register_diagnostics(app)
     register_jobs(app)
     return app
 

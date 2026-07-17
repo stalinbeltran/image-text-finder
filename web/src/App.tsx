@@ -2,6 +2,7 @@ import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { NAV, SCREENS } from "./nav";
 import { NotBuiltYet } from "./components/Async";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { Diagnostics } from "./screens/diagnostics/Diagnostics";
 import { Kitchen } from "./screens/Kitchen";
 import { Networks } from "./screens/Networks";
 import { Patches } from "./screens/Patches";
@@ -19,6 +20,7 @@ const BUILT: Record<string, () => JSX.Element> = {
   "/recipes": Recipes,
   "/train": Train,
   "/runs": Runs,
+  "/diagnostics": Diagnostics,
 };
 
 /** The shell: four groups, no step numbers (ui.md §1). */

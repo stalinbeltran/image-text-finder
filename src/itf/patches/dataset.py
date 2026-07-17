@@ -36,6 +36,18 @@ class PatchDataset(Dataset):
     network that needs it train anyway. That is `itf.validation`'s job.
     """
 
+    #: Row of each item in the FULL `.npz`, in this dataset's order. Identity when
+    #: unsplit; the selected rows when split.
+    #:
+    #: Filtering by split is what makes this necessary: it renumbers everything
+    #: from 0, so item 3 of the val set is not row 3 of the file, and `sample_idx`
+    #: / `patch_xy` / the pixels are all indexed by the file's numbering. The
+    #: per-patch table stores this as `patch_idx` (formatos.md §4.4) so a
+    #: diagnostics row can be joined back to the patch it came from. Without it
+    #: the table could report an error and not be able to say for which patch --
+    #: which is most of what V6 and V7 are for.
+    indices: np.ndarray
+
     def __init__(self, npz_path: str | Path, split: str | None = None):
         path = Path(npz_path)
         if path.is_dir():
@@ -48,11 +60,13 @@ class PatchDataset(Dataset):
                 if self.has_border
                 else np.zeros((X.shape[0], NUM_BORDERS), dtype=np.uint8)
             )
+            self.indices = np.arange(X.shape[0], dtype=np.int32)
             if split is not None:
                 if split not in SPLIT_NAMES:
                     raise ValueError(f"split tiene que ser uno de {SPLIT_NAMES}")
                 sel = split_arr == SPLIT_NAMES.index(split)
                 X, y, border = X[sel], y[sel], border[sel]
+                self.indices = self.indices[sel]
             # (N, n, n, 1) uint8 -> (N, 1, n, n) float32 in [0, 1]
             self.X = torch.from_numpy(X).permute(0, 3, 1, 2).float().div_(255.0).contiguous()
             self.y = torch.from_numpy(y).float().contiguous()
