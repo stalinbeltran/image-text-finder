@@ -1,0 +1,57 @@
+{
+  "format_version": 1,
+  "fingerprint": "sha256:16129a4cf83be548a88606e32a618e8e9ffb6157a6566132c4cd314b52602adc",
+  "has_border": true,
+  "source_id": "clear-paragraphs-02-8ea1ac04",
+  "config": {
+    "source": "C:\\Desarrollo\\image-text-sample-generator\\data\\datasets\\clear-paragraphs-02-reducidos",
+    "out": "data/patch-datasets/fase8-b",
+    "patch_size": 40,
+    "stride": 20,
+    "target_kinds": [
+      "paragraph"
+    ],
+    "drop_overlap": false,
+    "split": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    },
+    "seed": 1
+  },
+  "num_samples": 200,
+  "num_patches": 9800,
+  "patch_shape": [
+    40,
+    40,
+    1
+  ],
+  "label_shape": [
+    4,
+    3
+  ],
+  "corner_order": [
+    "TL",
+    "TR",
+    "BR",
+    "BL"
+  ],
+  "border_order": [
+    "top",
+    "right",
+    "bottom",
+    "left"
+  ],
+  "patches_per_split": {
+    "train": 7840,
+    "val": 980,
+    "test": 980
+  },
+  "positives_per_corner": {
+    "TL": 2012,
+    "TR": 2023,
+    "BR": 2031,
+    "BL": 2022
+  },
+  "warnings": []
+}
