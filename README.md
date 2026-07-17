@@ -9,14 +9,16 @@ Las imágenes las produce
 
 ---
 
-## Estado: fase 7 — la cola de verdad y los barridos (H)
+## Estado: fase 8 — las sondas, y el plan queda completo
 
 Hechas las fases **0** (decisiones), **0.5** (los contratos en xfail), **1** (esqueleto y paleta),
 **2** (Fuentes y Patches), **3** (Redes y Recetas), **4** (Entrenar y Runs), **5** (la tabla por
-patch y el diagnóstico), **6** (kernels, feature maps y el pipeline de inferencia) y **7** (la cola
-con cancelación y persistencia, y los **Barridos** con `optuna`) de
-[docs/plan-ui.md](docs/plan-ui.md). **Están las nueve pantallas y los diez contratos** — no queda
-ningún xfail. La siguiente es la **fase 8**: las sondas (V4 occlusion, V5 scrubber, V10, V15).
+patch y el diagnóstico), **6** (kernels, feature maps y el pipeline de inferencia), **7** (la cola
+con cancelación y persistencia, y los **Barridos** con `optuna`) y **8** (las **sondas**: V4
+occlusion, V5 scrubber, V10 flag de borde, V15 procedencia del patch) de
+[docs/plan-ui.md](docs/plan-ui.md). **Están las nueve pantallas, los diez contratos y las quince
+vistas** — no queda ningún xfail, y **el plan de fases está completo**. Lo que sigue es
+investigación (barrer con el instrumento ya montado) y las extracciones de librería.
 
 **Se entrena desde la UI y el run sabe de dónde salió** (dato → red → receta → run), **se puede
 mirar qué hace ese run, patch a patch** (la tabla por patch —un caché— y las vistas V3, V6, V7, V8,
@@ -346,6 +348,38 @@ paralelas). **Parar** es cooperativo: corta entre trials, y el punto en curso te
 > época. La métrica de párrafo (el objetivo *real*, [docs/protocolo.md](docs/protocolo.md) §2) aún no
 > existe: depende de **D7** (bbox vs. rotación), que sigue abierta.
 
+### Las sondas: mirar más fino (fase 8)
+
+Cuatro **sondas** cierran el catálogo de vistas. Tres cuelgan del clic en un patch de la galería de
+Diagnóstico; V5 vive en Predecir porque su entrada es una imagen. Con la API corriendo:
+
+```powershell
+# V4 — occlusion: desliza una máscara por el patch y mide p(esquina) con la máscara ahí
+curl -X POST "http://127.0.0.1:8000/runs/<run>/occlusion" -H "Content-Type: application/json" -d '{"patch_dataset":"<B>","index":0}'
+# V10 — test del flag de borde: voltea cada uno de los 4 flags (solo con border_features)
+curl -X POST "http://127.0.0.1:8000/runs/<run>/border-test" -H "Content-Type: application/json" -d '{"patch_dataset":"<B>","index":0}'
+# V5 — scrubber: una ventana off-grid → 4 cabezas + su estabilidad al mover 1 px
+curl -X POST "http://127.0.0.1:8000/runs/<run>/window" -H "Content-Type: application/json" -d '{"source":"<fuente>","index":0,"x0":0,"y0":0}'
+```
+
+- **V4 sirve la probabilidad ocluida, no la caída, y a propósito.** La caída (`baseline − p`) es con
+  signo —tapar una región inhibitoria *sube* el score— y en rampa secuencial eso pone el neutro
+  donde caiga el mínimo (el trampa de R2/R3). `p(esquina|ocluido)` es una probabilidad, nunca
+  negativa: oscuro = tapar ahí mató el score. La caída queda como una resta que se ve, con el
+  `baseline` al lado.
+- **V10 se niega si la red no usa `border_features`** (`border_not_used`, 409): voltear un flag que
+  la red ignora no cambia nada, y dibujar «no cambia» cuatro veces se leería como «el borde no
+  importa», una conclusión sobre el dato cuando la verdad es que la arquitectura no lo mira.
+- **V5 mide la estabilidad al mover la ventana 1 px** — lo que una predicción sola no da, y lo que
+  fija el `stride` de inferencia y el radio de NMS. Los flags de borde de la ventana off-grid salen
+  de `itf.geometry.window_at`, la misma fórmula que B usa al extraer (contrato ⑤).
+- **V15 es casi todo front**: `sample_idx` y `patch_xy` ya estaban en el `.npz`, así que devolver el
+  recorte a su sitio en la imagen fuente es gratis.
+
+Verificado de punta a punta el 2026-07-17 sobre `fase8-01` (`cnn-a`, que tiene `border_features`):
+las cuatro contestan 200, y **V4 baseline, V5 corner TL y V10 baseline son el mismo número**
+(TL 0,244) — una sola predicción, muchas vistas.
+
 ### La paleta se valida, no se opina
 
 ```powershell
@@ -371,11 +405,12 @@ La **barra de progreso del plan**: un test por contrato de `docs/organizacion.md
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Salida esperada hoy: **`133 passed`**, en verde y en ~22 s. **Ya no queda ningún xfail**: la fase 7
+Salida esperada hoy: **`145 passed`**, en verde y en ~25 s. **Ya no queda ningún xfail**: la fase 7
 quitó el último (⑨), así que **los diez contratos de `docs/organizacion.md` §2 están
-implementados**. El mecanismo sigue en pie para lo que venga — un contrato aún roto lleva su test en
-`xfail(strict=True)`, y el XPASS estricto pone la suite en rojo cuando alguien lo arregla. Ver
-[docs/tests.md](docs/tests.md) §2.
+implementados**. La fase 8 sumó 12 tests de sondas (occlusion, border-test, scrubber) pero **ningún
+xfail**: las sondas son vistas, no contratos. El mecanismo sigue en pie para lo que venga — un
+contrato aún roto lleva su test en `xfail(strict=True)`, y el XPASS estricto pone la suite en rojo
+cuando alguien lo arregla. Ver [docs/tests.md](docs/tests.md) §2.
 
 El ⑨ (`POST /sweeps` rechaza `objective=loss` si `lambda_pos` varía) lo cerró esta fase; la 6 había
 quitado el ⑤ (`itf.inference.predict` importa la ventana de `itf.geometry`, no la reteclea).
@@ -426,9 +461,10 @@ src/itf/
 web/             # Vite + React
 ├── src/theme/    # tokens.css: LA PALETA, y solo aquí
 ├── src/components/  # MatrixCanvas, LayerMaps, Meter, PatchCanvas, PlotFigure, Declares…
-├── src/screens/diagnostics/   # V1, V2, V3, V6, V7, V8, V9
+├── src/screens/diagnostics/   # V1, V2, V3, V6, V7, V8, V9 + sondas de patch V4, V10, V15
 ├── src/screens/sweeps/        # Barridos (H) + V12 (Pareto) + V13 (paralelas)
 ├── src/screens/Predict.tsx    # V11: las tres etapas + los knobs de F como sliders
+├── src/screens/Scrubber.tsx   # V5: la ventana arrastrable sobre una imagen + estabilidad
 └── scripts/      # validate-palette.mjs
 configs/         # networks/*.yaml (redes)  ·  recipes/*.yaml (recetas)
 tests/           # test_contracts.py: un test por contrato  ·  test_sweeps.py, test_jobs.py: H y la cola

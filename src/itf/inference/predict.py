@@ -37,7 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from itf.geometry import CORNER_NAMES, windows
+from itf.geometry import CORNER_NAMES, window_at, windows
 from itf.models import ConfigurableCNN
 
 #: `threshold`, `stride`, the NMS radius and `min_size` are **F, not D**
@@ -245,6 +245,102 @@ def reconstruct_boxes(
             }
         )
     return boxes
+
+
+@torch.no_grad()
+def window_prediction(
+    model: ConfigurableCNN,
+    image: np.ndarray,
+    x0: int,
+    y0: int,
+    *,
+    device: str = "cpu",
+) -> dict:
+    """V5 — the scrubber. **Fix E and the image, vary the crop `(x0, y0)`.**
+
+    Drag one 40×40 window over a real image and read the four heads live. Two
+    things make this worth a view of its own (ui.md §4.1):
+
+      - **The input stays in distribution.** Unlike a pixel editor, every crop is
+        real pixels the extractor could have produced, so the prediction says
+        something about the model rather than about an artefact the model never
+        saw (ui.md §5). The border flags come from `window_at` -- the *same*
+        formula B extracted with (contract ⑤) -- so a crop flush against an edge is
+        flagged exactly as its trained-on twin was.
+
+      - **It measures the stability the stride depends on.** Move the window one
+        pixel and the prediction should barely move; if it jumps, that jitter is
+        what sets how fine an inference `stride` can be and how big the NMS radius
+        must be. So the payload carries, per corner, the largest change in score
+        over the four 1-px neighbours -- a number you cannot get from a single
+        prediction.
+    """
+    image = _as_gray(image)
+    n = model.config.input_size
+    height, width = image.shape
+    if n > width or n > height:
+        raise ValueError(
+            f"la ventana ({n}px) no cabe en una imagen de {width}x{height}"
+        )
+    # Clamp so the crop always sits fully inside the image: the scrubber hands over
+    # a top-left, and the edge of the drag must not walk the window off the image.
+    x0 = max(0, min(int(x0), width - n))
+    y0 = max(0, min(int(y0), height - n))
+
+    def predict_at(cx: int, cy: int) -> np.ndarray:
+        win = window_at(cx, cy, n, width, height)
+        crop = image[cy : cy + n, cx : cx + n]
+        batch = torch.from_numpy(np.ascontiguousarray(crop)).unsqueeze(0).unsqueeze(0)
+        batch = batch.float().div_(255.0).to(device)
+        borders = torch.tensor([win.border], dtype=torch.float32, device=device)
+        return model(batch, borders)[0].cpu().numpy()  # (4, 3)
+
+    pred = predict_at(x0, y0)  # (4, 3): [logit, x_frac, y_frac] per corner
+    scores = 1.0 / (1.0 + np.exp(-pred[:, 0]))  # sigmoid
+
+    # The 1-px jitter: the four axis neighbours, each clamped back inside the
+    # image so a window already at the edge does not fabricate a shift.
+    neighbours = [
+        (min(x0 + 1, width - n), y0),
+        (max(x0 - 1, 0), y0),
+        (x0, min(y0 + 1, height - n)),
+        (x0, max(y0 - 1, 0)),
+    ]
+    deltas = np.zeros(len(CORNER_NAMES))
+    for cx, cy in neighbours:
+        if (cx, cy) == (x0, y0):
+            continue  # a clamped-away neighbour is not a real move
+        other = 1.0 / (1.0 + np.exp(-predict_at(cx, cy)[:, 0]))
+        deltas = np.maximum(deltas, np.abs(other - scores))
+
+    win = window_at(x0, y0, n, width, height)
+    return {
+        "x0": x0,
+        "y0": y0,
+        "patch_size": n,
+        "image_size": [int(width), int(height)],
+        "border": list(win.border),
+        "corner_order": list(CORNER_NAMES),
+        "corners": [
+            {
+                "corner": CORNER_NAMES[c],
+                "score": round(float(scores[c]), 4),
+                # Fractions of the patch, like the head speaks.
+                "x": round(float(pred[c, 1]), 4),
+                "y": round(float(pred[c, 2]), 4),
+                # And in image px, so the overlay can place the dot on the image.
+                "image_x": round(float(x0 + pred[c, 1] * n), 2),
+                "image_y": round(float(y0 + pred[c, 2] * n), 2),
+            }
+            for c in range(len(CORNER_NAMES))
+        ],
+        # How much each head trembles when the window moves 1 px (ui.md §4.1). This
+        # is what a single prediction cannot show and what the stride depends on.
+        "stability": {
+            "per_corner": [round(float(v), 4) for v in deltas],
+            "max": round(float(deltas.max()), 4),
+        },
+    }
 
 
 def predict_image(

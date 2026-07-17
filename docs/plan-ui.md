@@ -431,10 +431,52 @@ su hueco. El estado durable es `sweeps/<name>/spec.json` + `optuna.db` + los run
 - **`itf.sweeps` es library-shaped pero NO extraído**, coherente con `matrixview` (fase 6) y con que
   las fases 3–4 no extrajeran `convspec` ni `exp-registry`. La cola es el germen de `jobq`.
 
-### Fase 8 — Sondas
+### Fase 8 — Sondas — ✅ **hecha (2026-07-17)** ← *el plan queda completo*
 
-V5 (scrubber, la más rentable), V4 (occlusion), V9 (co-activación), V10 (flag de borde), V15
-(procedencia del patch).
+V5 (scrubber, la más rentable), V4 (occlusion), V10 (flag de borde), V15 (procedencia del patch).
+**V9 no estaba aquí: la trajo la fase 6** (api.md §3), así que la 8 son cuatro sondas, no cinco.
+
+1. **Back — dos sondas de patch** (`itf.inference.introspect`): `occlusion` (V4, ~361 forwards en
+   un batch, mapa de `p(esquina|ocluido)` por esquina) y `border_test` (V10, 5 forwards, voltea
+   cada flag). Endpoints `POST /runs/{name}/occlusion` y `/border-test`, con la misma forma de
+   entrada que `feature-maps` — factorizada en `_patch_from_body`.
+2. **Back — una sonda de imagen** (`itf.inference.predict.window_prediction`): V5, una ventana
+   off-grid → 4 cabezas + la **estabilidad al mover 1 px**. `POST /runs/{name}/window`. Los flags de
+   borde salen de **`itf.geometry.window_at`** (nuevo), que `windows` ahora usa: la fórmula del
+   contrato ⑤ en un solo sitio.
+3. **Front**: V4 (`Occlusion.tsx`, 4 heatmaps en canvas, secuencial), V10 (`BorderTest.tsx`,
+   dumbbell con Plot, 1 tinta 2 tonos), V15 (`PatchProvenance.tsx`, overlay sobre la imagen fuente,
+   **casi todo front** — los números ya estaban en el `.npz`) cuelgan del clic en la galería de
+   Diagnóstico; V5 (`Scrubber.tsx`, arrastre + 4 meters) vive en **Predecir**.
+
+**Verificado contra la API de verdad** (2026-07-17, `clear-paragraphs-02-reducidos` → `fase8-b`,
+run `fase8-01` con `cnn-a`, que tiene `border_features`): 145 tests pasan (**0 xfailed**, +12 de la
+fase). Las cuatro sondas contestan 200 y **V4 baseline, V5 corner TL y V10 baseline son el mismo
+número** (TL 0,244) — la costura «una predicción, muchas vistas» sostenida en vivo. `tsc` y `build`
+limpios, la paleta valida en claro y oscuro. Y **en Chrome de verdad**: Diagnóstico monta con V1/V6/
+V7/V8/V9 y la galería lista, y **Predecir monta V11 y V5 juntos** — el Scrubber cargó su ventana,
+sus 4 meters y la estabilidad sin un clic.
+
+**Xfails que quita**: ninguno — las sondas no son contratos, son vistas. El mecanismo sigue en pie.
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **El mapa de occlusion es la probabilidad ocluida, no la caída, y por una razón de color.** La
+  caída (`baseline − p`) es **con signo** —tapar una región inhibitoria *sube* el score, y sobre el
+  patch 0 de `fase8-01` la TL saltó de 0,244 a **0,82**— y una cantidad con signo en rampa
+  secuencial pone el neutro donde caiga el mínimo, el trampa exacta de R2/R3. `p(esquina|ocluido)`
+  es una probabilidad, nunca negativa, así que secuencial es honesto: oscuro = tapar ahí mató el
+  score. La caída queda como **una resta que el lector ve** (baseline al lado), no como un color que
+  miente. Misma familia que el moteado de V7 y la matriz sola de V9.
+- **V10 se niega si la red no usa `border_features`**, en vez de dibujar cuatro dumbbells planos.
+  Voltear un flag que la red ignora no cambia nada, y «no cambia» dibujado cuatro veces se lee como
+  «el borde no importa a este patch» — una conclusión sobre el dato cuando la verdad es que la
+  arquitectura no lo mira. Es la forma de D13: negarse (`border_not_used`, 409) en vez de proyectar
+  una vista sin sentido.
+- **`window_at` es lo que impide que ⑤ vuelva por la puerta de la sonda.** Reteclear los seis flags
+  de borde para una ventana suelta es lo que sale natural al escribir el scrubber; en su lugar
+  `windows` y V5 pasan los dos por `window_at`, y el test afirma que la ventana on-grid da los
+  mismos flags que `windows` — no «¿son correctos?», sino «¿ven B y el scrubber la misma ventana?».
 
 ---
 

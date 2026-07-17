@@ -141,6 +141,25 @@ class PredictBody(BaseModel):
     min_size: float = Field(default=4.0, ge=0.0)
 
 
+class WindowBody(BaseModel):
+    """`POST /runs/{name}/window` (V5, the scrubber).
+
+    `source` + `index` names an image of A (the path is resolved inside the domain,
+    D4); `(x0, y0)` is the top-left of the 40×40 crop being dragged over it. Unlike
+    V2's patch, this window is **off-grid** -- it can sit anywhere -- and its border
+    flags come from `geometry.window_at`, the same formula B extracted with, so a
+    crop against an edge is flagged exactly as its trained-on twin (contract ⑤).
+
+    A `POST` for a read, the same exception R3 allows the feature maps: it is driven
+    by a live drag and the crop position is the whole payload.
+    """
+
+    source: str = Field(min_length=1)
+    index: int
+    x0: int = Field(ge=0)
+    y0: int = Field(ge=0)
+
+
 class CreateSweepBody(BaseModel):
     """`POST /sweeps` (H). **Names for what is fixed, a space for what varies.**
 

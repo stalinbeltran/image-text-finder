@@ -24,15 +24,18 @@ from itf.inference import (
     Detection,
     ModelCache,
     NotInspectable,
+    border_test,
     detect_corners,
     feature_maps,
     kernels,
     load_model,
     merge,
+    occlusion,
     predict_image,
     reconstruct_boxes,
+    window_prediction,
 )
-from itf.geometry import CORNER_NAMES, windows
+from itf.geometry import CORNER_NAMES, window_at, windows
 from itf.models import build_model
 from itf.patches import PatchExtractConfig, SplitConfig, extract_dataset
 from itf.training.loop import RunSpec, train
@@ -366,6 +369,160 @@ def test_feature_maps_refuse_to_invent_border_flags(layout):
 
 
 # ── the model cache ───────────────────────────────────────────────────────────
+
+
+# ── the probes (fase 8) ───────────────────────────────────────────────────────
+
+
+def test_occlusion_baseline_is_the_unoccluded_prediction(layout):
+    """V4 — the seam: `baseline` is the real forward, and the map is more of it.
+
+    An occlusion map is only a diagnosis if the baseline it is read against is the
+    prediction the rest of the app shows. If `baseline` were computed some other
+    way, "covering here dropped the score by 0.3" would be measured against a
+    number no other view reports, and the drop would be quietly meaningless.
+    """
+    run, data = _trained_run(layout)
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+
+    occ = occlusion(model, patch)
+    fm = feature_maps(model, patch)
+
+    # Same four scores as V2/V3 report for this patch: one prediction, many views.
+    baseline_from_maps = [c["score"] for c in fm["prediction"]["corners"]]
+    assert occ["baseline"] == baseline_from_maps
+
+    # Shape and the honest colour job: p(exists|occluded) is a probability, never
+    # signed, so sequential (R3) -- not the drop, which would be signed and would
+    # put the neutral wherever the min fell.
+    assert occ["job"] == "sequential"
+    assert len(occ["maps"]) == len(CORNER_NAMES)
+    bins = occ["bins"]
+    for m in occ["maps"]:
+        assert np.shape(m["matrix"]) == (bins, bins)
+        flat = np.asarray(m["matrix"]).ravel()
+        assert ((flat >= 0.0) & (flat <= 1.0)).all(), "es una probabilidad"
+
+
+def test_occlusion_refuses_to_invent_border_flags(layout):
+    """The same contract ② the feature maps obey, reused through the shared helper.
+
+    Zeros would mean "touches no edge" -- a claim, not a default (formatos.md §2).
+    """
+    network = {**NETWORK, "border_features": True}
+    run, data = _trained_run(layout, name="run-occ-border", network=network)
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+
+    with pytest.raises(NotInspectable) as exc:
+        occlusion(model, patch)
+    assert exc.value.code == "border_required"
+
+
+def test_border_test_refuses_a_network_that_ignores_the_flags(layout):
+    """V10 — **the refusal is the point**, and it is tests.md §1.1 exactly.
+
+    A network with `border_features: false` never reads the 4 flags, so flipping
+    them changes nothing. Drawing "no change" four times would read as "the border
+    does not matter to this patch" -- a conclusion about the data, when the truth
+    is the architecture never looks at it. So it refuses, like `kernels` refuses a
+    projection it cannot make honestly.
+    """
+    run, data = _trained_run(layout)  # NETWORK has border_features=False
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+        border = arrays["border"][0].astype(int).tolist()
+
+    with pytest.raises(NotInspectable, match="border_features") as exc:
+        border_test(model, patch, border)
+    assert exc.value.code == "border_not_used"
+
+
+def test_border_test_flips_exactly_one_flag_at_a_time(layout):
+    """Baseline is the real flags; each flip toggles one and forwards again.
+
+    The invariant, not a number: `baseline` must be what the model says with the
+    patch's own flags (so the dumbbell's "before" is honest), and `flips[b]` must
+    differ from the real flags in exactly position `b`.
+    """
+    network = {**NETWORK, "border_features": True}
+    run, data = _trained_run(layout, name="run-bt", network=network)
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+        border = arrays["border"][0].astype(int).tolist()
+
+    bt = border_test(model, patch, border)
+
+    # `baseline` == the prediction with the REAL flags (same forward V2/V3 make).
+    fm = feature_maps(model, patch, border)
+    assert bt["baseline"] == [c["score"] for c in fm["prediction"]["corners"]]
+
+    assert bt["border"] == border
+    assert len(bt["flips"]) == 4
+    for b, flip in enumerate(bt["flips"]):
+        assert flip["flag_from"] == border[b]
+        assert flip["flag_to"] == 1 - border[b]
+        # The flip's scores are the forward with exactly that flag toggled.
+        flipped = list(border)
+        flipped[b] = 1 - flipped[b]
+        expected = feature_maps(model, patch, flipped)
+        assert flip["scores"] == [c["score"] for c in expected["prediction"]["corners"]]
+
+
+def test_the_scrubber_window_is_the_window_B_extracts(layout):
+    """V5 — contract ⑤ from F's side: an off-grid crop is flagged like its twin.
+
+    The scrubber puts the window anywhere, but its border flags come from
+    `window_at`, the *same* formula B grids over in `windows`. So a scrubber crop
+    that happens to land on a grid position must get identical flags to the patch B
+    extracted there -- otherwise the model would meet, live, a geometry it never
+    trained on (the exact silent failure ⑤ exists to stop, tests.md §1.2).
+    """
+    run, _ = _trained_run(layout)
+    model = load_model(run / "best.pt")
+    image = _image(layout)
+    h, w = image.shape
+
+    # Every on-grid window's flags == `window_at` at the same coords. This is the
+    # seam: `windows` and the scrubber both go through `window_at`.
+    for win in windows(w, h, 40, 20):
+        assert window_at(win.x0, win.y0, 40, w, h).border == win.border
+
+    # And the scrubber reports that same window (border used as given).
+    out = window_prediction(model, image, 0, 0)
+    assert tuple(out["border"]) == window_at(0, 0, 40, w, h).border
+    assert out["border"][0] == 1 and out["border"][3] == 1  # flush top-left
+
+
+def test_the_scrubber_clamps_the_window_inside_the_image(layout):
+    """A drag off the edge does not walk the window off the image.
+
+    The response is authoritative: it reports the clamped `(x0, y0)`, so the box
+    always sits where the model really looked, and `image_x` = `x0 + x*n` is
+    consistent with it.
+    """
+    run, _ = _trained_run(layout)
+    model = load_model(run / "best.pt")
+    image = _image(layout)
+    h, w = image.shape
+
+    out = window_prediction(model, image, 10_000, 10_000)
+    assert out["x0"] == w - out["patch_size"]
+    assert out["y0"] == h - out["patch_size"]
+
+    n = out["patch_size"]
+    # image_x/y are rounded to 2 places and x/y to 4, so recomputing from the
+    # rounded fractions lands within a rounding tolerance, not bit-exact.
+    for c in out["corners"]:
+        assert abs(c["image_x"] - (out["x0"] + c["x"] * n)) < 0.05
+        assert abs(c["image_y"] - (out["y0"] + c["y"] * n)) < 0.05
+    # Stability is a magnitude of score change: non-negative, and bounded by 1.
+    assert 0.0 <= out["stability"]["max"] <= 1.0
 
 
 def test_the_model_cache_notices_a_rewritten_checkpoint(layout):

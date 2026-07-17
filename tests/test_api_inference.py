@@ -308,3 +308,125 @@ def test_coactivation_threshold_is_a_query_not_a_cache_key(itf_api):
         if row_loose[0] is None:
             continue  # no patch has that corner: None, not 0 (formatos.md §2)
         assert all(s <= l for s, l in zip(row_strict, row_loose))
+
+
+# ── the probes (fase 8): V4, V10, V5 over HTTP ────────────────────────────────
+
+
+def _border_network(layout, *, run: str, b: str) -> str:
+    """A B and an E whose C uses `border_features` — what V10 needs to answer."""
+    from itf.patches import PatchExtractConfig, SplitConfig, extract_dataset
+    from itf.training.loop import RunSpec, train
+    from itf.training.recipe import Recipe
+
+    network = {**NETWORK, "border_features": True}
+    source = write_tiny_source(layout.datasets / "tiny", num_samples=8)
+    data = layout.patch_datasets / b
+    extract_dataset(
+        PatchExtractConfig(
+            source=str(source), out=str(data), patch_size=40, stride=20,
+            split=SplitConfig(0.6, 0.2, 0.2),
+        )
+    )
+    manifest = json.loads((data / "manifest.json").read_text(encoding="utf-8"))
+    train(
+        RunSpec(
+            data=str(data), out=str(layout.runs / run), network=network,
+            recipe=Recipe(epochs=1, batch_size=32),
+            provenance={
+                "patch_dataset": {"name": b, "fingerprint": manifest["fingerprint"]},
+                "network": {"name": "cnn-b", "value": network},
+                "recipe": {"name": "rapida", "value": {}},
+                "sweep": None, "git_commit": "0" * 40,
+                "environment": {"python": "3.12", "torch": "2.13", "platform": "win32"},
+            },
+        )
+    )
+    return run
+
+
+def test_occlusion_is_four_sequential_maps(itf_api):
+    """V4 — same input shape as V2 (a patch by index), a heat map per corner."""
+    client, layout = itf_api
+    _trained(layout)
+
+    body = client.post(
+        "/runs/run-01/occlusion", json={"patch_dataset": "tiny-40", "index": 0}
+    ).json()
+
+    assert body["job"] == "sequential"  # p(exists|occluded) is a probability
+    assert len(body["maps"]) == 4
+    assert len(body["baseline"]) == 4
+    bins = body["bins"]
+    assert np.shape(body["maps"][0]["matrix"]) == (bins, bins)
+
+
+def test_occlusion_of_the_wrong_size_is_a_400(itf_api):
+    """Contract ① reaching F, like the feature maps."""
+    client, layout = itf_api
+    _trained(layout)
+
+    response = client.post("/runs/run-01/occlusion", json={"patch": np.zeros((60, 60)).tolist()})
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "patch_size_mismatch"
+
+
+def test_border_test_over_a_border_network(itf_api):
+    """V10 — one flip per flag, five forwards, over a network that uses the flags."""
+    client, layout = itf_api
+    _border_network(layout, run="run-b", b="tiny-b")
+
+    body = client.post(
+        "/runs/run-b/border-test", json={"patch_dataset": "tiny-b", "index": 0}
+    ).json()
+
+    assert len(body["baseline"]) == 4
+    assert [f["border"] for f in body["flips"]] == ["top", "right", "bottom", "left"]
+
+
+def test_border_test_refuses_a_non_border_network_with_a_409(itf_api):
+    """The refusal, over HTTP: 409, because the request is fine and the C says no.
+
+    A network that ignores the flags cannot answer this probe honestly, exactly as
+    `kernels` cannot project a 32-channel filter. 400 would say "fix your request",
+    when the fix is "choose a network with border_features".
+    """
+    client, layout = itf_api
+    _trained(layout)  # NETWORK has border_features=False
+
+    response = client.post(
+        "/runs/run-01/border-test", json={"patch_dataset": "tiny-40", "index": 0}
+    )
+
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "border_not_used"
+    assert "hint" in detail
+
+
+def test_window_scrubber_returns_the_four_heads_and_stability(itf_api):
+    """V5 — one off-grid crop → 4 heads live + the 1-px stability the stride needs."""
+    client, layout = itf_api
+    _trained(layout)
+
+    body = client.post(
+        "/runs/run-01/window", json={"source": "tiny", "index": 0, "x0": 0, "y0": 0}
+    ).json()
+
+    assert [c["corner"] for c in body["corners"]] == ["TL", "TR", "BR", "BL"]
+    assert body["image_size"] == [120, 100]
+    # Flush top-left: the border flags come from `window_at` (contract ⑤).
+    assert body["border"][0] == 1 and body["border"][3] == 1
+    assert 0.0 <= body["stability"]["max"] <= 1.0
+    assert body["source"] == "tiny" and body["index"] == 0
+
+
+def test_window_on_a_run_with_no_checkpoint_is_a_409(itf_api):
+    client, layout = itf_api
+    layout.write_run("queued-01", patch_dataset="tiny-40")
+
+    response = client.post("/runs/queued-01/window", json={"source": "tiny", "index": 0, "x0": 0, "y0": 0})
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "run_has_no_checkpoint"

@@ -71,6 +71,29 @@ def positions(size: int, n: int, stride: int) -> list[int]:
     return xs
 
 
+def window_at(x0: int, y0: int, n: int, width: int, height: int) -> Window:
+    """One window at ``(x0, y0)`` with its border flags. **The flag formula, once.**
+
+    The six border-flag lines are the half of contract ⑤ that can drift (tests.md
+    §1.2): they were duplicated *literally* between B and F, identical so it
+    worked, and nothing would have noticed a change. Here they live in exactly one
+    place -- `windows` grids over it, and the V5 scrubber asks for an off-grid
+    window through it -- so an arbitrary crop and an extracted patch flush against
+    the same edge get the same flags by construction, not by two people typing the
+    same thing.
+    """
+    return Window(
+        x0=x0,
+        y0=y0,
+        border=(
+            int(y0 == 0),
+            int(x0 + n >= width),
+            int(y0 + n >= height),
+            int(x0 == 0),
+        ),
+    )
+
+
 def windows(width: int, height: int, n: int, stride: int) -> list[Window]:
     """Every window over a ``width x height`` image, with its border flags.
 
@@ -79,16 +102,7 @@ def windows(width: int, height: int, n: int, stride: int) -> list[Window]:
     never trained on -- silently.
     """
     return [
-        Window(
-            x0=x0,
-            y0=y0,
-            border=(
-                int(y0 == 0),
-                int(x0 + n >= width),
-                int(y0 + n >= height),
-                int(x0 == 0),
-            ),
-        )
+        window_at(x0, y0, n, width, height)
         for y0 in positions(height, n, stride)
         for x0 in positions(width, n, stride)
     ]

@@ -12,6 +12,7 @@ import { Empty, ErrorNote, Loading } from "../components/Async";
 import { Declares } from "../components/Declares";
 import { cornerColors } from "../theme/palette";
 import { useAsync } from "../useAsync";
+import { Scrubber } from "./Scrubber";
 
 /** Predecir (F) — a run + a whole image → corners and paragraphs (ui.md §2).
  *
@@ -152,6 +153,10 @@ function ImagePicker({ run, source }: { run: string; source: string }) {
             ))}
           </div>
           <PredictStage run={run} source={source} index={index} />
+          {/* V5 fixes the same run+image and is a probe, not the pipeline: dragging
+              a single window over the image and reading the 4 heads live, plus the
+              1-px stability that sets the inference stride. */}
+          <Scrubber run={run} source={source} index={index} />
         </>
       )}
     </>

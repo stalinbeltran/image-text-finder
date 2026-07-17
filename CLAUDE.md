@@ -9,11 +9,24 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Fases 0, 0.5, 1, 2, 3, 4, 5, 6 y 7 hechas (2026-07-17). La siguiente es la [fase 8](docs/plan-ui.md)**:
-> las **sondas** (V5 scrubber, V4 occlusion, V10 flag de borde, V15 procedencia del patch). **Están
-> las nueve pantallas y los diez contratos** — **no queda ningún xfail**. **No quedan decisiones
-> bloqueando**; lo abierto en [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su
-> fase (**D7** —bbox vs. rotación— bloquea la métrica de párrafo, que es lo que le falta al barrido).
+> **Fases 0, 0.5, 1, 2, 3, 4, 5, 6, 7 y 8 hechas (2026-07-17). El plan está completo**: la fase 8
+> montó las **cuatro sondas** (V4 occlusion, V5 scrubber, V10 flag de borde, V15 procedencia del
+> patch — V9 ya la trajo la 6). **Están las nueve pantallas, los diez contratos y las quince
+> vistas** — **no queda ningún xfail**. **No quedan decisiones bloqueando**; lo abierto en
+> [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase (**D7** —bbox vs.
+> rotación— bloquea la métrica de párrafo, que es lo que le falta al barrido). Lo que queda es
+> **investigación** (barrer con el instrumento ya montado) y las **extracciones** de librería
+> (`matrixview`, `jobq`, D9/D10), no fases de plan.
+>
+> **La fase 8 son sondas, no contratos**: no quitó ningún xfail (no le tocaba). Las tres de patch
+> (V4, V10) y la de B (V15) cuelgan del **mismo clic en la galería** que ya abría V2/V3; V5 vive en
+> **Predecir** porque su entrada es una imagen. **Un patrón nuevo que respetar**: `itf.geometry`
+> gana `window_at` (una ventana suelta) y `windows` lo usa — es la fórmula de los flags de borde en
+> **un solo sitio**, así que el scrubber (V5, ventana off-grid) y la extracción (B) los calculan
+> igual por construcción, no por reteclearlos (contrato ⑤ otra vez). Y una costura que se sostuvo en
+> vivo: **V4 baseline, V5 corner y V10 baseline son la misma predicción** — el atajo de recalcularla
+> en cada sonda mentiría, así que las tres leen el mismo forward (`_patch_from_body` en `app.py`
+> resuelve el patch una vez para V2/V4/V10).
 >
 > **La fase 7 cerró el contrato ⑨**: `POST /sweeps` rechaza con 400 (`objective_varies_with_space`)
 > rankear por `loss` mientras `lambda_pos` está en el espacio — la validación es **pura**

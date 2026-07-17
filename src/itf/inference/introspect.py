@@ -23,7 +23,7 @@ from typing import Sequence
 import numpy as np
 import torch
 
-from itf.geometry import BORDER_NAMES, CORNER_NAMES, NUM_BORDERS
+from itf.geometry import BORDER_NAMES, CORNER_NAMES, NUM_BORDERS, NUM_CORNERS
 from itf.matrixview import MAX_MAPS_PER_LAYER, ColorJob, layer_payload
 from itf.models import ConfigurableCNN
 
@@ -254,4 +254,181 @@ def feature_maps(
             ],
             "corner_order": list(CORNER_NAMES),
         },
+    }
+
+
+# ── the probes (fase 8) ───────────────────────────────────────────────────────
+
+
+#: The occlusion mask's side and step, in patch pixels. A 5×5 mask sliding at 2
+#: over a 40-px patch is ~19² ≈ 361 forwards -- under a second in one batch (ui.md
+#: §4.1). Small enough to localise, big enough to matter: a 1×1 mask over pixelated
+#: text mostly lands on background and says nothing.
+DEFAULT_MASK_SIZE = 5
+DEFAULT_MASK_STRIDE = 2
+
+
+@torch.no_grad()
+def occlusion(
+    model: ConfigurableCNN,
+    patch: np.ndarray,
+    border: Sequence[int] | None = None,
+    *,
+    mask_size: int = DEFAULT_MASK_SIZE,
+    mask_stride: int = DEFAULT_MASK_STRIDE,
+    device: str = "cpu",
+) -> dict:
+    """V4 — occlusion sensitivity. **Fix E and the patch, vary the mask position.**
+
+    Slide a small mask over the patch and, at each position, ask what the four
+    heads now say. Where covering a region collapses `p(exists)`, that region is
+    what the head was reading. It is the rigorous version of the sibling project's
+    "paint over the digit and watch it change" (ui.md §5): systematic, and -- unlike
+    a pixel editor -- **in distribution**, because it only ever hides real pixels,
+    never invents new ones.
+
+    **The map is the occluded probability, and that is why it is sequential** (R3,
+    ui.md §4.1). The tempting alternative is the *drop* `baseline - p`, but a drop
+    is signed -- occluding an inhibitory region can raise the score -- and a signed
+    quantity painted sequential puts the neutral wherever the minimum falls, which
+    is the exact trap R2/R3 warn about. `p(exists | occlude here)` is a genuine
+    probability, never negative, so sequential is honest: dark = covering here
+    kills the score = the region that mattered. The `baseline` rides along, so the
+    drop is one subtraction the reader can see rather than a colour that lies.
+
+    **The mask is filled with the patch mean**, not black or grey: a constant equal
+    to the patch's own average injects no new edge into a pixelated text crop, so
+    what changes is *removal of signal*, not *addition of a dark rectangle the
+    network never trained on*.
+    """
+    x = _prepare_patch(model, patch).to(device)  # (1, 1, n, n)
+    n = model.config.input_size
+    border_batch = _border_tensor(model, border)
+    if border_batch is not None:
+        border_batch = border_batch.to(device)
+
+    def scores_of(batch: torch.Tensor, borders: torch.Tensor | None) -> torch.Tensor:
+        return torch.sigmoid(model(batch, borders)[..., 0])  # (B, 4)
+
+    baseline = scores_of(x, border_batch)[0]  # (4,)
+
+    from itf.geometry import positions
+
+    if mask_size > n:
+        raise NotInspectable(
+            "mask_too_big",
+            f"la máscara ({mask_size}) no cabe en un patch de {n}px",
+            "elige una máscara menor que el patch",
+        )
+    xs = positions(n, mask_size, mask_stride)
+    fill = float(x.mean())
+
+    # One occluded copy per grid cell, all forwarded in a single batch. Order is
+    # row-major (y outer, x inner) so `matrix[iy][ix]` maps straight to a cell.
+    occluded = x.repeat(len(xs) * len(xs), 1, 1, 1)  # (P, 1, n, n)
+    for iy, y0 in enumerate(xs):
+        for ix, x0 in enumerate(xs):
+            occluded[iy * len(xs) + ix, 0, y0 : y0 + mask_size, x0 : x0 + mask_size] = fill
+
+    borders_batch = (
+        border_batch.repeat(occluded.shape[0], 1) if border_batch is not None else None
+    )
+    scores = scores_of(occluded, borders_batch)  # (P, 4)
+    grid = scores.reshape(len(xs), len(xs), NUM_CORNERS).cpu().numpy()
+
+    maps = []
+    for c, name in enumerate(CORNER_NAMES):
+        m = grid[:, :, c]
+        maps.append(
+            {
+                "corner": name,
+                "matrix": np.round(m, 4).tolist(),
+                "min": round(float(m.min()), 4),
+                "max": round(float(m.max()), 4),
+                "mean": round(float(m.mean()), 4),
+            }
+        )
+
+    return {
+        "corner_order": list(CORNER_NAMES),
+        "patch_size": n,
+        "mask_size": mask_size,
+        "mask_stride": mask_stride,
+        "bins": len(xs),
+        # Top-left offsets of each cell, so the front can place the map over the
+        # patch: cell (iy, ix) covers `[offsets[iy], +mask_size)` vertically.
+        "offsets": [int(v) for v in xs],
+        "baseline": [round(float(baseline[c]), 4) for c in range(NUM_CORNERS)],
+        "maps": maps,
+        # Always sequential: `p(exists | occluded)` is a probability, never signed
+        # (see the docstring). Declared, not guessed (api.md §3).
+        "job": "sequential",
+    }
+
+
+@torch.no_grad()
+def border_test(
+    model: ConfigurableCNN,
+    patch: np.ndarray,
+    border: Sequence[int],
+    *,
+    device: str = "cpu",
+) -> dict:
+    """V10 — the border-flag test. **Fix E and the patch, flip each of the 4 flags.**
+
+    The 4 border flags say whether the patch sits flush against the source image's
+    edge (geometry.BORDER_NAMES). They are real information -- a paragraph corner
+    cannot sit just outside the image, so a patch against the top has a different
+    prior than one in the middle (formatos.md §2). This probe measures how much the
+    network actually *uses* that: baseline with the real flags, then one forward per
+    flag flipped, and the dumbbell shows each corner's score moving from before to
+    after (ui.md §4.1). Five forwards.
+
+    **Refuses when the network does not use border features**, rather than
+    answering with four identical dumbbells. A network with `border_features:
+    false` ignores the flags entirely, so flipping them changes nothing -- and a
+    view that drew "no change" over and over would read as "the border does not
+    matter to this patch", a conclusion about the data, when the truth is the
+    architecture never looks at it (D13's shape: refuse, do not project a
+    meaningless view).
+    """
+    if not model.use_border:
+        raise NotInspectable(
+            "border_not_used",
+            "esta red no usa border_features, así que ignora los 4 flags de borde: "
+            "voltearlos no cambia nada y no hay nada que medir",
+            "esta sonda solo dice algo sobre redes con border_features=true",
+        )
+
+    x = _prepare_patch(model, patch).to(device)
+    base_flags = _border_tensor(model, border)  # (1, 4), and validates the length
+    assert base_flags is not None  # use_border is true, so it is never None
+    base_flags = base_flags.to(device)
+
+    def scores_of(borders: torch.Tensor) -> list[float]:
+        s = torch.sigmoid(model(x, borders)[0, :, 0])  # (4,)
+        return [round(float(v), 4) for v in s]
+
+    baseline = scores_of(base_flags)
+
+    flips = []
+    real = [int(v) for v in border]
+    for b, name in enumerate(BORDER_NAMES):
+        flipped = base_flags.clone()
+        flipped[0, b] = 1.0 - flipped[0, b]  # 0↔1
+        flips.append(
+            {
+                "border": name,
+                "flag_from": real[b],
+                "flag_to": 1 - real[b],
+                "scores": scores_of(flipped),
+            }
+        )
+
+    return {
+        "corner_order": list(CORNER_NAMES),
+        "border_order": list(BORDER_NAMES),
+        "border": real,
+        "baseline": baseline,
+        "flips": flips,
     }

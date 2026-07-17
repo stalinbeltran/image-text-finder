@@ -39,6 +39,7 @@ from itf.api.schemas import (
     PredictBody,
     RecipeBody,
     RenameRunBody,
+    WindowBody,
 )
 from itf.datasets import SourceDataset, discover_sources
 from itf.diagnostics import (
@@ -54,9 +55,12 @@ from itf.diagnostics import (
 from itf.inference import (
     ModelCache,
     NotInspectable,
+    border_test,
     feature_maps,
     kernels,
+    occlusion,
     predict_image,
+    window_prediction,
 )
 from itf.models import (
     NetworkConfig,
@@ -917,7 +921,11 @@ _INSPECT_STATUS: dict[str, int] = {
     "patch_size_mismatch": 400,
     "invalid_patch": 400,
     "border_required": 400,
+    "mask_too_big": 400,
     "patch_not_found": 404,
+    # The request is fine; this network's shape is what says no -- a `border_test`
+    # over a network that ignores the flags would measure nothing (like ①'s twin).
+    "border_not_used": 409,
 }
 
 
@@ -949,6 +957,50 @@ def _model_of(c: Context, name: str, checkpoint: str):
 
 def _inspect_problem(exc: NotInspectable):
     return problem(_INSPECT_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint or None)
+
+
+def _patch_from_body(c: Context, body: FeatureMapsBody) -> tuple[np.ndarray, list[int] | None]:
+    """Resolve a patch-view body to `(pixels, border)`. One place, three views.
+
+    V2, V4 and V10 all take the same input -- a patch, by `{patch_dataset, index}`
+    or inline `{patch, border}` (contract ①) -- so the resolution lives here rather
+    than copied into each. `{patch_dataset, index}` is the path the UI uses by
+    default because the border flags then come from the dataset and are the real
+    ones. Sending both is a question, not a convenience: which one did you mean?
+    """
+    if body.patch is None:
+        if not body.patch_dataset or body.index is None:
+            raise bad_request(
+                "patch_required",
+                "necesito un patch: o `{patch_dataset, index}`, o `patch` con sus píxeles",
+                "la entrada de esta vista es un patch, no una imagen (contrato ①)",
+            )
+        try:
+            data = c.patch_datasets.arrays(body.patch_dataset)
+        except (PatchDatasetNotFound, ValueError):
+            raise not_found(
+                "patch_dataset_not_found",
+                f"no existe el dataset de patches '{body.patch_dataset}'",
+            )
+        with data:
+            total = int(data["X"].shape[0])
+            if not 0 <= body.index < total:
+                raise not_found(
+                    "patch_not_found",
+                    f"'{body.patch_dataset}' tiene {total} patches; pediste el {body.index}",
+                )
+            patch = data["X"][body.index, :, :, 0].tolist()
+            border = data["border"][body.index].astype(int).tolist()
+    elif body.patch_dataset or body.index is not None:
+        raise bad_request(
+            "patch_ambiguous",
+            "manda `{patch_dataset, index}` o `patch`, no las dos cosas",
+            "no puedo saber cuál de las dos querías mirar",
+        )
+    else:
+        patch = body.patch
+        border = body.border
+    return np.asarray(patch, dtype=np.float32), border
 
 
 def register_inference(app: FastAPI) -> None:
@@ -990,49 +1042,86 @@ def register_inference(app: FastAPI) -> None:
         go in a query string.
         """
         model = _model_of(c, name, checkpoint)
-
-        patch = body.patch
-        border = body.border
-        if patch is None:
-            # By index, out of a B. The border flags come from the dataset, so
-            # they are the real ones -- which is what makes this the path the UI
-            # uses by default.
-            if not body.patch_dataset or body.index is None:
-                raise bad_request(
-                    "patch_required",
-                    "necesito un patch: o `{patch_dataset, index}`, o `patch` con sus píxeles",
-                    "la entrada de esta vista es un patch, no una imagen (contrato ①)",
-                )
-            try:
-                data = c.patch_datasets.arrays(body.patch_dataset)
-            except (PatchDatasetNotFound, ValueError):
-                raise not_found(
-                    "patch_dataset_not_found",
-                    f"no existe el dataset de patches '{body.patch_dataset}'",
-                )
-            with data:
-                total = int(data["X"].shape[0])
-                if not 0 <= body.index < total:
-                    raise not_found(
-                        "patch_not_found",
-                        f"'{body.patch_dataset}' tiene {total} patches; pediste el {body.index}",
-                    )
-                patch = data["X"][body.index, :, :, 0].tolist()
-                border = data["border"][body.index].astype(int).tolist()
-        elif body.patch_dataset or body.index is not None:
-            # Both at once is not a convenience to resolve, it is a question:
-            # which one did you mean? Picking one silently is how a view ends up
-            # describing a patch the reader did not choose.
-            raise bad_request(
-                "patch_ambiguous",
-                "manda `{patch_dataset, index}` o `patch`, no las dos cosas",
-                "no puedo saber cuál de las dos querías mirar",
-            )
-
+        patch, border = _patch_from_body(c, body)
         try:
-            return feature_maps(model, np.asarray(patch, dtype=np.float32), border)
+            return feature_maps(model, patch, border)
         except NotInspectable as exc:
             raise _inspect_problem(exc)
+
+    @app.post("/runs/{name}/occlusion")
+    def post_occlusion(
+        name: str,
+        body: FeatureMapsBody,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V4 — occlusion sensitivity over ONE PATCH (contract ①).
+
+        Same input shape as the feature maps -- a patch, by index or inline -- and
+        the same forward-only cost, just ~361 of them in one batch. Synchronous
+        (R3): under a second (ui.md §4.1).
+        """
+        model = _model_of(c, name, checkpoint)
+        patch, border = _patch_from_body(c, body)
+        try:
+            return occlusion(model, patch, border)
+        except NotInspectable as exc:
+            raise _inspect_problem(exc)
+
+    @app.post("/runs/{name}/border-test")
+    def post_border_test(
+        name: str,
+        body: FeatureMapsBody,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V10 — flip each of the 4 border flags over ONE PATCH.
+
+        Refuses (409 `border_not_used`) if the network ignores the flags: flipping
+        them would change nothing and the view would read as "the border does not
+        matter", a claim about the data when the truth is the architecture never
+        looks at it.
+        """
+        model = _model_of(c, name, checkpoint)
+        patch, border = _patch_from_body(c, body)
+        if border is None:
+            raise bad_request(
+                "border_required",
+                "esta sonda necesita los 4 flags de borde del patch, y no me los diste",
+                "pide el patch por índice y salen de su dataset, o manda `border`",
+            )
+        try:
+            return border_test(model, patch, border)
+        except NotInspectable as exc:
+            raise _inspect_problem(exc)
+
+    @app.post("/runs/{name}/window")
+    def post_window(
+        name: str,
+        body: WindowBody,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V5 — the scrubber: one off-grid 40×40 crop of an image → 4 heads live.
+
+        The one probe whose input is a whole image (like F), because dragging a
+        window over one is exactly what it is. Synchronous (R3): five forwards, so
+        the drag repaints without a job. The border flags of the crop come from
+        `window_at` (contract ⑤), so an off-grid crop is flagged as its trained-on
+        twin would be.
+        """
+        model = _model_of(c, name, checkpoint)
+        sample = _sample(c, body.source, body.index)
+        with Image.open(sample.image_path) as img:
+            image = np.asarray(img.convert("L"), dtype=np.uint8)
+        try:
+            payload = window_prediction(model, image, body.x0, body.y0, device="cpu")
+        except ValueError as exc:
+            # `window_at`/`_as_gray` refuse when the patch is bigger than the image.
+            raise bad_request("image_too_small", str(exc), "elige una imagen mayor que el patch")
+        payload["source"] = body.source
+        payload["index"] = body.index
+        return payload
 
     @app.post("/runs/{name}/predict")
     def post_predict(

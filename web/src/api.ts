@@ -609,6 +609,114 @@ export const predict = (run: string, source: string, index: number, knobs: Predi
     body: JSON.stringify({ source, index, ...knobs }),
   });
 
+// ── the probes (fase 8): V4, V10, V5 ─────────────────────────────────────────
+
+/** How V2, V4 and V10 all name a patch (contract ①): by index of a B (whose
+ *  border flags are then the real ones), or inline pixels for a crop stored
+ *  nowhere. One shape, three views. */
+export type PatchRef =
+  | { patch_dataset: string; index: number }
+  | { patch: number[][]; border?: number[] };
+
+/** V4 — occlusion sensitivity. `maps[c].matrix[iy][ix]` is `p(exists | occlude
+ *  the cell at (iy, ix))`: a genuine probability, never signed, so **sequential**
+ *  is honest (dark = covering here kills the score = the region that mattered).
+ *  The *drop* is `baseline[c] − matrix`, one subtraction the reader can see rather
+ *  than a diverging colour that would put the neutral wherever the min fell. */
+export interface OcclusionMap {
+  corner: string;
+  matrix: number[][];
+  min: number;
+  max: number;
+  mean: number;
+}
+
+export interface Occlusion {
+  corner_order: string[];
+  patch_size: number;
+  mask_size: number;
+  mask_stride: number;
+  /** Cells per side. */
+  bins: number;
+  /** Top-left offset in patch px of each cell (row and column share it). */
+  offsets: number[];
+  /** `p(exists)` with no occlusion, per corner. The drop is measured against it. */
+  baseline: number[];
+  maps: OcclusionMap[];
+  job: "sequential" | "diverging";
+}
+
+export const getOcclusion = (run: string, ref: PatchRef) =>
+  request<Occlusion>(`/runs/${encodeURIComponent(run)}/occlusion`, {
+    method: "POST",
+    body: JSON.stringify(ref),
+  });
+
+/** V10 — the border-flag test. One flip per flag (5 forwards total): `scores` is
+ *  what the 4 heads say once that flag is flipped, `baseline` what they say with
+ *  the patch's real flags. The dumbbell draws each corner's move before→after.
+ *
+ * Only meaningful for a network with `border_features`: the endpoint refuses
+ * (409 `border_not_used`) otherwise, because flipping a flag the network ignores
+ * changes nothing and would read as "the border does not matter to this patch". */
+export interface BorderFlip {
+  border: string;
+  flag_from: number;
+  flag_to: number;
+  scores: number[];
+}
+
+export interface BorderTest {
+  corner_order: string[];
+  border_order: string[];
+  border: number[];
+  baseline: number[];
+  flips: BorderFlip[];
+}
+
+/** By index only: the real flags have to come from the dataset for the flip to
+ *  measure a real change (an inline patch could carry made-up flags). */
+export const getBorderTest = (run: string, patch_dataset: string, index: number) =>
+  request<BorderTest>(`/runs/${encodeURIComponent(run)}/border-test`, {
+    method: "POST",
+    body: JSON.stringify({ patch_dataset, index }),
+  });
+
+/** V5 — the scrubber: one off-grid 40×40 crop of an image → the 4 heads live.
+ *
+ * `stability` is what a single prediction cannot give: how much each head's score
+ * moves when the window shifts 1 px, which is exactly what sets the inference
+ * `stride` and the NMS radius (ui.md §4.1). */
+export interface WindowCorner {
+  corner: string;
+  score: number;
+  /** Fractions of the patch, as the head speaks. */
+  x: number;
+  y: number;
+  /** And in image px, so the overlay can place the dot on the image. */
+  image_x: number;
+  image_y: number;
+}
+
+export interface WindowPrediction {
+  x0: number;
+  y0: number;
+  patch_size: number;
+  image_size: number[];
+  border: number[];
+  corner_order: string[];
+  corners: WindowCorner[];
+  stability: { per_corner: number[]; max: number };
+  source: string;
+  index: number;
+}
+
+export const getWindow = (run: string, source: string, index: number, x0: number, y0: number) =>
+  request<WindowPrediction>(`/runs/${encodeURIComponent(run)}/window`, {
+    method: "POST",
+    body: JSON.stringify({ source, index, x0, y0 }),
+  });
+
 // ── H: sweeps ──────────────────────────────────────────────────────────────────
 
 /** A distribution over one recipe field. `float`/`int` are a range (optionally

@@ -17,7 +17,13 @@ private name across a domain border to hold up contract ⑤.
 
 from itf.inference.cache import MAX_MODELS, ModelCache
 from itf.inference.checkpoint import load_model
-from itf.inference.introspect import NotInspectable, feature_maps, kernels
+from itf.inference.introspect import (
+    NotInspectable,
+    border_test,
+    feature_maps,
+    kernels,
+    occlusion,
+)
 from itf.inference.predict import (
     DEFAULT_MIN_SIZE,
     DEFAULT_THRESHOLD,
@@ -27,6 +33,7 @@ from itf.inference.predict import (
     merge,
     predict_image,
     reconstruct_boxes,
+    window_prediction,
 )
 
 __all__ = [
@@ -36,12 +43,15 @@ __all__ = [
     "MAX_MODELS",
     "ModelCache",
     "NotInspectable",
+    "border_test",
     "default_stride",
     "detect_corners",
     "feature_maps",
     "kernels",
     "load_model",
     "merge",
+    "occlusion",
     "predict_image",
     "reconstruct_boxes",
+    "window_prediction",
 ]

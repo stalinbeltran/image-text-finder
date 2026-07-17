@@ -3,7 +3,10 @@ import { getDiagnosticPatches, type Outcome, type PatchRow, type Split } from ".
 import { Empty, ErrorNote, Loading } from "../../components/Async";
 import { Declares } from "../../components/Declares";
 import { useAsync } from "../../useAsync";
+import { BorderTest } from "./BorderTest";
 import { FeatureMaps } from "./FeatureMaps";
+import { Occlusion } from "./Occlusion";
+import { PatchProvenance } from "./PatchProvenance";
 import { Prediction } from "./Prediction";
 import { Thumbnail } from "./Thumbnail";
 
@@ -155,6 +158,11 @@ export function Gallery({
               saw on the way there. Splitting them across screens would mean
               picking the same patch twice to ask one question. */}
           <FeatureMaps run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
+          {/* The probes (fase 8), all fixing this same run+patch (V4, V10) or the
+              patch's B (V15) — so they open on the same click as V2/V3. */}
+          <Occlusion run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
+          <BorderTest run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
+          <PatchProvenance patchDataset={patchDataset} row={selected} />
         </>
       )}
     </section>
