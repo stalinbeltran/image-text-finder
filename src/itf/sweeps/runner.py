@@ -232,41 +232,36 @@ def run_sweep(
             raise optuna.TrialPruned()
         return state["best"]
 
-    def _stop_cb(study_, trial_) -> None:
+    def _after_trial(study_, trial_) -> None:
+        # Runs in the worker thread, so it is the only one touching optuna's
+        # storage. It writes the JSON snapshot the API reads (SweepStore.read_
+        # progress) and honours the cooperative stop. Doing both here means the
+        # snapshot is fresh after every trial -- which is what makes the resume
+        # decision correct to within one trial.
+        sweeps.write_progress(spec.name, _snapshot(spec, study_))
         if should_stop() or sweeps.stop_requested(spec.name):
             study_.stop()
 
+    # An initial snapshot so `GET /sweeps/{name}` shows the sweep as soon as it is
+    # picked up, before the first trial finishes.
+    sweeps.write_progress(spec.name, _snapshot(spec, study))
+
     if remaining > 0 and not (should_stop() or sweeps.stop_requested(spec.name)):
-        study.optimize(objective, n_trials=remaining, callbacks=[_stop_cb])
+        study.optimize(objective, n_trials=remaining, callbacks=[_after_trial])
 
-    return read_progress(spec, sweeps)
+    snapshot = _snapshot(spec, study)
+    sweeps.write_progress(spec.name, snapshot)
+    return snapshot
 
 
-def read_progress(spec: SweepSpec, sweeps: SweepStore) -> dict:
-    """The sweep's trials, ordered by the objective. Feeds `GET /sweeps/{name}`.
+def _snapshot(spec: SweepSpec, study) -> dict:
+    """The trials table, ordered by optuna, as a plain dict. Worker-thread only.
 
-    Reads optuna's storage. If the study has not been created yet (the sweep is
-    queued but no trial has started), reports an empty table rather than failing.
+    Built from the live study (which only the worker holds open) and written to
+    `progress.json`; the API reads that file, never the SQLite (see SweepStore).
     """
-    import optuna
     from optuna.trial import TrialState
 
-    empty = {
-        "name": spec.name,
-        "objective": spec.objective,
-        "direction": spec.direction,
-        "budget": spec.budget.as_dict(),
-        "space": spec.space,
-        "patch_dataset": spec.patch_dataset,
-        "network": spec.network,
-        "trials": [],
-        "completed": 0,
-        "best": None,
-    }
-    if not sweeps.db_path(spec.name).exists():
-        return empty
-
-    study = optuna.load_study(study_name=spec.name, storage=sweeps.storage_url(spec.name))
     trials = []
     for t in study.trials:
         trials.append(
@@ -281,14 +276,20 @@ def read_progress(spec: SweepSpec, sweeps: SweepStore) -> dict:
                 "epochs_run": t.user_attrs.get("epochs_run"),
             }
         )
-    completed = [t for t in study.trials if t.state in (TrialState.COMPLETE, TrialState.PRUNED)]
+    completed = sum(1 for t in study.trials if t.state in (TrialState.COMPLETE, TrialState.PRUNED))
     best = None
     if any(t.state == TrialState.COMPLETE for t in study.trials):
         bt = study.best_trial
-        best = {
-            "number": bt.number,
-            "run": bt.user_attrs.get("run"),
-            "value": bt.value,
-            "params": bt.params,
-        }
-    return {**empty, "trials": trials, "completed": len(completed), "best": best}
+        best = {"number": bt.number, "run": bt.user_attrs.get("run"), "value": bt.value, "params": bt.params}
+    return {
+        "name": spec.name,
+        "objective": spec.objective,
+        "direction": spec.direction,
+        "budget": spec.budget.as_dict(),
+        "space": spec.space,
+        "patch_dataset": spec.patch_dataset,
+        "network": spec.network,
+        "trials": trials,
+        "completed": completed,
+        "best": best,
+    }

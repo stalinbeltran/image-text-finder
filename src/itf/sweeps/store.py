@@ -84,6 +84,40 @@ class SweepStore:
             raise SweepNotFound(name)
         return SweepSpec.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
+    # ── Progress snapshot ────────────────────────────────────────────────────
+    #
+    # A JSON snapshot of the trials, written by the WORKER after each trial and
+    # read by the API. It exists so the API never opens optuna's SQLite: the
+    # worker holds that DB open for the whole sweep, and a second connection from
+    # the polling thread races it on schema creation and write locks (a real
+    # `IntegrityError` on `alembic_version` and `database is locked`). The
+    # snapshot is a cache of the study -- derivable, so it is not versioned -- and
+    # reading it is what keeps `GET /sweeps` off the engine entirely.
+
+    def write_progress(self, name: str, payload: dict) -> None:
+        (self.path(name) / "progress.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def read_progress(self, spec: SweepSpec) -> dict:
+        """The last snapshot, or an empty table if no trial has finished yet."""
+        path = self.path(spec.name) / "progress.json"
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                pass
+        return {
+            "name": spec.name,
+            "objective": spec.objective,
+            "direction": spec.direction,
+            "budget": spec.budget.as_dict(),
+            "space": spec.space,
+            "patch_dataset": spec.patch_dataset,
+            "network": spec.network,
+            "trials": [],
+            "completed": 0,
+            "best": None,
+        }
+
     # ── Stopping ─────────────────────────────────────────────────────────────
 
     def request_stop(self, name: str, reason: str = "petición del usuario") -> None:

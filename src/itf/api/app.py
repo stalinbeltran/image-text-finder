@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -1079,14 +1080,70 @@ def register_inference(app: FastAPI) -> None:
 
 
 def _sweep_progress(c: Context, spec: SweepSpec) -> dict:
-    """Read the trials table from optuna's storage (imported lazily).
+    """The trials table, read from the worker's JSON snapshot -- never optuna.
 
-    `runner` is the only module that imports optuna; keeping it out of this file's
-    top-level imports is what lets the ⑨ 400 above be answered without the engine.
+    The worker thread holds the SQLite study open for the whole sweep; a second
+    connection from this (the API) thread races it on schema creation and write
+    locks. So the worker writes `progress.json` after each trial and the API reads
+    that. It also keeps optuna out of this file entirely, which is what lets the
+    ⑨ 400 be answered without the engine installed.
     """
-    from itf.sweeps.runner import read_progress
+    return c.sweeps.read_progress(spec)
 
-    return read_progress(spec, c.sweeps)
+
+def _submit_sweep_job(c: Context, spec: SweepSpec, resumed: bool = False):
+    """Queue the job that runs (or resumes) a sweep. One place, two callers.
+
+    `POST /sweeps` calls it to start a sweep; the startup resumer calls it to pick
+    one back up. They MUST build the job the same way -- the whole point of resume
+    is that `run_sweep` cannot tell "started" from "resumed": it counts the trials
+    already done and runs the rest, and the study on disk is what remembers them.
+    """
+
+    def run_the_sweep() -> dict:
+        from itf.sweeps.runner import run_sweep
+
+        return run_sweep(
+            spec,
+            runs=c.runs,
+            patch_datasets=c.patch_datasets,
+            networks=c.networks,
+            recipes=c.recipes,
+            sweeps=c.sweeps,
+            should_stop=lambda: c.sweeps.stop_requested(spec.name),
+        )
+
+    return c.jobs.submit(
+        "sweep",
+        run_the_sweep,
+        detail={"sweep": spec.name, "resumed": resumed},
+        cancel=lambda: c.sweeps.request_stop(spec.name),
+    )
+
+
+def resume_sweeps(c: Context) -> list[str]:
+    """Re-enqueue every sweep that a restart left unfinished. Returns their names.
+
+    This is the payoff of the persistence (plan-ui.md fase 7 verification): a CPU
+    sweep runs for hours, so it must survive the API going down. The durable state
+    is on disk -- `spec.json`, `optuna.db`, and the runs -- so resuming is just
+    submitting the job again. A sweep that already met its budget, or that was
+    asked to stop, is left alone.
+    """
+    resumed = []
+    for name in c.sweeps.names():
+        try:
+            spec = c.sweeps.spec(name)
+        except (SweepNotFound, ValueError):
+            continue
+        if c.sweeps.stop_requested(name):
+            continue
+        progress = _sweep_progress(c, spec)
+        if progress["completed"] >= spec.budget.points:
+            continue
+        _submit_sweep_job(c, spec, resumed=True)
+        resumed.append(name)
+    return resumed
 
 
 def _sweep_state(c: Context, name: str) -> str:
@@ -1192,26 +1249,7 @@ def register_sweeps(app: FastAPI) -> None:
         except SweepExists:
             raise conflict("sweep_exists", f"ya existe un barrido llamado '{name}'")
 
-        def run_the_sweep() -> dict:
-            from itf.sweeps.runner import run_sweep
-
-            return run_sweep(
-                spec,
-                runs=c.runs,
-                patch_datasets=c.patch_datasets,
-                networks=c.networks,
-                recipes=c.recipes,
-                sweeps=c.sweeps,
-                should_stop=lambda: c.sweeps.stop_requested(name),
-            )
-
-        job = c.jobs.submit(
-            "sweep",
-            run_the_sweep,
-            detail={"sweep": name},
-            cancel=lambda: c.sweeps.request_stop(name),
-        )
-        return job.as_dict()
+        return _submit_sweep_job(c, spec).as_dict()
 
     def _spec_or_404(c: Context, name: str) -> SweepSpec:
         try:
@@ -1276,7 +1314,16 @@ def register_jobs(app: FastAPI) -> None:
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
-    app = FastAPI(title="image-text-finder", version="0.1.0")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # On startup the queue's workers are already up, so a re-enqueued sweep
+        # begins running. A sweep that met its budget or was asked to stop is left
+        # alone. This is the restart survival of fase 7 (plan-ui.md).
+        resume_sweeps(app.state.context)
+        yield
+
+    app = FastAPI(title="image-text-finder", version="0.1.0", lifespan=lifespan)
     app.state.context = Context(
         settings=settings,
         patch_datasets=PatchDatasetStore(settings.patch_datasets_root),

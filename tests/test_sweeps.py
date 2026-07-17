@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from itf.sweeps import SweepSpec, check_sweep
-from itf.sweeps.runner import read_progress, run_sweep
+from itf.sweeps.runner import run_sweep
 
 
 # --------------------------------------------------------------------------- #
@@ -150,6 +150,61 @@ def test_a_short_sweep_makes_runs_with_sweep_provenance_and_resumes(layout):
     assert set(stores["runs"].names()) == before, "reanudar un barrido completo no crea runs nuevos"
 
 
+def test_startup_resumes_an_unfinished_sweep_to_completion(layout):
+    """A sweep on disk that has not met its budget is picked up when the API starts.
+
+    This is the restart survival of plan-ui.md fase 7, exercised end-to-end: the
+    spec and (eventual) study live on disk, so a fresh app resumes the sweep with
+    no POST -- the startup handler re-enqueues it and it runs to its budget.
+    """
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from itf.api.app import create_app
+    from itf.settings import Settings
+
+    stores = _stores(layout)  # seeds a real tiny B, C and base recipe on disk
+    spec = SweepSpec.from_dict(
+        {
+            "name": "resumed",
+            "patch_dataset": "tiny-40",
+            "network": "cnn-a",
+            "recipe": "base",
+            "space": {"lr": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True}},
+            "objective": "f1",
+            "strategy": "random",
+            "budget": {"points": 2, "epochs": 2},
+        }
+    )
+    stores["sweeps"].create(spec)  # reserved, but never run
+
+    settings = Settings(
+        datasets_root=layout.datasets,
+        patch_datasets_root=layout.patch_datasets,
+        runs_root=layout.runs,
+        networks_root=layout.networks,
+        recipes_root=layout.recipes,
+        diagnostics_cache_root=layout.cache,
+        sweeps_root=layout.sweeps,
+        jobs_root=layout.jobs,
+        allowed_roots=(layout.datasets,),
+        cors_origins=("http://localhost:5173",),
+    )
+
+    with TestClient(create_app(settings)) as client:  # startup fires -> resume
+        deadline = time.monotonic() + 60
+        body = None
+        while time.monotonic() < deadline:
+            body = client.get("/sweeps/resumed").json()
+            if body["state"] in {"done", "error"} or body["completed"] >= 2:
+                break
+            time.sleep(0.1)
+        assert body is not None
+        assert body["completed"] == 2, f"el resume debe completar el barrido, quedó en {body}"
+        assert body["best"] is not None
+
+
 def test_read_progress_on_an_unstarted_sweep_is_empty(layout):
     """A sweep reserved but never run reports an empty table, not a failure."""
     from itf.sweeps import SweepStore
@@ -167,6 +222,6 @@ def test_read_progress_on_an_unstarted_sweep_is_empty(layout):
         }
     )
     sweeps.create(spec)
-    progress = read_progress(spec, sweeps)
+    progress = sweeps.read_progress(spec)
     assert progress["trials"] == [] and progress["completed"] == 0
     assert json.loads((sweeps.path("never") / "spec.json").read_text())["objective"] == "f1"
