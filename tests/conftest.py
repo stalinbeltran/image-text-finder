@@ -72,6 +72,11 @@ class Layout:
     #: is not just hygiene: a cache keyed on a run name would hand one test's
     #: table to another if they shared a root.
     cache: Path
+    #: H — the sweeps (fase 7). Throwaway so a test never writes `sweeps/` in the
+    #: real repo, and so optuna's SQLite lands in tmp.
+    sweeps: Path
+    #: The job queue's persisted records (fase 7).
+    jobs: Path
 
     def write_source(self, name: str = "tiny", **kwargs) -> str:
         write_tiny_source(self.datasets / name, **kwargs)
@@ -159,6 +164,8 @@ def layout(tmp_path: Path) -> Layout:
         networks=tmp_path / "configs" / "networks",
         recipes=tmp_path / "configs" / "recipes",
         cache=tmp_path / "cache" / "diagnostics",
+        sweeps=tmp_path / "sweeps",
+        jobs=tmp_path / "jobs",
     )
 
 
@@ -185,6 +192,8 @@ def itf_api(layout: Layout):
         networks_root=layout.networks,
         recipes_root=layout.recipes,
         diagnostics_cache_root=layout.cache,
+        sweeps_root=layout.sweeps,
+        jobs_root=layout.jobs,
         allowed_roots=(layout.datasets,),
         cors_origins=("http://localhost:5173",),
     )

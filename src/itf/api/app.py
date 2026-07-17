@@ -31,6 +31,7 @@ from itf.api.jobs import JobQueue
 from itf.api.schemas import (
     BuildPatchDatasetBody,
     CreateRunBody,
+    CreateSweepBody,
     FeatureMapsBody,
     NamedNetworkBody,
     NetworkBody,
@@ -68,6 +69,13 @@ from itf.models import (
 from itf.patches import SPLIT_NAMES, PatchExtractConfig, SplitConfig, extract_dataset
 from itf.patches.store import PatchDatasetNotFound, PatchDatasetStore
 from itf.settings import Settings
+from itf.sweeps import (
+    SweepExists,
+    SweepNotFound,
+    SweepSpec,
+    SweepStore,
+    check_sweep,
+)
 from itf.training import (
     LIVE_STATES,
     Recipe,
@@ -96,6 +104,7 @@ class Context:
     networks: NetworkStore
     recipes: RecipeStore
     runs: RunStore
+    sweeps: SweepStore
     jobs: JobQueue
     diagnostics: TableCache
     #: Loaded networks, keyed on the checkpoint's mtime. V2 and the predict
@@ -734,8 +743,19 @@ def register_runs(app: FastAPI) -> None:
                 f"el run '{name}' está corriendo",
                 "párala primero con POST /runs/{name}/stop",
             )
-        # (Fase 7 adds the other half of this check: a run a sweep references
-        # cannot go either, or the sweep loses a point of its space.)
+        # The other half of the check (fase 7): a run a sweep still references
+        # cannot go, or the sweep loses a point of its space. The run names its
+        # own parent in `provenance.sweep`; if that sweep is still on disk, refuse.
+        try:
+            parent = ((c.runs.config(name).get("provenance") or {}).get("sweep"))
+        except _UNREADABLE:
+            parent = None
+        if parent and c.sweeps.exists(parent):
+            raise conflict(
+                "run_in_sweep",
+                f"el run '{name}' es un punto del barrido '{parent}'",
+                f"borra el barrido '{parent}' primero, o quédate el run",
+            )
         c.runs.delete(name)
         return Response(status_code=204)
 
@@ -1055,6 +1075,171 @@ def register_inference(app: FastAPI) -> None:
         return payload
 
 
+# ── H: /sweeps ────────────────────────────────────────────────────────────────
+
+
+def _sweep_progress(c: Context, spec: SweepSpec) -> dict:
+    """Read the trials table from optuna's storage (imported lazily).
+
+    `runner` is the only module that imports optuna; keeping it out of this file's
+    top-level imports is what lets the ⑨ 400 above be answered without the engine.
+    """
+    from itf.sweeps.runner import read_progress
+
+    return read_progress(spec, c.sweeps)
+
+
+def _sweep_state(c: Context, name: str) -> str:
+    """The sweep's own state, read off its job (the durable record is on disk).
+
+    `queued` before a worker picks it up, `running` while it trains points, then
+    `done`/`error`/`cancelled`/`interrupted` -- the last of which is what a
+    restart leaves, and what the resumer looks for.
+    """
+    for job in c.jobs.list():  # newest first
+        if job.kind == "sweep" and job.detail.get("sweep") == name:
+            return job.state
+    return "queued"
+
+
+def register_sweeps(app: FastAPI) -> None:
+    """H — the sweep: a space of D with B and C fixed → many E.
+
+    `POST /sweeps` → job (R3: hours). Everything it refuses, it refuses in
+    milliseconds and before the sweep is reserved -- **the ⑨ check first of all**,
+    because that is the one that would otherwise produce a winner with a good face.
+    """
+
+    @app.get("/sweeps")
+    def list_sweeps(c: Context = Depends(get_context)) -> dict:
+        out = []
+        for name in c.sweeps.names():
+            spec = c.sweeps.spec(name)
+            progress = _sweep_progress(c, spec)
+            out.append(
+                {
+                    "name": name,
+                    "state": _sweep_state(c, name),
+                    "objective": spec.objective,
+                    "patch_dataset": spec.patch_dataset,
+                    "network": spec.network,
+                    "completed": progress["completed"],
+                    "points": spec.budget.points,
+                    "best": progress["best"],
+                }
+            )
+        return {"sweeps": out}
+
+    @app.post("/sweeps", status_code=202)
+    def create_sweep(body: CreateSweepBody, c: Context = Depends(get_context)) -> dict:
+        payload = body.model_dump()
+
+        # ⑨ (and the rest of the spec's shape) FIRST, before touching the stores:
+        # ranking by `loss` while sweeping `lambda_pos` is a 400, and it must be
+        # answered whether or not the named B and C happen to exist.
+        problems = check_sweep(payload)
+        if problems:
+            raise bad_request(
+                problems[0]["code"],
+                "; ".join(p["message"] for p in problems),
+                problems[0]["hint"],
+                problems=problems,
+            )
+
+        name = payload["name"]
+        try:
+            if c.sweeps.exists(name):
+                raise conflict(
+                    "sweep_exists",
+                    f"ya existe un barrido llamado '{name}'",
+                    "elige otro nombre, o borra ese barrido primero: no se sobrescribe nunca",
+                )
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc), "usa un nombre sin barras ni '..'")
+
+        # The fixed B and C must exist and be compatible NOW: a sweep whose B and C
+        # cannot train together should fail at creation, not once per point inside
+        # the job thread (the same lesson as contract ①).
+        try:
+            manifest = c.patch_datasets.manifest(body.patch_dataset)
+        except (PatchDatasetNotFound, ValueError):
+            raise not_found(
+                "patch_dataset_not_found",
+                f"no existe el dataset de patches '{body.patch_dataset}'",
+            )
+        try:
+            network = c.networks.get(body.network)
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{body.network}'")
+        if body.recipe is not None:
+            try:
+                c.recipes.get(body.recipe)
+            except (RecipeNotFound, ValueError):
+                raise not_found("recipe_not_found", f"no existe la receta base '{body.recipe}'")
+        network.pop("format_version", None)
+        run_problems = check_run(manifest, network)
+        if run_problems:
+            raise bad_request(
+                run_problems[0]["code"],
+                "; ".join(p["message"] for p in run_problems),
+                run_problems[0]["hint"],
+                problems=run_problems,
+            )
+
+        spec = SweepSpec.from_dict(payload)
+        try:
+            c.sweeps.create(spec)
+        except SweepExists:
+            raise conflict("sweep_exists", f"ya existe un barrido llamado '{name}'")
+
+        def run_the_sweep() -> dict:
+            from itf.sweeps.runner import run_sweep
+
+            return run_sweep(
+                spec,
+                runs=c.runs,
+                patch_datasets=c.patch_datasets,
+                networks=c.networks,
+                recipes=c.recipes,
+                sweeps=c.sweeps,
+                should_stop=lambda: c.sweeps.stop_requested(name),
+            )
+
+        job = c.jobs.submit(
+            "sweep",
+            run_the_sweep,
+            detail={"sweep": name},
+            cancel=lambda: c.sweeps.request_stop(name),
+        )
+        return job.as_dict()
+
+    def _spec_or_404(c: Context, name: str) -> SweepSpec:
+        try:
+            return c.sweeps.spec(name)
+        except (SweepNotFound, ValueError):
+            raise not_found("sweep_not_found", f"no existe el barrido '{name}'", "mira GET /sweeps")
+
+    @app.get("/sweeps/{name}")
+    def get_sweep(name: str, c: Context = Depends(get_context)) -> dict:
+        """Spec + progress (V12/V13 read the `trials` table it carries)."""
+        spec = _spec_or_404(c, name)
+        return {"spec": spec.as_dict(), "state": _sweep_state(c, name), **_sweep_progress(c, spec)}
+
+    @app.get("/sweeps/{name}/trials")
+    def get_sweep_trials(name: str, c: Context = Depends(get_context)) -> dict:
+        """The points table, ordered by optuna (V12 Pareto, V13 parallel)."""
+        spec = _spec_or_404(c, name)
+        progress = _sweep_progress(c, spec)
+        return {"trials": progress["trials"], "best": progress["best"], "objective": spec.objective}
+
+    @app.post("/sweeps/{name}/stop", status_code=202)
+    def stop_sweep(name: str, c: Context = Depends(get_context)) -> dict:
+        """Cooperative: it cuts between trials, and the running point at its epoch."""
+        spec = _spec_or_404(c, name)
+        c.sweeps.request_stop(name)
+        return {"name": spec.name, "stop_requested": True}
+
+
 # ── X: /jobs ──────────────────────────────────────────────────────────────────
 
 
@@ -1098,6 +1283,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         networks=NetworkStore(settings.networks_root),
         recipes=RecipeStore(settings.recipes_root),
         runs=RunStore(settings.runs_root),
+        sweeps=SweepStore(settings.sweeps_root),
         # On CPU the limit is 1: torch already uses every core inside one run, so
         # N at once just fight each other and each holds its dataset in RAM.
         # `persist_dir` is what lets `GET /jobs` survive a restart and what marks
@@ -1121,6 +1307,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_runs(app)
     register_diagnostics(app)
     register_inference(app)
+    register_sweeps(app)
     register_jobs(app)
     return app
 

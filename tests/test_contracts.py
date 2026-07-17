@@ -528,20 +528,22 @@ def test_contract_08_split_seed_alone_decides_the_split(tmp_path):
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ⑨: sin implementar, plan-ui.md fase 7")
-def test_contract_09_sweep_rejects_loss_objective_when_lambda_pos_varies():
+def test_contract_09_sweep_rejects_loss_objective_when_lambda_pos_varies(itf_api):
     """`loss = cls + λ·pos`. Sweep λ and rank by loss and λ=0 "wins".
 
     That is: the optimum is to not predict positions at all. And the failure is
     silent -- it produces a winner with a good face. So this is a 400, not a
     warning (api.md §3).
+
+    The refusal comes BEFORE the named B and C are even looked up: the trap is in
+    the spec's shape, not in whether the dataset exists. That is why this passes
+    with `tiny-40`/`cnn-a` absent -- and why a control (the same sweep with `f1`)
+    must get PAST the ⑨ check, proving the 400 is about λ and not about /sweeps
+    refusing everything.
     """
-    from fastapi.testclient import TestClient
+    client, _ = itf_api
 
-    from itf.api.app import app
-
-    client = TestClient(app)
-    response = client.post(
+    trap = client.post(
         "/sweeps",
         json={
             "name": "trampa",
@@ -553,9 +555,25 @@ def test_contract_09_sweep_rejects_loss_objective_when_lambda_pos_varies():
             "budget": {"points": 4, "epochs": 3},
         },
     )
+    assert trap.status_code == 400
+    assert trap.json()["detail"]["code"] == "objective_varies_with_space"
 
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "objective_varies_with_space"
+    # The control: swept the same λ but ranked by `f1` -- ⑨ does not fire, so the
+    # 400 above was the trap and not /sweeps refusing everything. It gets past ⑨
+    # and stops on the (absent) dataset instead: a different code, a 404.
+    ok = client.post(
+        "/sweeps",
+        json={
+            "name": "legit",
+            "patch_dataset": "tiny-40",
+            "network": "cnn-a",
+            "space": {"lambda_pos": {"type": "float", "low": 0.0, "high": 5.0}},
+            "objective": "f1",
+            "strategy": "random",
+            "budget": {"points": 4, "epochs": 3},
+        },
+    )
+    assert ok.json()["detail"]["code"] != "objective_varies_with_space"
 
 
 # --------------------------------------------------------------------------- #

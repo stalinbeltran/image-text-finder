@@ -141,6 +141,37 @@ class PredictBody(BaseModel):
     min_size: float = Field(default=4.0, ge=0.0)
 
 
+class CreateSweepBody(BaseModel):
+    """`POST /sweeps` (H). **Names for what is fixed, a space for what varies.**
+
+    `patch_dataset` and `network` are fixed by name (contract ⑧: every point must
+    share the same B and C, or the sweep measures the ruler). `recipe` is an
+    OPTIONAL base -- the fields not in `space` take its values.
+
+    `space` is `{recipe_field: distribution}`, where a distribution is
+    `{"type": "float"|"int", "low", "high", "log"?}` or
+    `{"type": "categorical", "choices": [...]}`.
+
+    `objective` is what ranks the points: `f1` | `pos_err_px` | `loss`. **It may
+    not be `loss` while `lambda_pos` is in the space** (contract ⑨) -- that is a
+    400, not a warning, because it produces a winner with a good face (λ=0).
+    `device`/`num_workers` are absent for the same reason recipes lack them (⑩).
+    """
+
+    name: str = Field(min_length=1)
+    patch_dataset: str = Field(min_length=1)
+    network: str = Field(min_length=1)
+    #: Optional base recipe; the fields not in `space` take its values.
+    recipe: str | None = None
+    space: dict[str, dict] = Field(default_factory=dict)
+    objective: str = "f1"
+    strategy: str = "tpe"
+    budget: dict = Field(default_factory=dict)
+    #: The sampler's seed (which points get tried). Distinct from B's split seed
+    #: and D's replication seed.
+    seed: int = 0
+
+
 class RecipeBody(BaseModel):
     """`POST /recipes`. D, and only D.
 

@@ -13,6 +13,11 @@ dependencies = [
 train = [
     "torch>=2.2",
 ]
+sweep = [
+    # H — the hyperparameter sweep (optuna is the ENGINE, not the organisation:
+    # its trials are not our runs, librerias.md). SQLite storage ships with it.
+    "optuna>=3.6",
+]
 api = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
