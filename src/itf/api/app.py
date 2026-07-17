@@ -640,7 +640,15 @@ def register_runs(app: FastAPI) -> None:
             with c.runs.marking_failures(body.name):
                 return train(spec, should_stop=lambda: c.runs.stop_requested(body.name))
 
-        job = c.jobs.submit("train", run_training, detail={"run": body.name})
+        # The job's cooperative-stop signal is the run's own `stop.json`: cancelling
+        # the job is exactly asking the run to stop, and both the API's own
+        # `POST /runs/{name}/stop` and a sweep parent reach for the same file.
+        job = c.jobs.submit(
+            "train",
+            run_training,
+            detail={"run": body.name},
+            cancel=lambda: c.runs.request_stop(body.name),
+        )
         return job.as_dict()
 
     @app.get("/runs/{name}")
@@ -1062,6 +1070,24 @@ def register_jobs(app: FastAPI) -> None:
             raise not_found("job_not_found", f"no existe el job '{job_id}'")
         return job.as_dict()
 
+    @app.post("/jobs/{job_id}/cancel", status_code=202)
+    def cancel_job(job_id: str, c: Context = Depends(get_context)) -> dict:
+        """Cooperative cancel: marks the stop, the work cuts at its safe point.
+
+        202, not 200: a running job is still going when this answers. Nothing is
+        killed -- a training finishes its epoch, a sweep its trial. A job that has
+        already finished answers 409: there is nothing to cancel.
+        """
+        job = c.jobs.cancel(job_id)
+        if job is None:
+            raise not_found("job_not_found", f"no existe el job '{job_id}'")
+        if job.state in {"done", "error", "interrupted"}:
+            raise conflict(
+                "job_not_cancellable",
+                f"el job '{job_id}' ya está '{job.state}': no hay nada que cancelar",
+            )
+        return job.as_dict()
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
@@ -1074,7 +1100,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runs=RunStore(settings.runs_root),
         # On CPU the limit is 1: torch already uses every core inside one run, so
         # N at once just fight each other and each holds its dataset in RAM.
-        jobs=JobQueue(max_workers=1),
+        # `persist_dir` is what lets `GET /jobs` survive a restart and what marks
+        # a job that was live when the process died as `interrupted` (fase 7).
+        jobs=JobQueue(max_workers=1, persist_dir=settings.jobs_root),
         diagnostics=TableCache(settings.diagnostics_cache_root),
         models=ModelCache(),
     )

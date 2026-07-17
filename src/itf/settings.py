@@ -39,15 +39,24 @@ class Settings:
     #: gitignored. It has a root of its own because it is the one directory in
     #: the project that is safe to throw away at any moment.
     diagnostics_cache_root: Path
+    #: H — the sweeps (`sweeps/<name>/spec.json` + optuna's SQLite). Like `runs/`,
+    #: it is a RECORD: the spec is versioned (formatos.md §5), the `.db` is load
+    #: and ignored. A root of its own so a test can point it at throwaway disk.
+    sweeps_root: Path = REPO_ROOT / "sweeps"
+    #: X — the job queue's persisted records (jobq). Under `data/`, so gitignored:
+    #: a job is ephemeral, and what survives a restart is the run/sweep behind it,
+    #: not the job row. Defaulted so the existing test fixtures need not pass it.
+    jobs_root: Path = REPO_ROOT / "data" / "jobs"
     #: Every root a client-supplied path is allowed to resolve under (D4).
-    allowed_roots: tuple[Path, ...]
-    cors_origins: tuple[str, ...]
+    allowed_roots: tuple[Path, ...] = ()
+    cors_origins: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "Settings":
         datasets_root = _env_path("ITF_DATASETS_ROOT", DEFAULT_DATASETS_ROOT)
         data_root = _env_path("ITF_DATA_ROOT", REPO_ROOT / "data")
         runs_root = _env_path("ITF_RUNS_ROOT", REPO_ROOT / "runs")
+        sweeps_root = _env_path("ITF_SWEEPS_ROOT", REPO_ROOT / "sweeps")
         configs_root = _env_path("ITF_CONFIGS_ROOT", REPO_ROOT / "configs")
 
         # D4: the allowlist is DATASETS_ROOT plus whatever is declared on
@@ -75,6 +84,8 @@ class Settings:
             # directory is derived, and D5's criterion is that what can be
             # recomputed is not kept.
             diagnostics_cache_root=data_root / "cache" / "diagnostics",
+            sweeps_root=sweeps_root,
+            jobs_root=data_root / "jobs",
             allowed_roots=(datasets_root, *extra_roots),
             cors_origins=tuple(o.strip() for o in origins.split(",") if o.strip()),
         )
