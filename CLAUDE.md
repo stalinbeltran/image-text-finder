@@ -9,31 +9,38 @@ Ver [README.md](README.md) para montar y correr.
 
 ## Estado actual — léelo primero
 
-> **Fases 0, 0.5, 1, 2 y 3 hechas (2026-07-16). La siguiente es la [fase 4](docs/plan-ui.md)**:
-> Entrenar y Runs (E) — `POST /runs` validando el contrato ① (400 con la razón, llamando a
-> `itf.validation`), la **procedencia por nombre** (D2), **409 si el run ya existe** (nunca
-> sobrescribir en silencio), `202` + `/metrics?since=` + `/stop`, y sacar X de la identidad.
-> **No quedan decisiones bloqueando**; lo abierto en [decisiones.md](docs/decisiones.md) §2–§3 se
-> responde al llegar a su fase.
+> **Fases 0, 0.5, 1, 2, 3 y 4 hechas (2026-07-16). La siguiente es la [fase 5](docs/plan-ui.md)**:
+> la **tabla por patch** (E × split de B → `.npz`, un caché) y el diagnóstico — V3, V6, V7 y **V8**,
+> que deja elegir `threshold` post-hoc y gratis. Entrar al barrido sin V8 es gastar horas de CPU
+> buscando en D lo que estaba en F. **No quedan decisiones bloqueando**; lo abierto en
+> [decisiones.md](docs/decisiones.md) §2–§3 se responde al llegar a su fase.
 >
-> **Ya se entrena, y por CLI**: `itf-train --name <run> --patch-dataset <B> --network <C>
+> **El flujo completo funciona: dato → red → receta → run**, y desde la UI. Lo que sigue **añade
+> capacidad**, no cierra huecos. Por CLI: `itf-train --name <run> --patch-dataset <B> --network <C>
 > --recipe <D> --device cpu`. Toma **nombres**, no valores: es lo que hace que la procedencia se
-> sostenga sola. La UI de Entrenar es de la fase 4; el bucle ya está.
+> sostenga sola.
 >
 > **Ya existen**: `itf.geometry` (G), `itf.datasets` (A), `itf.patches` (B), `itf.models` (C),
-> `itf.validation` (①②), `itf.training` (D: `recipe`, `losses`, `loop`, `cli`, `registry`) y
-> `itf.api` (`/sources`, `/patch-datasets`, `/jobs`, `/networks` + `/networks/validate`,
-> `/recipes`). Faltan `itf.inference` (F), la procedencia por nombre (③) y el barrido (H).
+> `itf.validation` (①② + `check_run`), `itf.training` (D+E: `recipe`, `losses`, `loop`, `cli`,
+> `registry`, `provenance`), `itf.inference.load_model` (④, lo único de F) y `itf.api`
+> (`/sources`, `/patch-datasets`, `/jobs`, `/networks`, `/recipes`, **`/runs`**). Faltan
+> `itf.inference.predict` (F, ventana + NMS + reconstrucción), el diagnóstico (E×B) y el barrido (H).
 > El código anterior sigue en el tag **`pre-rediseno`** — consúltalo para **algoritmos**, no para
 > estructura: `git show pre-rediseno:src/itf/training/losses.py`.
 >
+> **Las dos puertas de entrenar son una**: `POST /runs` e `itf-train` preguntan a
+> `itf.validation.check_run` y reservan con `RunStore.create`. Si añades una tercera (el barrido de
+> la fase 7), pasa por ahí: **la puerta que queda más laxa es por la que entra el barrido**.
+>
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *42 passed, 4 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *68 passed, 2 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
-> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. La fase 3 quitó
-> ①, ② (×2), ⑦ (×2) y ⑩. Quedan ③ y ④ (fase 4), ⑤ (fase 6) y ⑨ (fase 7).
-> **Ojo con ① y ②**: hoy los afirma el validador y `itf-train` lo llama, pero **el `POST /runs`
-> → 400 no existe todavía** — la fase 4 debe extender esos dos tests a HTTP (tests.md §3).
+> puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. La fase 4 quitó ③ y
+> ④, y pagó la deuda de ① y ② extendiéndolos a HTTP. **Quedan ⑤ (fase 6) y ⑨ (fase 7)**.
+>
+> **`runs/fase3-01` no tiene procedencia** y el API lo dice en voz alta: es de la fase 3, anterior
+> al contrato ③, y no puede decir de qué red salió. **No se construye ningún lector que degrade**
+> (eso es lo que mató D3): o se borra y se reentrena, o se queda como está y la pantalla lo marca.
 >
 > **Arrancar**: `.\.venv\Scripts\python -m itf.api` (8000) y `cd web && npm run dev` (5173). El
 > front proxya `/api` al backend. **La paleta vive en `web/src/theme/tokens.css` y solo ahí** —
@@ -147,11 +154,14 @@ doc. Respétalo explícitamente o actualiza el doc — no lo dejes implícito.
 
 ### Contratos que se rompen solos si no se miran
 
-- **① `patch_size` (B) == `input_size` (C)** — hoy solo lo valida el front (`RunsPanel.tsx`).
-  El backend acepta el mismatch y revienta dentro del hilo del job.
+- **① `patch_size` (B) == `input_size` (C)** — **cerrado en la fase 4**, pero sigue aquí porque lo
+  que lo sostiene es una costumbre: **toda puerta que entrene pregunta a `itf.validation.check_run`
+  antes de reservar el nombre**. Hoy son dos (`POST /runs`, `itf-train`); el barrido será la
+  tercera. Una puerta que se salte el validador vuelve a reventar dentro del hilo del job.
 - **⑤ La geometría de la ventana** está **duplicada** entre `patches/extract.py` e
   `inference/predict.py` (que además importa la privada `_positions`). Si tocas una, toca la
-  otra: no hay test que lo pille.
+  otra: no hay test que lo pille. *(En el diseño nuevo vive en `itf.geometry`; el riesgo es que la
+  duplicación **vuelva** al escribir F en la fase 6, que es lo que sale natural.)*
 - **⑨ El objetivo de un barrido no puede ser la val loss si varía `lambda_pos`** — cada punto
   se mediría con una pérdida distinta y "ganaría" λ=0.
 - **⑩ `batch_size` es D, no X.** Subirlo al pasar a GPU invalida la comparación con lo

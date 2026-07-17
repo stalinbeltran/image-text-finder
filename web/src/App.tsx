@@ -6,7 +6,9 @@ import { Kitchen } from "./screens/Kitchen";
 import { Networks } from "./screens/Networks";
 import { Patches } from "./screens/Patches";
 import { Recipes } from "./screens/Recipes";
+import { Runs } from "./screens/Runs";
 import { Sources } from "./screens/Sources";
+import { Train } from "./screens/Train";
 
 /** The screens that exist. The rest fall through to NotBuiltYet, which names
  *  the phase -- an empty screen that does not say why reads as a bug. */
@@ -15,6 +17,8 @@ const BUILT: Record<string, () => JSX.Element> = {
   "/patch-datasets": Patches,
   "/networks": Networks,
   "/recipes": Recipes,
+  "/train": Train,
+  "/runs": Runs,
 };
 
 /** The shell: four groups, no step numbers (ui.md §1). */

@@ -73,20 +73,55 @@ class Layout:
         write_tiny_source(self.datasets / name, **kwargs)
         return name
 
-    def write_patch_dataset(self, name: str, **manifest) -> Path:
+    def write_patch_dataset(
+        self, name: str, *, patch_size: int = 40, has_border: bool = True, **manifest
+    ) -> Path:
         """A B that exists as far as the store is concerned.
 
-        Only a manifest: what `used_by` and `DELETE` care about is that the name
-        resolves, not what the pixels are. Building a real one costs seconds and
-        would test the extractor instead of the endpoint.
+        Only a manifest: what `used_by`, `DELETE` and the ①/② validator care
+        about is what B DECLARES, not what the pixels are -- the validator
+        compares two dicts and never opens the `.npz`, which is exactly what
+        makes it milliseconds. Building a real one would test the extractor
+        instead of the endpoint.
         """
         path = self.patch_datasets / name
         path.mkdir(parents=True, exist_ok=True)
-        (path / "manifest.json").write_text(
-            json.dumps({"format_version": 1, "fingerprint": "sha256:" + "0" * 64, **manifest}),
-            encoding="utf-8",
-        )
+        payload = {
+            "format_version": 1,
+            "fingerprint": "sha256:" + "0" * 64,
+            "has_border": has_border,
+            "config": {"patch_size": patch_size, "stride": patch_size // 2, "seed": 1},
+            "patch_shape": [patch_size, patch_size, 1],
+            "corner_order": ["TL", "TR", "BR", "BL"],
+            "border_order": ["top", "right", "bottom", "left"],
+            "patches_per_split": {"train": 8, "val": 1, "test": 1},
+            **manifest,
+        }
+        (path / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
         return path
+
+    def write_network(self, name: str = "cnn-a", **overrides) -> dict:
+        """A C in the store, as `POST /networks` would have left it."""
+        from itf.models import NetworkStore
+
+        config = {
+            "input_size": 40,
+            "in_channels": 1,
+            "border_features": False,
+            "backbone": [{"filters": 4, "kernel": 3, "stride": 1, "padding": 1, "pool": 2}],
+            "head": {"hidden": [8]},
+            **overrides,
+        }
+        NetworkStore(self.networks).save(name, config)
+        return config
+
+    def write_recipe(self, name: str = "adam-lr1e-3", **overrides):
+        """A D in the store."""
+        from itf.training import Recipe, RecipeStore
+
+        recipe = Recipe(**{"epochs": 1, "batch_size": 8, **overrides})
+        RecipeStore(self.recipes).save(name, recipe)
+        return recipe
 
     def write_run(self, name: str, *, patch_dataset: str) -> Path:
         """An E whose provenance points at a B, in the shape D2 fixed."""

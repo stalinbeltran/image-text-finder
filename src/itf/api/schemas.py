@@ -53,6 +53,40 @@ class NamedNetworkBody(NetworkBody):
     name: str = Field(min_length=1)
 
 
+class CreateRunBody(BaseModel):
+    """`POST /runs`. **Names, never values** (api.md R7).
+
+    Want a bespoke network or recipe? Save it first. It looks rigid and it is
+    deliberate: it is what makes contract ③ hold by itself -- every run can say
+    which C and which D it came from, which is exactly what a sweep needs in
+    order to group, and what was impossible when the run copied the value and
+    lost the identity.
+
+    `device` and `num_workers` are here and NOT in the recipe: they are X
+    (contract ⑩). They cost time; they do not change the weights.
+    """
+
+    name: str = Field(min_length=1)
+    #: The name of a B, resolved inside the domain (D4: the client sends an id).
+    patch_dataset: str = Field(min_length=1)
+    #: The name of a C.
+    network: str = Field(min_length=1)
+    #: The name of a D.
+    recipe: str = Field(min_length=1)
+    device: str = "cpu"
+    num_workers: int = Field(default=0, ge=0)
+
+
+class RenameRunBody(BaseModel):
+    """`PATCH /runs/{name}` — renaming, and nothing else.
+
+    The config cannot be patched: a run's config is what it was trained with, and
+    editing it after the fact would make the record lie about the weights.
+    """
+
+    name: str = Field(min_length=1)
+
+
 class RecipeBody(BaseModel):
     """`POST /recipes`. D, and only D.
 

@@ -17,6 +17,7 @@ means C or E depending on who is speaking (glosario.md §1).
 from __future__ import annotations
 
 import io
+import json
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +27,14 @@ from PIL import Image
 
 from itf.api.errors import bad_request, conflict, not_found
 from itf.api.jobs import JobQueue
-from itf.api.schemas import BuildPatchDatasetBody, NamedNetworkBody, NetworkBody, RecipeBody
+from itf.api.schemas import (
+    BuildPatchDatasetBody,
+    CreateRunBody,
+    NamedNetworkBody,
+    NetworkBody,
+    RecipeBody,
+    RenameRunBody,
+)
 from itf.datasets import SourceDataset, discover_sources
 from itf.models import (
     NetworkConfig,
@@ -40,7 +48,18 @@ from itf.models import (
 from itf.patches import SPLIT_NAMES, PatchExtractConfig, SplitConfig, extract_dataset
 from itf.patches.store import PatchDatasetNotFound, PatchDatasetStore
 from itf.settings import Settings
-from itf.training import Recipe, RecipeNotFound, RecipeStore, RunStore
+from itf.training import (
+    LIVE_STATES,
+    Recipe,
+    RecipeNotFound,
+    RecipeStore,
+    RunExists,
+    RunNotFound,
+    RunStore,
+    build_provenance,
+)
+from itf.training.loop import RunSpec, frozen_config, train
+from itf.validation import check_run
 
 
 @dataclass(frozen=True)
@@ -425,6 +444,269 @@ def register_recipes(app: FastAPI) -> None:
         return Response(status_code=204)
 
 
+# ── E: /runs ──────────────────────────────────────────────────────────────────
+
+
+def _run_or_404(c: Context, name: str) -> None:
+    try:
+        exists = c.runs.exists(name)
+    except ValueError as exc:
+        raise bad_request("invalid_name", str(exc))
+    if not exists:
+        raise not_found("run_not_found", f"no existe el run '{name}'", "mira GET /runs")
+
+
+#: Everything a half-written or half-deleted run can throw at a reader. A run is
+#: being written WHILE this list is being read -- `write_text` is not atomic, and
+#: a delete can land between `names()` and the reads below -- so a torn file is
+#: normal, not corruption.
+_UNREADABLE = (RunNotFound, json.JSONDecodeError, OSError)
+
+
+def _run_summary_row(c: Context, name: str) -> dict:
+    """One row of `GET /runs`. **No metrics** (R5): state, provenance, aggregates.
+
+    `seconds_per_epoch` is what Entrenar estimates the cost of a new run with. It
+    is an aggregate, so it is computed here rather than by shipping the epoch
+    records to the browser to average (R6) -- and it is `null`, never 0, when the
+    run has not finished an epoch: 0 would read as "instant".
+
+    **Every read here is guarded, not just the config.** One unreadable run must
+    degrade to one bad row, never to a 500 -- because a 500 here is not "one run
+    is broken", it is *the Runs screen shows nothing at all, for every run*.
+    """
+    row: dict = {
+        "name": name,
+        "state": "error",
+        "provenance": None,
+        "seconds_per_epoch": None,
+        "summary": None,
+    }
+    try:
+        row["state"] = c.runs.status(name).get("state")
+        row["seconds_per_epoch"] = c.runs.seconds_per_epoch(name)
+        row["summary"] = c.runs.summary(name)
+        row["provenance"] = c.runs.config(name).get("provenance")
+    except _UNREADABLE as exc:
+        row["error"] = f"el run no se puede leer entero: {type(exc).__name__}"
+        return row
+    if row["provenance"] is None:
+        # **Said out loud, not degraded.** A run with no provenance is not a
+        # legacy case to read around: D3 killed the degrading reader, so every
+        # run born from fase 4 on has the block (formatos.md §4.2). One from
+        # before it -- fase 3's own verification left exactly one -- cannot say
+        # which C or D it came from, and nothing can recover that. Showing it as
+        # a run like any other is what would be dishonest: it is not comparable
+        # with anything.
+        row["error"] = (
+            "este run no tiene procedencia: es anterior a la fase 4, así que no puede decir "
+            "de qué red ni de qué receta salió. No es comparable: bórralo y reentrénalo."
+        )
+    return row
+
+
+def register_runs(app: FastAPI) -> None:
+    @app.get("/runs")
+    def list_runs(c: Context = Depends(get_context)) -> dict:
+        return {"runs": [_run_summary_row(c, name) for name in c.runs.names()]}
+
+    @app.post("/runs", status_code=202)
+    def create_run(body: CreateRunBody, c: Context = Depends(get_context)) -> dict:
+        """→ job (R3: training is minutes to hours).
+
+        **This is where the API earns its salary** (api.md §4). Everything it
+        refuses here, it refuses in milliseconds and BEFORE the job exists. The
+        old code validated nothing: a `patch_size` mismatch showed up half an
+        hour later, inside the job thread, as `mat1 and mat2 shapes cannot be
+        multiplied` -- a message that says nothing about the actual problem.
+        """
+        try:
+            taken = c.runs.exists(body.name)
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc), "usa un nombre sin barras ni '..'")
+        if taken:
+            # The trap, and it is not hypothetical: `mkdir(exist_ok=True)` plus
+            # truncating `metrics.jsonl` destroyed a finished run without a word,
+            # and a sweep that auto-generates names is exactly who steps on it.
+            raise conflict(
+                "run_exists",
+                f"ya existe un run llamado '{body.name}'",
+                "elige otro nombre, o borra ese run primero: no se sobrescribe nunca",
+            )
+
+        try:
+            network = c.networks.get(body.network)
+        except (NetworkNotFound, ValueError):
+            raise not_found("network_not_found", f"no existe la red '{body.network}'")
+        try:
+            recipe = c.recipes.get(body.recipe)
+        except RecipeNotFound:
+            raise not_found("recipe_not_found", f"no existe la receta '{body.recipe}'")
+        except ValueError as exc:
+            # The recipe exists but does not parse -- a hand-edited YAML with a
+            # typo'd field. "It does not exist" would send you looking in the
+            # wrong place (R4: an error says why).
+            raise bad_request(
+                "invalid_recipe",
+                f"la receta '{body.recipe}' no es válida: {exc}",
+                f"arregla {c.recipes.path(body.recipe).name}, o guárdala otra vez desde Recetas",
+            )
+        try:
+            manifest = c.patch_datasets.manifest(body.patch_dataset)
+        except (PatchDatasetNotFound, ValueError):
+            raise not_found(
+                "patch_dataset_not_found",
+                f"no existe el dataset de patches '{body.patch_dataset}'",
+            )
+
+        # `format_version` is the FILE's, not the network's (formatos.md §4.3).
+        # Frozen inside the run it would fossilise in the checkpoint and in the
+        # provenance, where it means nothing.
+        network.pop("format_version", None)
+
+        # Contracts ① and ②, in one call, before the job exists -- and before the
+        # name is reserved, so a refusal leaves nothing behind. A pure function of
+        # two dicts: no torch, milliseconds (organizacion.md §2). `itf-train` asks
+        # the very same function, which is what keeps the two doors identical.
+        problems = check_run(manifest, network)
+        if problems:
+            # `code` is the first problem's, so the UI can switch on the usual
+            # single-reason case exactly as R4 describes; `problems` carries all
+            # of them, because a dataset that mismatches on both `patch_size` and
+            # `border_features` should be one 400 with two lines, not two round
+            # trips (itf.validation returns them all for that reason).
+            raise bad_request(
+                problems[0]["code"],
+                "; ".join(p["message"] for p in problems),
+                problems[0]["hint"],
+                problems=problems,
+            )
+
+        spec = RunSpec(
+            data=str(c.patch_datasets.path(body.patch_dataset)),
+            out=str(c.runs.path(body.name)),
+            network=network,
+            provenance=build_provenance(
+                patch_dataset={
+                    "name": body.patch_dataset,
+                    "fingerprint": manifest["fingerprint"],
+                },
+                network={"name": body.network, "value": network},
+                recipe={"name": body.recipe, "value": recipe.as_dict()},
+                sweep=None,
+            ),
+            recipe=recipe,
+            device=body.device,
+            num_workers=body.num_workers,
+        )
+
+        try:
+            # The same gate `itf-train` passes through. Reserving BEFORE queueing
+            # is what makes the name taken from this instant: two POSTs racing for
+            # one name give a 202 and a 409, never two runs writing one directory.
+            c.runs.create(body.name, frozen_config(spec))
+        except RunExists:
+            raise conflict("run_exists", f"ya existe un run llamado '{body.name}'")
+
+        def run_training() -> dict:
+            # `marking_failures` is what stops a run that dies before its first
+            # epoch from sitting at `queued` forever: the job would know, but the
+            # job's state lives in memory and the run's lives on disk.
+            with c.runs.marking_failures(body.name):
+                return train(spec, should_stop=lambda: c.runs.stop_requested(body.name))
+
+        job = c.jobs.submit("train", run_training, detail={"run": body.name})
+        return job.as_dict()
+
+    @app.get("/runs/{name}")
+    def get_run(name: str, c: Context = Depends(get_context)) -> dict:
+        """State, config, provenance and checkpoints. **No metrics** (R5).
+
+        Metrics come from `/runs/{name}/metrics?since=N`. Bundling them here is
+        what made watching a run cost more with every epoch: the UI polls this in
+        a loop, and the old version returned the whole history each time.
+        """
+        _run_or_404(c, name)
+        try:
+            config = c.runs.config(name)
+        except (RunNotFound, json.JSONDecodeError) as exc:
+            raise not_found(
+                "run_config_unreadable",
+                f"el run '{name}' no tiene un config.json legible: {exc}",
+                "un run sin config es un run corrupto: bórralo",
+            )
+        return {
+            "name": name,
+            "state": c.runs.status(name),
+            "config": config,
+            # Contract ③ (D2). By NAME, which is what lets you ask "which runs
+            # used network X?" without diffing dictionaries by hand.
+            "provenance": config.get("provenance"),
+            "checkpoints": c.runs.checkpoints(name),
+            "summary": c.runs.summary(name),
+            "seconds_per_epoch": c.runs.seconds_per_epoch(name),
+        }
+
+    @app.get("/runs/{name}/metrics")
+    def get_run_metrics(
+        name: str, since: int = Query(default=0, ge=0), c: Context = Depends(get_context)
+    ) -> dict:
+        """Incremental polling (R5): `{records, next}`. Never the whole history."""
+        _run_or_404(c, name)
+        return c.runs.metrics(name, since=since)
+
+    @app.post("/runs/{name}/stop", status_code=202)
+    def stop_run(name: str, c: Context = Depends(get_context)) -> dict:
+        """Cooperative cancellation: it cuts at the end of the current epoch.
+
+        202, not 200: the run is still going when this answers. Nothing is
+        killed -- the epoch finishes, its metrics and checkpoint land, and the
+        run closes as `cancelled`.
+        """
+        _run_or_404(c, name)
+        state = c.runs.status(name).get("state")
+        if state not in LIVE_STATES:
+            raise conflict(
+                "run_not_running",
+                f"el run '{name}' ya está '{state}': no hay nada que parar",
+            )
+        c.runs.request_stop(name)
+        return {"name": name, "state": state, "stop_requested": True}
+
+    @app.patch("/runs/{name}")
+    def rename_run(name: str, body: RenameRunBody, c: Context = Depends(get_context)) -> dict:
+        _run_or_404(c, name)
+        if c.runs.is_live(name):
+            # Moving the directory out from under the loop would leave it writing
+            # metrics into a path that no longer exists.
+            raise conflict(
+                "run_running",
+                f"el run '{name}' está corriendo",
+                "párala primero con POST /runs/{name}/stop",
+            )
+        try:
+            c.runs.rename(name, body.name)
+        except ValueError as exc:
+            raise bad_request("invalid_name", str(exc))
+        except RunExists:
+            raise conflict("run_exists", f"ya existe un run llamado '{body.name}'")
+        return {"name": body.name}
+
+    @app.delete("/runs/{name}", status_code=204)
+    def delete_run(name: str, c: Context = Depends(get_context)) -> Response:
+        _run_or_404(c, name)
+        if c.runs.is_live(name):
+            raise conflict(
+                "run_running",
+                f"el run '{name}' está corriendo",
+                "párala primero con POST /runs/{name}/stop",
+            )
+        # (Fase 7 adds the other half of this check: a run a sweep references
+        # cannot go either, or the sweep loses a point of its space.)
+        c.runs.delete(name)
+        return Response(status_code=204)
+
+
 # ── X: /jobs ──────────────────────────────────────────────────────────────────
 
 
@@ -466,6 +748,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_patch_datasets(app)
     register_networks(app)
     register_recipes(app)
+    register_runs(app)
     register_jobs(app)
     return app
 

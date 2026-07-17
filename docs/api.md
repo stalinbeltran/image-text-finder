@@ -30,7 +30,7 @@ comprueba que la reconstrucción no repite el error:
 | `_dataset_samples()` | A | `itf.datasets.loader.SourceDataset` ✅ |
 | `_split_map()` | B | `itf.patches.store.PatchDatasetStore.split_map` ✅ |
 | `_run_source()` | E→B→A (procedencia) | `itf.training.registry.RunStore` ✅ |
-| `_run_status()` | E | `itf.training.registry` / `exp-registry` — *fase 4* |
+| `_run_status()` | E | `itf.training.registry.RunStore.status` ✅ *(fase 4: explícito en `status.json`, no deducido)* |
 | `_MODEL_CACHE` | F | `itf.inference` — *fase 6* |
 
 ---
@@ -331,13 +331,21 @@ seguro (fin de época). No mata el hilo.
 **Esta sección es la razón de ser de la capa.** Un contrato que no se comprueba en la frontera
 se comprueba en producción:
 
-| Contrato | Dónde | Qué pasa hoy |
+| Contrato | Dónde | Estado |
 |---|---|---|
-| **① `patch_size == input_size`** | `POST /runs` → `400` | Solo lo mira `RunsPanel.tsx`. Por HTTP directo, revienta con `mat1 and mat2 shapes cannot be multiplied` **dentro del hilo del job** |
-| **③ B en uso** | `DELETE /patch-datasets/{n}` → `409` con la lista | No hay `DELETE`; y borrar a mano deja runs sin procedencia, en silencio |
+| **① `patch_size == input_size`** | `POST /runs` → `400` | ✅ *fase 4*. Antes solo lo miraba `RunsPanel.tsx`, y por HTTP directo reventaba con `mat1 and mat2 shapes cannot be multiplied` **dentro del hilo del job** |
+| **③ B en uso** | `DELETE /patch-datasets/{n}` → `409` con la lista | ✅ *fase 2* |
 | **⑨ objetivo vs λ** | `POST /sweeps` → `400` | No existe. Produciría un ganador de buena cara |
-| **⑩ X fuera de D** | `device` fuera de `/recipes` | Está dentro de `RunConfig` y se congela |
-| **R7 procedencia** | `POST /runs` exige nombres | Se copia el valor y se pierde la identidad |
+| **⑩ X fuera de D** | `device` fuera de `/recipes`, en `execution` | ✅ *fases 3–4* |
+| **R7 procedencia** | `POST /runs` exige nombres | ✅ *fase 4* |
+
+> **La regla que sostiene ① no es el endpoint: es que solo haya una puerta** *(fase 4)*. `POST /runs`
+> e `itf-train` preguntan los dos a **`itf.validation.check_run`** (`check_compatible` +
+> `check_measurable`) **antes de reservar el nombre**, y el barrido de la fase 7 será la tercera
+> puerta. Dos comprobaciones separadas se desincronizan, y la puerta que quede más laxa es por la
+> que entra un barrido. Validar *después* de reservar tampoco vale: deja un `runs/<name>/` muerto en
+> cada equivocación, y entonces arreglar el dataset y reintentar con el mismo nombre contesta «ese
+> run ya existe».
 
 ---
 
@@ -428,7 +436,7 @@ API"**:
 |---|---|
 | **2** | `/datasets` → `/sources`; `DELETE /patch-datasets` + `used_by`; `/sources/{id}/samples/{i}/image`; CORS — ✅ |
 | **3** | `/models` → `/networks` + `DELETE` + `/validate`; **`/recipes` nuevo** — ✅ *(y el almacén con ellos: `configs/models/` → `configs/networks/`, formatos.md §4.3)* |
-| **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` |
+| **4** | `POST /runs` con nombres y contrato ①; procedencia; `202`; `/metrics?since=`; `/stop` — ✅ *(y `PATCH`/`DELETE` con 409 si corre)* |
 | **5** | `/diagnostics` + los agregados (caché) |
 | **6** | `/kernels`, `/feature-maps`; `raw` en predict |
 | **7** | `/sweeps`; `/jobs/{id}/cancel` |

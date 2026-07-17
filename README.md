@@ -9,14 +9,17 @@ Las imágenes las produce
 
 ---
 
-## Estado: fase 3 — ya se puede entrenar
+## Estado: fase 4 — el flujo completo funciona
 
 Hechas las fases **0** (decisiones), **0.5** (los contratos en xfail), **1** (esqueleto y paleta),
-**2** (Fuentes y Patches) y **3** (Redes y Recetas) de [docs/plan-ui.md](docs/plan-ui.md). La
-siguiente es la **fase 4**: Entrenar y Runs (E).
+**2** (Fuentes y Patches), **3** (Redes y Recetas) y **4** (Entrenar y Runs) de
+[docs/plan-ui.md](docs/plan-ui.md). La siguiente es la **fase 5**: la tabla por patch y el
+diagnóstico.
 
-Desde la fase 3 hay **red** (C) y **receta** (D) como entidades con nombre, almacén y pantalla — y
-`itf-train`, así que **se entrena por CLI sin esperar a la UI**.
+**Ya se entrena desde la UI, y el run sabe de dónde salió**: dato → red → receta → run. La fase 4
+trajo la **procedencia por nombre** (contrato ③), el `POST /runs` que valida **antes** de crear
+nada, el **409 que no sobrescribe nunca** un run, las métricas incrementales (`?since=`) y la
+**parada cooperativa**. Lo que sigue **añade capacidad**, no cierra huecos.
 
 El código anterior sigue recuperable en el tag **`pre-rediseno`**:
 
@@ -48,9 +51,10 @@ cd web
 npm run dev                                     # http://localhost:5173
 ```
 
-**Fuentes** y **Patches** funcionan de verdad: listan, construyen y borran. El resto de pantallas
-están vacías y cada una dice qué fase la construye. `/kitchen` es donde se mira la paleta y los
-componentes base.
+Funcionan de verdad **Fuentes**, **Patches**, **Redes**, **Recetas**, **Entrenar** y **Runs**: el
+flujo entero, de la imagen al modelo entrenado. Las tres que quedan (Diagnóstico, Predecir,
+Barridos) están vacías y cada una dice qué fase la construye. `/kitchen` es donde se mira la
+paleta y los componentes base.
 
 Las imágenes fuente salen de [image-text-sample-generator](../image-text-sample-generator) y se
 buscan en `../image-text-sample-generator/data/datasets`. Para apuntar a otro sitio:
@@ -110,26 +114,81 @@ aparte), `metrics.jsonl` (una línea por época, apendable y consultable en vivo
 se niega a entrenar sobre uno, en vez de caer al train loss en silencio y quedarse el checkpoint
 más sobreajustado.
 
-Todo lo que puede negarse, se niega **antes del primer batch** — con la razón y el arreglo, no
-media hora después dentro del job. Sobre el `prueba` de arriba (5 imágenes ⇒ val vacío):
+Todo lo que puede negarse, se niega **antes del primer batch** y **antes de reservar el nombre**
+— con la razón y el arreglo, no media hora después dentro del job. Sobre el `prueba` de arriba
+(5 imágenes ⇒ val vacío):
 
 ```powershell
 .\.venv\Scripts\itf-train.exe --name x --patch-dataset prueba --network cnn-a --recipe baseline
 ```
 
 ```
-Este dataset no sirve para medir:
+No se puede entrenar esto, y se ve antes del primer batch:
 
-  el dataset '...\data\patch-datasets\prueba' no tiene val, así que no se puede elegir
-  best.pt por 'val_loss'. Reconstrúyelo con una fracción de val > 0: sin val, elegir
-  checkpoint cae en la pérdida de entrenamiento y se queda el más sobreajustado, en silencio.
+  [no_validation_split] el dataset no tiene patches de val, así que no hay con qué elegir
+  best.pt ni con qué medir
+    -> reconstruye el dataset con una fracción de val > 0: sin val, elegir checkpoint cae en
+       la pérdida de entrenamiento y se queda el más sobreajustado, en silencio
 ```
 
-Sale con **2** y **no deja un run a medias**. Es una negativa, no un fallo: al construir, un val
-vacío solo **avisa** (puede que solo quieras mirar patches); al entrenar, **se niega**, que es
-donde está el daño. Lo mismo con los contratos ① y ② (`patch_size` ≠ `input_size`, o una red con
-`border_features` sobre un dataset que no los trae): los ve el validador, son microsegundos, y
-salen con la misma forma.
+Sale con **2** y **no deja `runs/x/` a medias** — que importa más de lo que parece: si el nombre
+quedara reservado, arreglar el dataset y reintentar contestaría *«ese run ya existe»* por un run
+que no llegó a ver un batch. Es una negativa, no un fallo: al construir, un val vacío solo
+**avisa** (puede que solo quieras mirar patches); al entrenar, **se niega**, que es donde está el
+daño.
+
+El contrato ① sale igual, y con la misma forma — `cnn-a` espera 40, así que un dataset de 60 no
+entra:
+
+```powershell
+.\.venv\Scripts\itf-extract.exe --source clear-paragraphs-02-reducidos --out data\patch-datasets\tmp-60 --patch-size 60 --stride 30
+.\.venv\Scripts\itf-train.exe --name y --patch-dataset tmp-60 --network cnn-a --recipe baseline
+```
+
+```
+  [patch_size_mismatch] la red espera patches de 40x40 y el dataset los tiene de 60x60
+    -> elige un dataset con patch_size 40, o una red con input_size 60
+```
+
+**Las dos puertas —`itf-train` y `POST /runs`— preguntan a la misma función** (`itf.validation.
+check_run`). No es cortesía: dos comprobaciones separadas se desincronizan, y la puerta que queda
+más laxa es por la que entra un barrido.
+
+### Entrenar desde la UI, y mirar el run
+
+**Entrenar** (`/train`) elige tres nombres —B, C y D— y `device` **aparte**. Enseña si el dataset
+y la red casan (contrato ①) y **estima el coste** con los `seconds` que otros runs ya midieron:
+
+```
+Coste estimado: 25.5 s/época × 20 épocas ≈ 8.5 min
+  medido sobre 1 run(s) con el mismo dataset y la misma red (fase4-ui)
+```
+
+Solo estima con runs **comparables de verdad**: misma huella de B, misma red. Si no hay ninguno,
+**lo dice** en vez de inventarse un número. Y por eso un run sin procedencia no sirve para
+estimar, aunque tenga las métricas: no puede decir de qué dataset salió.
+
+**Runs** (`/runs`) enseña de qué B, C y D salió cada uno **por nombre**, con la huella de B, el
+commit y el entorno. Las métricas llegan **incrementalmente** (`?since=`): nunca se reenvía el
+historial. Van como **números y no como gráfica** a propósito — `loss ≈ 0.28`, `f1 ≈ 0.77` y
+`pos_err_px ≈ 11` son tres escalas, y superponerlas inventaría una correlación (docs/ui.md R4).
+Las curvas en small multiples son de la fase 5.
+
+**Parar** es cooperativo: el run **termina la época** en curso —métricas escritas, checkpoint
+guardado— y cierra como `cancelled`, no como `done`. Verificado a mano: parado en la época 2, cerró
+en la 3 con *«3 de 20 épocas · parado a mano»*. Se cierra como `cancelled` porque tiene pesos de
+verdad: llamarlo `done` lo colaría en una comparación como si hubiera terminado.
+
+**Un run no se sobrescribe jamás.** Reusar un nombre contesta **409** con la razón y el arreglo, y
+no toca lo que hay:
+
+```
+ya existe un run llamado 'fase4-ui'
+elige otro nombre, o borra ese run primero: no se sobrescribe nunca
+```
+
+Era una trampa medida del código anterior (`mkdir(exist_ok=True)` + truncar `metrics.jsonl`), y
+quien la pisa es justo un barrido que autogenera nombres.
 
 ### La paleta se valida, no se opina
 
@@ -156,20 +215,21 @@ La **barra de progreso del plan**: un test por contrato de `docs/organizacion.md
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Salida esperada hoy: **`42 passed, 4 xfailed`**, en verde y en ~7 s. Que estén en xfail no es
+Salida esperada hoy: **`68 passed, 2 xfailed`**, en verde y en ~12 s. Que estén en xfail no es
 deuda: es el mecanismo. Cuando una fase implementa su contrato, el test pasa, el **XPASS estricto
 pone la suite en rojo** y obliga a quitar el marcador — así "lo que falta" es una lista ejecutable
 en vez de prosa que envejece. Ver [docs/tests.md](docs/tests.md) §2.
 
-Los 4 que quedan son los contratos ③ y ④ (fase 4), ⑤ (fase 6) y ⑨ (fase 7), y **fallan por lo
-correcto**: no existen `itf.inference`, la procedencia por nombre ni `POST /sweeps`.
+Los 2 que quedan son los contratos ⑤ (fase 6) y ⑨ (fase 7), y **fallan por lo correcto**: no
+existen `itf.inference.predict` ni `POST /sweeps`.
 
 ### El entorno
 
 - **Python 3.12** (PyTorch aún no tiene wheels para 3.14). Verificado con **3.12.10**.
 - El intérprete del proyecto es `.\.venv\Scripts\python.exe`.
 - Los tres scripts que declara `pyproject.toml` —**`itf-extract`, `itf-api` e `itf-train`**—
-  funcionan. `itf-train` llegó en la fase 3.
+  funcionan. `itf-train` llegó en la fase 3, y desde la fase 4 pasa por la misma puerta que el API:
+  valida con `check_run` y reserva el nombre con `RunStore.create`.
 - **Solo CPU hoy.** Habrá GPU para procesamiento masivo; por eso `device` ya está fuera de la
   identidad de la receta (contrato ⑩). Y por eso el límite de workers es **1**: torch ya usa
   todos los núcleos y cada run carga su `PatchDataset` entero en RAM, así que lanzar N

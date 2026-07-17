@@ -9,8 +9,8 @@ Writes a run directory:
     ├── summary.json
     └── status.json      # explicit state, so a crash is not "running" forever
 
-Fase 3 gets it training from the CLI. Fase 4 adds the provenance by name (D2) and
-the API around it.
+Fase 3 got it training from the CLI. Fase 4 added the provenance by name (D2),
+the cooperative stop, and the API around it.
 """
 
 from __future__ import annotations
@@ -29,7 +29,9 @@ from itf.geometry import CORNER_NAMES
 from itf.models import build_model
 from itf.patches.dataset import PatchDataset
 from itf.training.losses import CornerLoss
+from itf.training.provenance import PROVENANCE_FIELDS
 from itf.training.recipe import MONITOR_DIRECTION, Recipe
+from itf.training.registry import RunExists, write_json_atomic
 from itf.validation import check_compatible
 
 _OPTIMIZERS = {
@@ -77,11 +79,47 @@ class RunSpec:
     out: str
     #: The network's config, by value (C).
     network: dict
+    #: Where this run came from, by NAME (contract ③). **Required, with no
+    #: default**: every run is born with it (formatos.md §4.2), so there is no
+    #: way to spell "a run with no provenance" -- which is the hole the contract
+    #: describes. Build it with `provenance.build_provenance`.
+    provenance: dict
     #: The recipe (D).
     recipe: Recipe = field(default_factory=Recipe)
     #: X. Costs time, does not change the result. Outside D's identity.
     device: str = "cpu"
     num_workers: int = 0
+
+    def __post_init__(self) -> None:
+        missing = set(PROVENANCE_FIELDS) - set(self.provenance)
+        if missing:
+            # Failing with the reason rather than writing a partial block: an
+            # absent field is not a zero (formatos.md §2), and a run that cannot
+            # say where it came from is not comparable with anything.
+            raise ValueError(f"a la procedencia le faltan campos: {sorted(missing)}")
+
+
+def frozen_config(spec: RunSpec) -> dict:
+    """`runs/<name>/config.json` (formatos.md §4.2).
+
+    One function, because two callers write this file: `RunStore.create` reserves
+    the name with it before the job starts, and `train` writes it again as it
+    begins. Building the dict in each of them separately is how the reservation
+    and the run would come to disagree about what was trained.
+    """
+    return {
+        "format_version": 1,
+        "network": spec.network,
+        "recipe": spec.recipe.as_dict(),
+        # X is recorded but sits OUTSIDE the recipe: two runs differing only in
+        # `device` have the same recipe identity (contract ⑩).
+        "execution": {"device": spec.device, "num_workers": spec.num_workers},
+        # Contract ③. Note what is NOT here any more: `data`, the absolute path
+        # to B. A path is machine-specific, and following it was what broke the
+        # provenance the moment the dataset was rebuilt or moved. The name and
+        # the fingerprint say the same thing, and survive.
+        "provenance": spec.provenance,
+    }
 
 
 def _make_optimizer(recipe: Recipe, params):
@@ -171,7 +209,21 @@ def _monitor_value(recipe: Recipe, val_metrics: dict) -> float | None:
     return None if value is None else float(value)
 
 
-def train(spec: RunSpec, on_epoch: Callable[[int, dict], None] | None = None) -> dict:
+def train(
+    spec: RunSpec,
+    on_epoch: Callable[[int, dict], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+) -> dict:
+    """Train one run.
+
+    Args:
+        on_epoch: called with each epoch's record, for live reporting.
+        should_stop: asked at the end of every epoch. **Cooperative**: the epoch
+            finishes, its metrics and checkpoint land, and the run closes as
+            `cancelled`. Nothing is killed -- cutting mid-batch would leave a
+            half-written `last.pt`. `RunStore.request_stop` is what usually sets
+            it.
+    """
     recipe = spec.recipe
 
     # The safety net (api.md §3). The API answers 400 before creating the job,
@@ -222,28 +274,48 @@ def train(spec: RunSpec, on_epoch: Callable[[int, dict], None] | None = None) ->
     scheduler = _make_scheduler(recipe, optimizer)
 
     out_dir = Path(spec.out)
+    # The safety net against the overwrite trap. `RunStore.create` is the gate
+    # both callers pass through, but this function can be called directly, and
+    # `mkdir(exist_ok=True)` plus truncating `metrics.jsonl` is exactly how the
+    # old code destroyed finished runs without a word -- with a sweep that
+    # auto-generates names as the one who steps on it. `metrics.jsonl` is the
+    # tell: a directory holding only the reservation (config + status) is a name
+    # being claimed, but one with metrics in it is a RESULT.
+    if (out_dir / "metrics.jsonl").exists():
+        raise RunExists(
+            f"'{out_dir}' ya tiene métricas: sobrescribirlo machacaría un run terminado. "
+            f"Elige otro nombre, o borra ese run primero."
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
-    frozen = {
-        "format_version": 1,
-        "data": spec.data,
-        "network": spec.network,
-        "recipe": recipe.as_dict(),
-        # X is recorded but sits OUTSIDE the recipe: two runs differing only in
-        # `device` have the same recipe identity (contract ⑩).
-        "execution": {"device": spec.device, "num_workers": spec.num_workers},
-    }
-    (out_dir / "config.json").write_text(json.dumps(frozen, indent=2), encoding="utf-8")
+    # **Only if it is not there already.** `RunStore.create` wrote it when it
+    # reserved the name, with this same function, so rewriting it is not merely
+    # redundant: it truncates a file that pollers are reading, and a `GET` landing
+    # in that window answered 404 "config.json ilegible" about a perfectly
+    # healthy run. This branch is for the direct `train()` call, which nobody
+    # reserved for.
+    config_path = out_dir / "config.json"
+    if not config_path.exists():
+        write_json_atomic(config_path, frozen_config(spec), indent=2)
     metrics_path = out_dir / "metrics.jsonl"
     metrics_path.write_text("", encoding="utf-8")
     status_path = out_dir / "status.json"
-    status_path.write_text(json.dumps({"state": "running", "epoch": 0}), encoding="utf-8")
+    write_json_atomic(status_path, {"state": "running", "epoch": 0})
 
     direction = MONITOR_DIRECTION[recipe.monitor]
-    best = float("inf") if direction == "min" else float("-inf")
+    # **None until something is measured, never ±inf**, and it is formatos.md §2
+    # rather than taste. An infinite sentinel is not a measurement; it is the
+    # absence of one, and it does not survive the trip out: `json.dumps` writes
+    # it as `Infinity`, which is not valid JSON and which **no browser can
+    # parse** -- so one run whose monitor never fired would take down `GET /runs`
+    # for every other run on the screen. The path is real, not theoretical:
+    # `monitor: val_pos_err_px` over a val split with no corners returns None
+    # every epoch, and `best` would never leave its sentinel.
+    best: float | None = None
     better = (lambda a, b: a < b - recipe.min_delta) if direction == "min" else (lambda a, b: a > b + recipe.min_delta)
     since_improved = 0
     history: list[dict] = []
     stopped_early = False
+    cancelled = False
 
     try:
         for epoch in range(1, recipe.epochs + 1):
@@ -289,7 +361,7 @@ def train(spec: RunSpec, on_epoch: Callable[[int, dict], None] | None = None) ->
             )
 
             monitor = _monitor_value(recipe, val_metrics)
-            if monitor is not None and better(monitor, best):
+            if monitor is not None and (best is None or better(monitor, best)):
                 best = monitor
                 since_improved = 0
                 # The checkpoint is SELF-DESCRIBING (contract ④): it carries the
@@ -309,7 +381,17 @@ def train(spec: RunSpec, on_epoch: Callable[[int, dict], None] | None = None) ->
                 else:
                     scheduler.step()
 
-            status_path.write_text(json.dumps({"state": "running", "epoch": epoch}), encoding="utf-8")
+            # Atomic, because this is the file every poll reads: rewritten
+            # every epoch with `write_text`, a reader lands in the truncated
+            # window and sees a healthy run as `error`.
+            write_json_atomic(status_path, {"state": "running", "epoch": epoch})
+
+            # The end of an epoch is the safe point: metrics written, checkpoint
+            # saved. Asked BEFORE `patience`, so a run the user stopped does not
+            # report itself as having converged.
+            if should_stop is not None and should_stop():
+                cancelled = True
+                break
 
             if recipe.patience and since_improved >= recipe.patience:
                 stopped_early = True
@@ -317,9 +399,7 @@ def train(spec: RunSpec, on_epoch: Callable[[int, dict], None] | None = None) ->
     except BaseException as exc:
         # Explicit state, so a crash does not read as "running" forever the way
         # inferring it from which files exist did.
-        status_path.write_text(
-            json.dumps({"state": "error", "error": f"{type(exc).__name__}: {exc}"}), encoding="utf-8"
-        )
+        write_json_atomic(status_path, {"state": "error", "error": f"{type(exc).__name__}: {exc}"})
         raise
 
     summary = {
@@ -327,11 +407,21 @@ def train(spec: RunSpec, on_epoch: Callable[[int, dict], None] | None = None) ->
         "epochs_run": len(history),
         "epochs_requested": recipe.epochs,
         "stopped_early": stopped_early,
+        "cancelled": cancelled,
         "monitor": recipe.monitor,
+        # None when the monitor never produced a number: "not measured", which is
+        # not the same as "infinitely bad" and must not be written as a number.
         "best": best,
         "final": history[-1] if history else {},
         "corner_order": list(CORNER_NAMES),
     }
-    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-    status_path.write_text(json.dumps({"state": "done", "epoch": len(history)}), encoding="utf-8")
+    # Summary BEFORE status, and atomically: the moment status says `done`, a
+    # poller reads `summary.json` — so it must already be there, whole.
+    write_json_atomic(out_dir / "summary.json", summary, indent=2)
+    # `cancelled`, not `done`: a run cut at epoch 4 of 20 has real weights and a
+    # real summary, but calling it done would let it into a comparison as though
+    # it had finished (protocolo.md §7).
+    write_json_atomic(
+        status_path, {"state": "cancelled" if cancelled else "done", "epoch": len(history)}
+    )
     return summary

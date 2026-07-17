@@ -192,11 +192,45 @@ pierden, los datos siguen cargando y significan otra cosa.
 
 | Fichero | Qué |
 |---|---|
-| `config.json` | `format_version`, la receta (D), la red por valor (C) y la **procedencia** (§4.2.1). **`device` no está**: es X (contrato ⑩) |
-| `metrics.jsonl` | Una línea JSON por época: `{epoch, train_loss, val:{…}, seconds}` |
+| `config.json` | `format_version`, la receta (D), la red por valor (C) y la **procedencia** (§4.2.1). **`device` no está** *dentro de la receta*: es X (contrato ⑩), y va en `execution` |
+| `metrics.jsonl` | Una línea JSON por época: `{epoch, train_loss, val:{…}, lr, seconds}` |
 | `best.pt`, `last.pt` | `{"model": state_dict, "config": dict, "epoch": int}` |
-| `summary.json` | `{run, epochs, best_val_loss, final, corner_order}` |
-| `status.json` | El estado **explícito**: `running \| done \| error \| cancelled`. Sin él, un crash queda "running" para siempre |
+| `summary.json` | `{run, epochs_run, epochs_requested, stopped_early, cancelled, monitor, best, final, corner_order}` |
+| `status.json` | El estado **explícito**: `queued \| running \| done \| error \| cancelled`. Sin él, un crash queda "running" para siempre |
+| `stop.json` | La **petición** de parada: `{requested_at, reason}`. Existe solo si alguien la pidió *(fase 4)* |
+
+> **`best` es `null` si el monitor no midió nunca — jamás `±inf`** *(fase 4)*. Un centinela infinito
+> no es una medición: es su ausencia (§2). Y no sobrevive al viaje: `json.dumps` escribe `Infinity`,
+> que **no es JSON válido y ningún navegador puede parsear**, así que un run cuyo monitor no llegó a
+> disparar tumbaría el `GET /runs` de *todos* los demás. El camino es real, no teórico:
+> `monitor: val_pos_err_px` sobre un val sin esquinas devuelve `None` cada época.
+
+> **Los JSON de un run se escriben con `os.replace`, y en Windows eso exige reintento en los DOS
+> lados** *(fase 4)*. `status.json` se reescribe cada época mientras la UI sondea, así que
+> `write_text` —que trunca primero y escribe después— deja una ventana real con el fichero vacío: el
+> lector que cae ahí ve un `JSONDecodeError` y concluye que el run está **corrupto**, que es justo lo
+> que no está. Pasó: `GET /runs/{name}` contestaba **404 «no tiene un config.json legible»** sobre un
+> run sano, y un run corriendo podía parpadear a `error`. Lo cazó **un test que fallaba 1 de cada 3
+> veces**, no el razonamiento.
+>
+> La cura es fichero temporal + `os.replace` (atómico), **pero `os.replace` no basta en Windows**:
+> Windows no deja reemplazar un fichero que otro handle tiene abierto, y CPython abre para leer sin
+> `FILE_SHARE_DELETE`. Medido en este repo, un lector y un escritor peleándose 4 s dieron **5111
+> `os.replace` fallidos y 1130 lecturas fallidas** — el escritor moría *dentro del hilo del
+> entrenamiento*. Por eso `write_json_atomic` y `read_text_retrying` reintentan **con deadline** (5 s,
+> invisible al lado de una época de 20 s): la pregunta no es «¿cuántas veces lo he intentado?» sino
+> «¿ha habido ya un hueco?». **El patrón de POSIX no porta**, y el `.tmp` se borra si aun así falla.
+>
+> `metrics.jsonl` es la excepción y no necesita nada de esto: es **append-only**, así que nunca se
+> reemplaza. Lo que sí necesita es que el lector **descarte la última línea si está a medias** — un
+> run vivo se lee mientras se escribe, y una línea rota ahí es lo normal, no corrupción.
+
+> **Por qué la parada es un fichero y no un evento en memoria** *(fase 4)*. El estado de un run es
+> del run (§4.2), y eso vale igual para lo que se le pide: así el CLI se para como el API, y una
+> parada sobrevive a un reinicio — que en CPU, con runs de horas, pasa. Es **cooperativa**: la marca
+> se lee al **final de la época**, que es el punto seguro (métricas escritas, checkpoint guardado).
+> No se mata el hilo; matarlo a mitad de batch dejaría un `last.pt` a medias. Se versiona con el
+> resto de la descripción (§5): dice *quién* pidió parar y *cuándo*, que `summary.cancelled` no dice.
 
 #### 4.2.1 `provenance` — la forma exacta
 

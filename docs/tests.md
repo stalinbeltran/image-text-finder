@@ -97,22 +97,29 @@ La columna que lleva la información es **qué fase lo quita**: es la barra de p
 | | Contrato | El test afirma | Lo quita | |
 |---|---|---|---|---|
 | **①** | `patch_size == input_size` | `check_compatible` con desajuste → `patch_size_mismatch`, con los dos números y su arreglo (no una excepción dentro del hilo del job) | **3** | ✅ |
+| **①** | ídem, **por HTTP** | `POST /runs` con el desajuste → **400, y ni job ni run creados** | **4** | ✅ |
 | **②** | `border_features` | El `.npz` sin `border` carga ceros **si la red no lo usa**, y **falla si sí lo usa** | **3** | ✅ |
-| **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B | **4** | xfail |
+| **②** | ídem, **por HTTP** | `POST /runs` con red que pide bordes sobre B que no los trae → **400** | **4** | ✅ |
+| **③** | procedencia | El run registra `network`/`recipe` **por nombre** + huella de B | **4** | ✅ |
 | **③** | B en uso | `DELETE` de un B que un run referencia → **409 con la lista** | **2** | ✅ |
-| **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** | xfail |
+| **④** | checkpoint autodescriptivo | `load_model(ckpt)` reconstruye la red **sin** el YAML de C | **4** | ✅ |
 | **⑤** | geometría compartida | **Los flags de borde de extracción == los de inferencia** para la misma ventana | **6** — `itf.geometry` nace en la 2, pero hasta que exista F no hay dos lados que comparar | xfail |
 | **⑦** | dirección de dependencias | `itf.models` importa de `itf.geometry` (G) pero **no** de `itf.datasets` (A); `itf.validation` no importa nada de `itf` | **3** | ✅ |
 | **⑧** | comparabilidad | Reconstruir B con otro contenido cambia su huella; la semilla de B sola decide el split | **2** | ✅ |
 | **⑨** | objetivo vs λ | `POST /sweeps` con `objective=loss` y `lambda_pos` en el espacio → **400** | **7** | xfail |
 | **⑩** | X fuera de D | Dos runs que solo difieren en `device` tienen la misma identidad de receta | **3** | ✅ |
 
-> **① y ② los quita la fase 3, no la 4, y con una salvedad que hay que leer.** El test afirma hoy
-> el **validador** (`check_compatible`), que es donde vive la regla, y `itf-train` lo llama antes
-> del primer batch — así que el camino del **CLI** está cerrado de verdad. Lo que **todavía no
-> existe** es el `POST /runs → 400`: `/runs` llega en la fase 4, y **es ella quien debe extender
-> estos dos tests a HTTP**. Mientras tanto queda un hueco consciente: nada obliga a que el
-> `POST /runs` de la fase 4 llame al validador. *(La fase 4 no ha terminado hasta que lo haga.)*
+> **① y ② empezaron en la fase 3 y los cerró la 4** *(deuda pagada, 2026-07-16)*. La fase 3 los
+> afirmaba sobre el **validador** (`check_compatible`), que es donde vive la regla, y `itf-train` lo
+> llamaba antes del primer batch — así que el camino del **CLI** estaba cerrado de verdad, pero
+> `POST /runs → 400` no existía y nada obligaba a la fase 4 a llamar al validador. Ahora los dos
+> tienen su test por HTTP, y **lo que afirman no es solo el 400**: es que la negativa llega **antes
+> de crear el job y antes de reservar el nombre**. Un 400 que dejara el `runs/<name>/` puesto
+> cumpliría la letra del contrato y dejaría un cadáver en cada equivocación.
+>
+> Las dos puertas preguntan a **`check_run`**, una sola función (`check_compatible` +
+> `check_measurable`). No es cortesía: dos comprobaciones separadas se desincronizan, y la puerta
+> que quede más laxa es por la que entra un barrido.
 
 > **Un xfail necesita un control, y por eso ③ son dos tests.** «Borrar un B en uso da 409» lo
 > cumpliría también un `DELETE` que fallara siempre. El control —borrar uno libre da 204— es lo
@@ -191,6 +198,16 @@ se repite.
 
 Debería pasar en cuanto exista el bucle (`manual_seed` + `num_workers=0` cubren el shuffle), pero
 *debería pasar* no es *pasa*. Va con la fase 4, junto al resto de E.
+
+> **Escrito, y son dos tests, no uno** *(fase 4, 2026-07-16)*. El barato afirma la
+> **inicialización**; el que importa afirma el **entrenamiento**, que es lo que la regla dice. Entre
+> los dos están el shuffle, el batching y el optimizador — que es justo donde se esconde una semilla
+> olvidada. Los dos llevan su control con otra semilla: sin él, «se repite» lo cumpliría también un
+> bucle que ignorara la semilla entera.
+>
+> Y de regalo, la verificación de la fase 4 lo enseñó **fuera de pytest**: el mismo run lanzado
+> desde la UI y desde `itf-train` dio los mismos números hasta el último decimal (val loss
+> `0.8602307364344597`). Dos puertas, un resultado.
 
 **Retrocompatibilidad: no hay ninguna que testear, y es una simplificación de D18.** Este
 documento pedía un test para leer `config.json` sin procedencia degradando; **D3 lo mató**: no

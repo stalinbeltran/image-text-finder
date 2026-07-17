@@ -84,6 +84,72 @@ def test_contract_01_rejects_patch_size_mismatch():
     assert check_compatible(_manifest(patch_size=40), _network(input_size=40)) == []
 
 
+def test_contract_01_post_runs_refuses_the_mismatch_before_creating_the_job(itf_api):
+    """The half fase 3 could not close: **the same rule, over HTTP**.
+
+    The validator held the rule and `itf-train` called it, so the CLI door was
+    shut -- but `POST /runs` did not exist yet, so nothing forced the route to
+    ask (tests.md §3). This is that test, and what it really asserts is the
+    TIMING: the 400 comes back with no job and no run on disk. A 400 on the way
+    in is worth a thousand stack traces inside a job thread half an hour later,
+    which is what `mat1 and mat2 shapes cannot be multiplied` was.
+    """
+    client, layout = itf_api
+    layout.write_patch_dataset("grande-60", patch_size=60)
+    layout.write_network("cnn-40", input_size=40)
+    layout.write_recipe("rapida")
+
+    response = client.post(
+        "/runs",
+        json={
+            "name": "nunca-nace",
+            "patch_dataset": "grande-60",
+            "network": "cnn-40",
+            "recipe": "rapida",
+        },
+    )
+
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert detail["code"] == "patch_size_mismatch"
+    assert "60" in detail["message"] and "40" in detail["message"]
+    assert detail["hint"]
+    # Nothing was created. This is the assertion that matters -- a 400 after the
+    # run directory exists would leave a corpse behind on every mistake.
+    assert not (layout.runs / "nunca-nace").exists()
+    assert client.get("/runs").json()["runs"] == []
+
+
+def test_contract_01_post_runs_accepts_the_matching_pair(itf_api):
+    """The control: the 400 must come from the MISMATCH, not from /runs refusing.
+
+    Without this, a `POST /runs` that rejected everything would pass the test
+    above and look like a working contract.
+    """
+    client, layout = itf_api
+    layout.write_patch_dataset("justo-40", patch_size=40)
+    layout.write_network("cnn-40", input_size=40)
+    layout.write_recipe("rapida")
+
+    response = client.post(
+        "/runs",
+        json={
+            "name": "nace",
+            "patch_dataset": "justo-40",
+            "network": "cnn-40",
+            "recipe": "rapida",
+        },
+    )
+
+    # 202, not 200 (R3): training is minutes, so the answer is a job. The job
+    # itself then fails on this manifest-only dataset -- there is no `.npz` to
+    # load -- and that is fine and even to the point: the compatible pair gets
+    # PAST the gate, which is all this asserts.
+    assert response.status_code == 202
+    assert response.json()["kind"] == "train"
+    assert (layout.runs / "nace" / "config.json").exists()
+
+
 # --------------------------------------------------------------------------- #
 # ② B ↔ C — border_features
 # --------------------------------------------------------------------------- #
@@ -117,12 +183,37 @@ def test_contract_02_refuses_border_features_when_the_dataset_lacks_them():
     assert problems[0]["hint"], "must say: rebuild it, or train with border_features: false"
 
 
+def test_contract_02_post_runs_refuses_border_features_over_http(itf_api):
+    """The same refusal at the API's door, which is the other half of tests.md §3.
+
+    Same validator, same call site as ①: they are one question -- *can this C
+    train on this B?* -- so `POST /runs` asks once and both contracts are shut.
+    """
+    client, layout = itf_api
+    layout.write_patch_dataset("sin-bordes", patch_size=40, has_border=False)
+    layout.write_network("con-bordes", input_size=40, border_features=True)
+    layout.write_recipe("rapida")
+
+    response = client.post(
+        "/runs",
+        json={
+            "name": "nunca-nace",
+            "patch_dataset": "sin-bordes",
+            "network": "con-bordes",
+            "recipe": "rapida",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "border_features_unavailable"
+    assert not (layout.runs / "nunca-nace").exists()
+
+
 # --------------------------------------------------------------------------- #
 # ③ B + C + D → E — provenance: name AND value
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ③ / D2: sin implementar, plan-ui.md fase 4")
 def test_contract_03_run_records_network_and_recipe_by_name_and_by_value():
     """Name to group, value to reproduce -- both, and that is not redundancy.
 
@@ -155,6 +246,29 @@ def test_contract_03_run_records_network_and_recipe_by_name_and_by_value():
     assert set(prov["environment"]) >= {"python", "torch", "platform"}
     # Nothing is silently filled (formatos.md §2).
     assert prov["git_commit"], "sin git se escribe la razón, no null"
+
+
+def test_contract_03_an_unknowable_commit_writes_the_right_reason(tmp_path):
+    """"Sin git se escribe la razón" — and it has to be the TRUE one.
+
+    formatos.md §2 asks for *the* reason, not for *a* reason: a run whose
+    provenance says "not a git repo" about a repo that simply has no commits yet
+    sends whoever reads it looking in the wrong place. The two cases are
+    indistinguishable by exit code (`git rev-parse HEAD` fails the same way for
+    both), so they have to be told apart on purpose.
+    """
+    import subprocess
+
+    from itf.training.provenance import git_commit
+
+    plain = tmp_path / "sin-git"
+    plain.mkdir()
+    assert "no es un repositorio git" in git_commit(plain)
+
+    empty = tmp_path / "vacio"
+    empty.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=empty, check=True, capture_output=True)
+    assert "no tiene ningún commit" in git_commit(empty)
 
 
 def test_contract_03_delete_of_a_patch_dataset_in_use_returns_409(itf_api):
@@ -198,7 +312,6 @@ def test_contract_03_delete_of_an_unused_patch_dataset_succeeds(itf_api):
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.xfail(strict=True, reason="contrato ④: sin implementar, plan-ui.md fase 4")
 def test_contract_04_checkpoint_rebuilds_the_network_without_the_yaml(tmp_path):
     """A `.pt` is portable: F never needs C's YAML nor B.
 
@@ -220,6 +333,34 @@ def test_contract_04_checkpoint_rebuilds_the_network_without_the_yaml(tmp_path):
 
     x = torch.zeros(1, cfg["in_channels"], cfg["input_size"], cfg["input_size"])
     assert rebuilt(x).shape == (1, 4, 3)
+
+
+def test_contract_04_a_checkpoint_that_cannot_describe_itself_is_refused(tmp_path):
+    """The control, and it is what gives the contract teeth.
+
+    "It rebuilds" would also pass if `load_model` guessed an architecture. It must
+    not: guessing loads the weights into the wrong shape, or worse into a
+    right-shaped wrong network, and the failure is silent (formatos.md §2 --
+    ausente ≠ cero, applied to a whole config). A bare `state_dict` is the case
+    that turns up in real life, saved by a well-meaning script.
+    """
+    import pytest as _pytest
+    import torch
+
+    from itf.inference import load_model
+    from itf.models import build_model
+
+    bare = tmp_path / "bare.pt"
+    torch.save(build_model(_network()).state_dict(), bare)
+
+    with _pytest.raises(ValueError, match="no lleva su config de red"):
+        load_model(bare)
+
+    # And not a traceback either when it is not even a mapping.
+    not_ours = tmp_path / "not-ours.pt"
+    torch.save(torch.zeros(3), not_ours)
+    with _pytest.raises(ValueError, match="no lleva su config de red"):
+        load_model(not_ours)
 
 
 # --------------------------------------------------------------------------- #

@@ -226,6 +226,129 @@ export const createRecipe = (name: string, recipe: RecipeValues) =>
 export const deleteRecipe = (name: string) =>
   request<void>(`/recipes/${encodeURIComponent(name)}`, { method: "DELETE" });
 
+// ── E: runs ──────────────────────────────────────────────────────────────────
+
+/** Contract ③ (D2): the NAME to group, the VALUE to reproduce.
+ *
+ * Both, and it is not redundancy — with only the value you have to diff
+ * dictionaries by hand to ask "which runs used network X?", which is the
+ * question a sweep asks all the time. */
+export interface Provenance {
+  patch_dataset: { name: string; fingerprint: string };
+  network: { name: string; value: NetworkConfig };
+  recipe: { name: string; value: RecipeValues };
+  sweep: string | null;
+  /** The sha, or **the reason it is unknown** — never null (formatos.md §2). */
+  git_commit: string;
+  environment: { python: string; torch: string; platform: string };
+}
+
+export type RunState = "queued" | "running" | "done" | "error" | "cancelled";
+
+export interface RunStatus {
+  state: RunState;
+  epoch?: number;
+  error?: string;
+  updated_at?: string;
+}
+
+export interface RunSummary {
+  run: string;
+  epochs_run: number;
+  epochs_requested: number;
+  stopped_early: boolean;
+  cancelled: boolean;
+  monitor: string;
+  /** `null` when the monitor never produced a number — not ±Infinity, which is
+   *  not valid JSON and would break the parse of this whole response. */
+  best: number | null;
+  final: EpochRecord | Record<string, never>;
+  corner_order: string[];
+}
+
+export interface RunRow {
+  name: string;
+  state: RunState;
+  provenance: Provenance | null;
+  /** `null`, never 0, when no epoch has finished: 0 would read as "instant". */
+  seconds_per_epoch: number | null;
+  summary: RunSummary | null;
+  error?: string;
+}
+
+export interface RunDetail {
+  name: string;
+  state: RunStatus;
+  config: {
+    format_version: number;
+    network: NetworkConfig;
+    recipe: RecipeValues;
+    execution: { device: string; num_workers: number };
+    provenance: Provenance;
+  };
+  provenance: Provenance;
+  checkpoints: string[];
+  summary: RunSummary | null;
+  seconds_per_epoch: number | null;
+}
+
+export interface EpochRecord {
+  epoch: number;
+  train_loss: number;
+  val: {
+    loss: number;
+    cls_loss: number;
+    pos_loss: number;
+    exists_acc: number;
+    precision: number;
+    recall: number;
+    f1: number;
+    /** `null` when val held no corners: not measured, and 0 would read as perfect. */
+    pos_err_px: number | null;
+  };
+  lr: number;
+  seconds: number;
+}
+
+export interface CreateRunBody {
+  name: string;
+  patch_dataset: string;
+  network: string;
+  recipe: string;
+  /** X (contract ⑩): costs time, not result. Never part of the recipe. */
+  device: string;
+  num_workers: number;
+}
+
+export const listRuns = () => request<{ runs: RunRow[] }>("/runs");
+
+export const getRun = (name: string) => request<RunDetail>(`/runs/${encodeURIComponent(name)}`);
+
+/** Incremental (R5): `since` is the `next` the last call handed back. The whole
+ *  history is never re-sent — the UI polls this in a loop. */
+export const getRunMetrics = (name: string, since: number) =>
+  request<{ records: EpochRecord[]; next: number }>(
+    `/runs/${encodeURIComponent(name)}/metrics?since=${since}`
+  );
+
+export const createRun = (body: CreateRunBody) =>
+  request<Job>("/runs", { method: "POST", body: JSON.stringify(body) });
+
+/** Cooperative: it cuts at the end of the current epoch, keeping what it did. */
+export const stopRun = (name: string) =>
+  request<{ name: string; stop_requested: boolean }>(`/runs/${encodeURIComponent(name)}/stop`, {
+    method: "POST",
+  });
+
+export const renameRun = (name: string, newName: string) =>
+  request<{ name: string }>(`/runs/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name: newName }),
+  });
+
+export const deleteRun = (name: string) =>
+  request<void>(`/runs/${encodeURIComponent(name)}`, { method: "DELETE" });
+
 // ── X: jobs ──────────────────────────────────────────────────────────────────
 
 export interface Job {

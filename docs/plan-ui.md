@@ -196,7 +196,7 @@ mientras tanto nada obliga a que su `POST /runs` llame al validador.
   fuente equivocada**, y toda la tabla reproduce exacta (protocolo.md §1). Una medición contra la
   fuente que no es no se parece a un error: se parece a un hallazgo.
 
-### Fase 4 — Entrenar y Runs (E)
+### Fase 4 — Entrenar y Runs (E) — ✅ **hecha (2026-07-16)**
 
 1. **Back**: validar el **contrato ①** en `POST /runs` (400 con la razón si `patch_size !=
    input_size`) llamando a `itf.validation` (organizacion.md §2): el mismo validador cubre ① y ②
@@ -208,8 +208,62 @@ mientras tanto nada obliga a que su `POST /runs` llame al validador.
    `seconds` de `metrics.jsonl`). Pantalla Runs: procedencia por nombre. **"Re-entrenar la misma
    red" no es un modo**: es *elegir otra receta con la misma C*, que es lo que siempre fue — con
    C y D separadas sale gratis y no hace falta ningún `lockArchitecture`.
-**Verificación**: tests; entrenar un run corto desde la UI y comprobar que su `config.json`
-lleva la procedencia completa (nombre de red, de receta y huella de B).
+
+**Verificado**: 68 tests pasan (2 siguen en xfail). Run entrenado **desde la UI de verdad** (Chrome
+por CDP, clic real): `runs/fase4-ui/config.json` lleva la procedencia completa —`fase3-red` +
+huella, `cnn-a` y `corta-2ep` por nombre **y** por valor, `sweep: null`, commit `b89e5e15…+sucio`
+y `environment`—, con `execution` fuera y **sin `data`**. Reusar el nombre da **409** con razón y
+arreglo, y no toca lo que hay. La **parada** clicada en la época 2 cerró en la 3 como `cancelled`,
+con `best.pt` en su sitio. Y el **coste estimado** apareció solo en cuanto hubo un run comparable:
+25,5 s/época × 20 ≈ 8,5 min.
+
+**La prueba de reproducibilidad que no estaba planeada**: el mismo run lanzado por la UI y por
+`itf-train` dio **los mismos números hasta el último decimal** (val loss `0.8602307364344597`,
+f1 `0.6734793187347932`). Dos puertas distintas, un solo resultado — que es la regla 1 de
+protocolo.md §7 sostenida en la práctica, no solo en el test.
+
+**Xfails que quita**: ③ (procedencia) y ④ (checkpoint autodescriptivo). Quedan ⑤ (fase 6) y ⑨
+(fase 7). **Y paga la deuda de la fase 3**: ① y ② ahora tienen su test por HTTP — lo que afirman no
+es solo el 400, es que **no se crea ni el job ni el run**.
+
+**Lo que apareció al construir y no estaba en el diseño**:
+
+- **`GET /runs/{name}` contestaba 404 «config.json ilegible» sobre un run sano** — y lo cazó **un
+  test flaky, no el razonamiento**. `write_text` trunca y luego escribe, así que un sondeo que caía
+  en esa ventana leía un JSON a medias y concluía que el run estaba corrupto; `status.json`, que se
+  reescribe **cada época**, podía hacer parpadear a `error` un run que iba perfectamente. La cura es
+  `os.replace`, **pero en Windows no basta**: no deja reemplazar un fichero que otro handle tiene
+  abierto, y medido aquí un lector y un escritor peleándose 4 s dieron **5111 replaces fallidos y
+  1130 lecturas fallidas** — el fallo aterrizaba *dentro del hilo del entrenamiento*, matando un run
+  sano. Reintento con deadline en los dos lados (formatos.md §4.2). **La lección general**: el
+  patrón «escritura atómica» de POSIX no porta a Windows, y aquí el ratio de sondeo lo destapa.
+  *(Y la de proceso: la flakiness no era del test. Un test que falla 1 de cada 3 veces está
+  diciendo algo.)*
+- **`best` era `Infinity` y ningún navegador puede parsearlo.** El bucle arrancaba `best` en `±inf`
+  y lo escribía tal cual: `json.dumps` emite `Infinity`, que **no es JSON válido**, así que un solo
+  run cuyo monitor no llegara a disparar habría tumbado el `GET /runs` de *todos* los demás. El
+  camino es real: `monitor: val_pos_err_px` sobre un val sin esquinas devuelve `None` cada época.
+  Ahora es `None` — que es lo que significa: **no medido**, no «infinitamente malo» (formatos.md §2
+  otra vez, y esta vez desde dentro).
+- **Validar y reservar iban en el orden equivocado en el CLI.** `itf-train` reservaba el nombre y
+  *luego* validaba, así que cada negativa dejaba un `runs/x/` muerto — y arreglar el dataset y
+  reintentar con el mismo nombre contestaba «ese run ya existe» por un run que no vio un batch. El
+  API no lo tenía porque validaba antes. La cura no fue reordenar el CLI: fue **`check_run`**, una
+  función que las **dos puertas** preguntan. Dos comprobaciones separadas se desincronizan, y la
+  puerta que queda más laxa es por la que entra un barrido.
+- **Un crash antes de la primera época dejaba el run en `queued` para siempre** — la trampa del
+  «crash que queda running» con otra palabra. `train()` marca sus propios fallos, pero solo desde
+  la época 1; lo de antes (un `.npz` que no carga) rompe con `status.json` aún en `queued`. Lo
+  cierra `RunStore.marking_failures`, que usan las dos puertas: **quien reservó el run es quien
+  puede cerrarlo**.
+- **La parada es un fichero, no un evento en memoria** (`stop.json`, formatos.md §4.2). El estado de
+  un run es del run: así el CLI se para igual que el API y una parada sobrevive a un reinicio —
+  que en CPU, con runs de horas, pasa.
+- **La fase 3 dejó un run sin procedencia, y el diseño decía que eso no podía pasar.** D3 dio por
+  hecho que `runs/` estaba vacío, pero la verificación de la fase 3 creó `fase3-01` **antes** de que
+  la procedencia existiera. No se construye ningún lector que degrade —eso es justo lo que D3
+  mató—: `GET /runs` lo **dice en voz alta** («no es comparable: bórralo y reentrénalo») y sigue
+  listando el resto. Un run que no puede decir de qué red salió no es un caso legado que tolerar.
 
 > A partir de aquí el flujo completo funciona: dato → red → receta → run. Lo que sigue **añade
 > capacidad**.

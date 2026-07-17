@@ -566,6 +566,54 @@ code {
   color: var(--itf-status-critical);
 }
 
+/* ── runs ──────────────────────────────────────────────────────────────────── */
+
+.row-actions--tight {
+  margin: 0;
+  gap: 6px;
+}
+
+/* The run's state, EXPLICIT (formatos.md §4.2). Never deduced from which files
+   exist -- that is what left a crashed run reading "running" forever, and in a
+   20-point sweep made the dead indistinguishable from the living.
+
+   The status hues are their own tokens, not the categorical 4: those four slots
+   belong to the corner types and follow the ENTITY, always and everywhere (R1).
+   Spending one of them on "running" would break that identity. */
+.run-state {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--itf-axis);
+  color: var(--itf-ink-secondary);
+  vertical-align: middle;
+}
+
+.run-state[data-state="running"],
+.run-state[data-state="queued"] {
+  border-color: var(--itf-status-warning);
+  color: color-mix(in srgb, var(--itf-status-warning) 70%, var(--itf-ink));
+}
+
+.run-state[data-state="done"] {
+  border-color: var(--itf-status-good);
+  color: color-mix(in srgb, var(--itf-status-good) 70%, var(--itf-ink));
+}
+
+.run-state[data-state="error"] {
+  border-color: var(--itf-status-critical);
+  color: var(--itf-status-critical);
+}
+
+.pair-ok {
+  font-weight: 600;
+  color: color-mix(in srgb, var(--itf-status-good) 70%, var(--itf-ink));
+}
+
 /* ── splits and imbalance ──────────────────────────────────────────────────── */
 
 .splits {

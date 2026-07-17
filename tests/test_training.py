@@ -27,6 +27,34 @@ NETWORK = {
 }
 
 
+def _provenance(**overrides) -> dict:
+    """The block every run is born with (contract ③).
+
+    Written out rather than built with `build_provenance` because these tests are
+    about the LOOP: calling the real builder would shell out to git twice per
+    run for no gain, and the shape has its own test in `test_contracts.py`.
+    """
+    return {
+        "patch_dataset": {"name": "tiny-40", "fingerprint": "sha256:" + "0" * 64},
+        "network": {"name": "cnn-a", "value": NETWORK},
+        "recipe": {"name": "adam", "value": {}},
+        "sweep": None,
+        "git_commit": "0" * 40,
+        "environment": {"python": "3.12.10", "torch": "2.13.0+cpu", "platform": "win32"},
+        **overrides,
+    }
+
+
+def _spec(**kwargs) -> RunSpec:
+    """A RunSpec with the boring parts filled in.
+
+    `provenance` has no default in `RunSpec` on purpose: every run is born with
+    it (formatos.md §4.2), so there is no way to spell a run without one -- and
+    that includes the runs a test makes.
+    """
+    return RunSpec(**{"network": NETWORK, "provenance": _provenance(), **kwargs})
+
+
 # ── the two default traps ─────────────────────────────────────────────────────
 
 
@@ -154,12 +182,7 @@ def test_training_reduces_the_loss(tmp_path):
     """
     data = _tiny_patch_dataset(tmp_path)
     summary = train(
-        RunSpec(
-            data=str(data),
-            out=str(tmp_path / "run"),
-            network=NETWORK,
-            recipe=Recipe(epochs=3, batch_size=32, lr=1e-2),
-        )
+        _spec(data=str(data), out=str(tmp_path / "run"), recipe=Recipe(epochs=3, batch_size=32, lr=1e-2))
     )
     losses = [h["train_loss"] for h in _history(tmp_path / "run")]
     assert len(losses) == 3
@@ -191,7 +214,7 @@ def test_training_refuses_a_dataset_without_val(tmp_path):
         )
     )
     with pytest.raises(ValueError, match="no tiene val"):
-        train(RunSpec(data=str(data), out=str(tmp_path / "run"), network=NETWORK, recipe=Recipe(epochs=1)))
+        train(_spec(data=str(data), out=str(tmp_path / "run"), recipe=Recipe(epochs=1)))
 
 
 def test_the_loop_validates_before_a_single_batch(tmp_path):
@@ -207,7 +230,7 @@ def test_the_loop_validates_before_a_single_batch(tmp_path):
     data = _tiny_patch_dataset(tmp_path)
     with pytest.raises(IncompatibleError) as exc:
         train(
-            RunSpec(
+            _spec(
                 data=str(data),
                 out=str(tmp_path / "run"),
                 network={**NETWORK, "input_size": 60},
@@ -223,10 +246,9 @@ def test_early_stopping_cuts_and_says_so(tmp_path):
     which compares between runs (contract ⑨)."""
     data = _tiny_patch_dataset(tmp_path)
     summary = train(
-        RunSpec(
+        _spec(
             data=str(data),
             out=str(tmp_path / "run"),
-            network=NETWORK,
             # lr=0 => nothing ever improves => it must cut at the first chance.
             recipe=Recipe(epochs=10, lr=0.0, patience=2),
         )
@@ -245,7 +267,7 @@ def test_the_run_records_its_state_explicitly(tmp_path):
 
     data = _tiny_patch_dataset(tmp_path)
     run = tmp_path / "run"
-    train(RunSpec(data=str(data), out=str(run), network=NETWORK, recipe=Recipe(epochs=1)))
+    train(_spec(data=str(data), out=str(run), recipe=Recipe(epochs=1)))
     assert json.loads((run / "status.json").read_text())["state"] == "done"
 
 
@@ -253,6 +275,113 @@ def test_the_checkpoint_carries_the_network_config(tmp_path):
     """Contract ④'s half that fase 3 can already prove: the `.pt` describes itself."""
     data = _tiny_patch_dataset(tmp_path)
     run = tmp_path / "run"
-    train(RunSpec(data=str(data), out=str(run), network=NETWORK, recipe=Recipe(epochs=1)))
+    train(_spec(data=str(data), out=str(run), recipe=Recipe(epochs=1)))
     ckpt = torch.load(run / "best.pt", weights_only=False)
     assert ckpt["config"]["model"] == NETWORK
+
+
+# ── what fase 4 added: provenance, the stop, and never overwriting ────────────
+
+
+def test_the_frozen_config_carries_the_provenance_and_keeps_x_out_of_it(tmp_path):
+    """Contract ③ and contract ⑩ in one file, which is where they meet.
+
+    `data` is deliberately NOT in here any more: it was an absolute path, and
+    following it is what broke the provenance the moment B was rebuilt or moved
+    (organizacion.md §2-③). The name and the fingerprint say the same thing and
+    survive.
+    """
+    import json as _json
+
+    data = _tiny_patch_dataset(tmp_path)
+    run = tmp_path / "run"
+    train(_spec(data=str(data), out=str(run), recipe=Recipe(epochs=1), device="cpu"))
+
+    config = _json.loads((run / "config.json").read_text(encoding="utf-8"))
+    assert config["provenance"] == _provenance()
+    assert config["execution"] == {"device": "cpu", "num_workers": 0}
+    assert "device" not in config["recipe"], "device es X: fuera de la identidad de D (⑩)"
+    assert "data" not in config, "la referencia a B es el nombre + la huella, no una ruta"
+
+
+def test_a_run_cannot_be_born_without_provenance():
+    """There is no way to spell it, and that is the point.
+
+    A run that cannot say where it came from is exactly the hole contract ③
+    describes. Making the field optional would make the hole reachable by
+    accident -- which is how every trap in this project happened.
+    """
+    with pytest.raises(TypeError):
+        RunSpec(data="d", out="o", network=NETWORK)  # type: ignore[call-arg]
+
+    with pytest.raises(ValueError, match="le faltan campos"):
+        RunSpec(data="d", out="o", network=NETWORK, provenance={"network": {"name": "cnn-a"}})
+
+
+def test_the_loop_refuses_to_overwrite_a_finished_run(tmp_path):
+    """The trap, and it is why `metrics.jsonl` is the tell.
+
+    `mkdir(exist_ok=True)` plus truncating destroyed a finished run without a
+    word, and a sweep that auto-generates names is who steps on it. A directory
+    with only a reservation in it (config + status) is a name being claimed; one
+    with metrics is a RESULT.
+    """
+    from itf.training.registry import RunExists
+
+    data = _tiny_patch_dataset(tmp_path)
+    run = tmp_path / "run"
+    train(_spec(data=str(data), out=str(run), recipe=Recipe(epochs=1)))
+    before = (run / "metrics.jsonl").read_text(encoding="utf-8")
+
+    with pytest.raises(RunExists):
+        train(_spec(data=str(data), out=str(run), recipe=Recipe(epochs=1)))
+
+    assert (run / "metrics.jsonl").read_text(encoding="utf-8") == before
+
+
+def test_the_summary_never_writes_an_infinity(tmp_path):
+    """`best` is None when nothing was measured — not ±inf, and this bites.
+
+    An infinite sentinel is not a measurement, it is the absence of one
+    (formatos.md §2). And it does not survive the trip out: `json.dumps` writes
+    `Infinity`, which is **not valid JSON and no browser can parse it**, so one
+    run whose monitor never fired would take `GET /runs` down for every other run
+    on the screen.
+
+    The path is real: `val_pos_err_px` is None on a val split with no corners, so
+    the monitor never produces a number and `best` never leaves its sentinel.
+    """
+    import json as _json
+    import math
+
+    data = _tiny_patch_dataset(tmp_path)
+    run = tmp_path / "run"
+    summary = train(_spec(data=str(data), out=str(run), recipe=Recipe(epochs=1)))
+
+    text = (run / "summary.json").read_text(encoding="utf-8")
+    assert "Infinity" not in text and "NaN" not in text
+    # And the value that IS there is a real measurement.
+    assert summary["best"] is None or math.isfinite(summary["best"])
+
+
+def test_the_stop_is_cooperative_and_keeps_the_epoch(tmp_path):
+    """Asked at the end of an epoch, so nothing is lost and nothing is killed.
+
+    Cutting mid-batch would leave a half-written `last.pt`. And the run closes as
+    `cancelled`, not `done`: it has real weights, so calling it done would let it
+    into a comparison as though it had finished (protocolo.md §7).
+    """
+    import json as _json
+
+    data = _tiny_patch_dataset(tmp_path)
+    run = tmp_path / "run"
+    summary = train(
+        _spec(data=str(data), out=str(run), recipe=Recipe(epochs=10, batch_size=32)),
+        should_stop=lambda: True,  # stop at the first safe point
+    )
+
+    assert summary["cancelled"] is True
+    assert summary["epochs_run"] == 1, "la época en curso se termina, no se aborta"
+    assert _json.loads((run / "status.json").read_text())["state"] == "cancelled"
+    assert (run / "best.pt").exists()
+    assert len(_history(run)) == 1, "la época que corrió dejó su métrica"

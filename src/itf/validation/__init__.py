@@ -104,3 +104,57 @@ def check_compatible(manifest: dict[str, Any], network: dict[str, Any]) -> list[
         )
 
     return problems
+
+
+def check_measurable(manifest: dict[str, Any]) -> list[Problem]:
+    """Can anything be MEASURED on this dataset? (protocolo.md §1.3)
+
+    Separate from `check_compatible` because it asks a different question: not
+    "does this C fit this B?" but "is this B a measuring tool at all?". No
+    network is involved, and the answer does not change with one.
+
+    A dataset with no val split is not a measuring tool. The old
+    `monitor = val_metrics.get("loss", train_loss)` fell back to the TRAIN loss
+    with no warning, so `best.pt` quietly became the most overfitted checkpoint
+    -- and it happened to the README's own example. Building such a dataset
+    warns (fase 2, `manifest.warnings`); starting a run on it refuses, because
+    this is where the damage is done.
+
+    Absent is not zero (formatos.md §2): a manifest that does not declare its
+    splits is not declaring an empty val, so it is not refused here. `train()`
+    still checks the real split it loaded, which is the stronger check and the
+    reason this one can afford to be lenient.
+    """
+    per_split = manifest.get("patches_per_split")
+    if isinstance(per_split, dict) and per_split.get("val") == 0:
+        return [
+            {
+                "code": "no_validation_split",
+                "message": (
+                    "el dataset no tiene patches de val, así que no hay con qué elegir "
+                    "best.pt ni con qué medir"
+                ),
+                "hint": (
+                    "reconstruye el dataset con una fracción de val > 0: sin val, elegir "
+                    "checkpoint cae en la pérdida de entrenamiento y se queda el más "
+                    "sobreajustado, en silencio"
+                ),
+            }
+        ]
+    return []
+
+
+def check_run(manifest: dict[str, Any], network: dict[str, Any]) -> list[Problem]:
+    """Everything that can be refused **before a run starts**. Empty == go ahead.
+
+    One function because there are two doors -- `POST /runs` and `itf-train` --
+    and they must refuse the same things. Asking the two checks separately in each
+    of them is how the doors drift apart, and the door that ends up more lenient
+    is the one a sweep script comes through.
+
+    It is also what lets both refuse **before reserving the name**. Reserving
+    first and validating after leaves a corpse for every mistake: you fix the
+    dataset, retry with the same name, and get "that run already exists" for a
+    run that never saw a single batch.
+    """
+    return check_compatible(manifest, network) + check_measurable(manifest)

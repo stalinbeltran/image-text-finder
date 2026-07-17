@@ -5,18 +5,26 @@ looks rigid and it is deliberate -- it is what makes contract ③ hold by itself
 Want something bespoke? Save it first.
 
 `--device` is a flag, not a recipe field: it is X (contract ⑩).
+
+It reserves the run through `RunStore.create`, the same gate `POST /runs` uses.
+That is the point of the gate living in the domain: **the CLI does not go through
+the API**, so a check that only lived in the route would guard one of the two
+doors -- and the door it left open is the one a sweep script would come through.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 from itf.models import NetworkStore
+from itf.patches.store import PatchDatasetStore
 from itf.settings import Settings
-from itf.training.loop import IncompatibleError, NoValidationSplitError, RunSpec, train
+from itf.training.loop import IncompatibleError, NoValidationSplitError, RunSpec, frozen_config, train
+from itf.training.provenance import build_provenance
 from itf.training.recipe import RecipeStore
+from itf.training.registry import RunExists, RunStore
+from itf.validation import check_run
 
 
 def main() -> None:
@@ -32,36 +40,73 @@ def main() -> None:
     settings = Settings.from_env()
     networks = NetworkStore(settings.networks_root)
     recipes = RecipeStore(settings.recipes_root)
+    patch_datasets = PatchDatasetStore(settings.patch_datasets_root)
+    runs = RunStore(settings.runs_root)
 
+    # `ValueError` alongside `KeyError` on purpose: the stores raise it for a name
+    # that is not a single directory component (`--network ../evil`). Catching
+    # only KeyError turns that into a traceback, while the API answers the same
+    # mistake with a 400 -- and two doors that disagree about what a bad name is
+    # are two doors waiting to drift.
     try:
         network = networks.get(args.network)
-    except KeyError:
+    except (KeyError, ValueError):
         parser.error(f"no existe la red '{args.network}'. Hay: {networks.names()}")
     try:
         recipe = recipes.get(args.recipe)
     except KeyError:
         parser.error(f"no existe la receta '{args.recipe}'. Hay: {recipes.names()}")
+    except ValueError as exc:
+        # A recipe that exists but does not parse -- a hand-edited YAML with a
+        # typo'd field. "It does not exist" would send you looking in the wrong
+        # place, which is the one thing R4 is about.
+        parser.error(f"la receta '{args.recipe}' no es válida: {exc}")
+    try:
+        manifest = patch_datasets.manifest(args.patch_dataset)
+    except (KeyError, ValueError):
+        parser.error(
+            f"no existe el dataset de patches '{args.patch_dataset}'. "
+            f"Hay: {patch_datasets.names()}"
+        )
 
-    data = settings.patch_datasets_root / args.patch_dataset
-    if not (data / "manifest.json").exists():
-        parser.error(f"no existe el dataset de patches '{args.patch_dataset}'")
-
-    out = settings.runs_root / args.name
-    # Never overwrite in silence. `mkdir(exist_ok=True)` plus truncating
-    # metrics.jsonl destroys results without a word, and a sweep that
-    # auto-generates names is exactly who steps on it.
-    if out.exists():
-        parser.error(f"el run '{args.name}' ya existe: {out}")
-
+    # `format_version` is the FILE's, not the network's (formatos.md §4.3):
+    # frozen inside the run it would fossilise in the checkpoint and in the
+    # provenance, where it means nothing.
     network.pop("format_version", None)
+
+    # Everything that can be refused, refused **before the name is reserved** --
+    # the same function `POST /runs` asks, so the CLI and the API refuse exactly
+    # the same things. Validating after reserving would leave a dead `runs/<name>/`
+    # behind on every mistake, and then fixing the dataset and retrying with the
+    # same name would answer "that run already exists".
+    problems = check_run(manifest, network)
+    if problems:
+        print("\nNo se puede entrenar esto, y se ve antes del primer batch:\n")
+        for p in problems:
+            print(f"  [{p['code']}] {p['message']}\n    -> {p['hint']}\n")
+        raise SystemExit(2)
+
     spec = RunSpec(
-        data=str(data),
-        out=str(out),
+        data=str(patch_datasets.path(args.patch_dataset)),
+        out=str(runs.path(args.name)),
         network=network,
+        provenance=build_provenance(
+            patch_dataset={"name": args.patch_dataset, "fingerprint": manifest["fingerprint"]},
+            network={"name": args.network, "value": network},
+            recipe={"name": args.recipe, "value": recipe.as_dict()},
+            sweep=None,
+        ),
         recipe=recipe,
         device=args.device,
         num_workers=args.num_workers,
     )
+
+    try:
+        runs.create(args.name, frozen_config(spec))
+    except RunExists:
+        # Never overwrite in silence. A sweep that auto-generates names is
+        # exactly who steps on an existing run.
+        parser.error(f"el run '{args.name}' ya existe: {runs.path(args.name)}")
 
     def report(epoch: int, record: dict) -> None:
         val = record["val"]
@@ -76,9 +121,23 @@ def main() -> None:
         )
 
     try:
-        summary = train(spec, on_epoch=report)
+        # `marking_failures` keeps `status.json` honest whatever happens: the run
+        # is reserved as `queued` before this line, and a crash before the first
+        # epoch would otherwise leave it saying so forever.
+        with runs.marking_failures(args.name):
+            summary = train(
+                spec,
+                on_epoch=report,
+                # A CLI run is stoppable too, and by the same mechanism: the stop
+                # lives in the run's directory, not in whoever launched it.
+                should_stop=lambda: runs.stop_requested(args.name),
+            )
+    # The two below are now the SAFETY NET, not the usual path: `check_run` above
+    # catches both from the manifest, before anything is reserved. They still fire
+    # when the manifest and the `.npz` disagree -- a manifest declaring 980 val
+    # patches over a split that loads empty -- which is the one case reading the
+    # declaration cannot see.
     except IncompatibleError as exc:
-        # ① and ②, caught before a single batch runs.
         print("\nLa red y el dataset no son compatibles:\n")
         for p in exc.problems:
             print(f"  [{p['code']}] {p['message']}\n    -> {p['hint']}")
