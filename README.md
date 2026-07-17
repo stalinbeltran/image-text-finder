@@ -42,43 +42,84 @@ git show pre-rediseno:src/itf/training/losses.py     # un fichero
 git checkout pre-rediseno -- src/                    # todo el paquete
 ```
 
+### Requisitos
+
+- **Python 3.12** (PyTorch aún no tiene wheels para 3.14; verificado con **3.12.10**). En Windows
+  se invoca `py -3.12`.
+- **Node.js 18+** con `npm` (para el front; verificado con Node 24 y npm 11).
+- **git** (para clonar) y, para tener imágenes con las que trabajar,
+  [image-text-sample-generator](../image-text-sample-generator) — ver [«Conseguir el código»](#conseguir-el-código).
+
+### Conseguir el código
+
+```powershell
+git clone https://github.com/stalinbeltran/image-text-finder.git
+cd image-text-finder
+```
+
+Todos los comandos de aquí en adelante se ejecutan **desde la raíz del repo** (`image-text-finder`).
+
 ### Montar
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e ".[train,api,sweep,dev]"
-cd web; npm install
+cd web; npm install; cd ..
 ```
 
 El extra **`sweep`** trae `optuna` (el motor de los barridos). Sin él todo lo demás funciona; solo
 `POST /sweeps` lo necesita — y su validación (el contrato ⑨) es pura y contesta sin el motor.
 
+### Dónde están las imágenes (casi siempre hay que decirlo)
+
+Las imágenes fuente las produce
+[image-text-sample-generator](../image-text-sample-generator) y **no viven en este repo**. Por
+defecto se buscan en `..\image-text-sample-generator\data\datasets` (el generador como carpeta
+hermana). **Si no lo tienes ahí, apúntalo tú** — sin esto, `itf-extract` y la pantalla **Fuentes**
+no encuentran ninguna imagen (avisan con la ruta donde buscaron):
+
+```powershell
+$env:ITF_DATASETS_ROOT = "c:\ruta\a\image-text-sample-generator\data\datasets"
+```
+
+Ponlo en la **misma sesión de PowerShell** desde la que arrancas el API o corres `itf-extract`.
+Verificado el 2026-07-17 en un install limpio: sin la variable, `itf-extract --source ...` sale con
+**1** y lista `(ninguna)`; con ella, extrae.
+
 ### Correr
 
-Dos procesos. El backend:
+Dos procesos, **cada uno en su puerto** — y los dos van **explícitos**, no en su default, para
+que no choquen con nada que ya tengas escuchando. En **dos terminales**:
 
 ```powershell
-.\.venv\Scripts\python.exe -m itf.api          # http://127.0.0.1:8000
+# terminal 1 — backend en el 8000
+.\.venv\Scripts\python.exe -m itf.api --host 127.0.0.1 --port 8000
 ```
 
-Y el front, que proxya `/api` al backend:
-
 ```powershell
+# terminal 2 — front en el 5173, que proxya /api al backend
 cd web
-npm run dev                                     # http://localhost:5173
+npm run dev -- --port 5173 --strictPort         # http://localhost:5173
 ```
+
+**Los dos puertos son distintos a propósito y ninguno de los dos se mueve a la ligera**, porque
+están acoplados:
+
+- **8000 (backend)** es a donde el front manda `/api` (`ITF_API_URL`, por defecto
+  `http://127.0.0.1:8000`). Si sirves el backend en otro puerto, **pásaselo también al front** o el
+  proxy apunta al vacío: `$env:ITF_API_URL = "http://127.0.0.1:9000"` antes de `npm run dev`.
+- **5173 (front)** está en la allowlist de CORS del backend (`http://localhost:5173`, D4 /
+  [docs/api.md](docs/api.md) §6) y fijado con `strictPort` — si el 5173 está ocupado, `vite`
+  **falla en vez de saltar a otro** (que quedaría fuera de CORS). Cambiarlo obliga a cambiarlo
+  también en `ITF_CORS_ORIGINS` y en `web/vite.config.ts`.
+
+El backend arranca aunque `ITF_DATASETS_ROOT` no esté puesto — solo que **Fuentes** saldrá vacía
+hasta que lo apuntes (ver [«Dónde están las imágenes»](#dónde-están-las-imágenes-casi-siempre-hay-que-decirlo)).
 
 Funcionan de verdad **las nueve pantallas**: **Fuentes**, **Patches**, **Redes**, **Recetas**,
 **Entrenar**, **Barridos**, **Runs**, **Diagnóstico** y **Predecir** — el flujo entero, de la imagen
 al modelo entrenado, de ahí a mirar qué hace, a barrer recetas y a aplicarlo a una imagen.
 `/kitchen` es donde se mira la paleta y los componentes base.
-
-Las imágenes fuente salen de [image-text-sample-generator](../image-text-sample-generator) y se
-buscan en `../image-text-sample-generator/data/datasets`. Para apuntar a otro sitio:
-
-```powershell
-$env:ITF_DATASETS_ROOT = "D:\mis\datasets"
-```
 
 ### Construir un dataset de patches sin la UI
 
@@ -112,9 +153,15 @@ Guárdalo antes.
 # 1. un dataset con val de verdad (200 imágenes → 160/20/20)
 .\.venv\Scripts\itf-extract.exe --source clear-paragraphs-02-reducidos --out data\patch-datasets\fase3-red --patch-size 40 --stride 20
 
-# 2. entrenar: cnn-a y baseline vienen versionadas en configs/
-.\.venv\Scripts\itf-train.exe --name fase3-01 --patch-dataset fase3-red --network cnn-a --recipe baseline --device cpu
+# 2. entrenar: cnn-a y baseline vienen versionadas en configs/. Elige un nombre LIBRE:
+.\.venv\Scripts\itf-train.exe --name mi-run --patch-dataset fase3-red --network cnn-a --recipe baseline --device cpu
 ```
+
+**El nombre del run tiene que ser nuevo.** Un run no se sobrescribe jamás (ver más abajo), y el
+repo **trae runs de ejemplo ya versionados** (`fase3-01`, `fase4-ui`, `fase8-01` — solo sus
+descriptores, no los pesos). Reusar uno de esos nombres sale con **2** y *«ese run ya existe»*
+antes de tocar nada; por eso el ejemplo usa `mi-run`. (Para una vuelta rápida en vez de las 20
+épocas de `baseline`, está la receta `corta-2ep`.)
 
 `--device` es una bandera y **no** un campo de la receta: es X, cuesta tiempo y no cambia el
 resultado (contrato ⑩). Si viviera en la receta, lo entrenado en CPU y en GPU parecerían dos
@@ -122,7 +169,7 @@ recetas distintas.
 
 Verificado de punta a punta el 2026-07-16 sobre `clear-paragraphs-02-reducidos`: **20 épocas en
 7,2 min** (21,7 s/época), F1 de patch **0,80**, `pos_err_px` **9,4**. El run queda en
-`runs/fase3-01/` con `config.json` (la receta y la red congeladas **por valor**, y `execution`
+`runs/<name>/` con `config.json` (la receta y la red congeladas **por valor**, y `execution`
 aparte), `metrics.jsonl` (una línea por época, apendable y consultable en vivo), `best.pt`,
 `last.pt`, `summary.json` y `status.json`.
 
