@@ -262,6 +262,16 @@ el catálogo no está terminado.
   Windows el intérprete es `.\.venv\Scripts\python.exe`.
 - **Tests**: `.\.venv\Scripts\python -m pytest -q` desde la raíz del repo, antes de commitear
   cambios de código.
+- **Hay Playwright y Chromium en esta máquina: la UI SE PUEDE ver.** *(Verificado 2026-07-18:
+  lanza y renderiza, Chromium 149.)* El driver es `playwright 1.61.0` y vive en
+  `C:\Users\User\AppData\Roaming\Python\Python314\` y en el venv del hermano
+  (`..\image-text-sample-generator\.venv\Scripts\python.exe`); los navegadores en
+  `%LOCALAPPDATA%\ms-playwright\`. **No está en el venv de este proyecto** (Python 3.12), así que
+  `import playwright` falla aquí — para usarlo, `pip install playwright` en el venv (los
+  navegadores ya están: **no** hace falta `playwright install`) o invocar el intérprete del
+  hermano. **No tener un tool de navegador no significa no poder abrir un navegador**: se comprueba
+  el entorno, no la lista de herramientas. Se escribió esto porque se entregó UI dos veces diciendo
+  «no puedo verlo» sin haber mirado.
 - `data/` y `runs/` son artefactos gitignored.
 
 ## Trampas: no las reproduzcas (lista completa en organizacion.md §3)
