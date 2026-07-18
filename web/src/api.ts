@@ -86,6 +86,15 @@ export interface Geometry {
 export const listSources = () =>
   request<{ sources: Source[]; root: string; derived_root: string }>("/sources");
 
+/** A' — resize a source (D19). `width` XOR `height`: the aspect ratio is kept.
+ *
+ * A job (R3): N images. The refusals (`upscale_not_allowed`,
+ * `resize_needs_one_dimension`) arrive as a 400 BEFORE the job exists, so a
+ * rejected request leaves nothing behind to clean up.
+ */
+export const resizeSource = (sourceId: string, body: { name: string; width?: number; height?: number }) =>
+  request<Job>(`/sources/${sourceId}/resize`, { method: "POST", body: JSON.stringify(body) });
+
 export const listSamples = (sourceId: string, patchDataset?: string) =>
   request<{ samples: SampleInfo[] }>(
     `/sources/${sourceId}/samples${patchDataset ? `?patch_dataset=${encodeURIComponent(patchDataset)}` : ""}`

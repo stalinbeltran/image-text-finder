@@ -330,6 +330,40 @@ code {
   color: var(--itf-ink-muted);
 }
 
+/* ── Formulario de resize (A', D19) ────────────────────────────────────────── */
+
+/* Axis + value + unit read as one control, because they are one decision:
+   "the width is 80". Two separate fields would invite filling both, which is
+   exactly what `resize_needs_one_dimension` refuses. */
+.resize-dim {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.resize-dim input[type="number"] {
+  width: 8ch;
+}
+
+.resize-dim__unit {
+  color: var(--itf-ink-muted);
+  font-size: 12px;
+}
+
+/* The live `160×160 → 80×80`. Tabular numbers so the size does not jitter as
+   you type -- a preview that dances is a preview you stop reading. */
+.resize-preview {
+  margin: 12px 0 0;
+  color: var(--itf-ink-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Warning, not error: nothing is wrong yet. The server is the authority and
+   will refuse with `upscale_not_allowed`; this only saves the round trip. */
+.resize-preview--grows {
+  color: var(--itf-status-critical);
+}
+
 /* ── NumberTable (R5: the accessible twin of every heat map) ───────────────── */
 
 .number-table__scroll {

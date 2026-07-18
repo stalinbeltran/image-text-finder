@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import {
+  ApiError,
+  getJob,
   listSamples,
   listSources,
+  resizeSource,
   sampleGeometry,
   sampleImageUrl,
   type Derived,
   type Geometry,
+  type Job,
   type SampleInfo,
   type Source,
 } from "../api";
@@ -101,7 +105,7 @@ export function Sources() {
             </table>
           </div>
 
-          {selected && <SampleBrowser source={selected} />}
+          {selected && <SampleBrowser source={selected} onResized={sources.reload} />}
         </>
       )}
     </section>
@@ -138,7 +142,7 @@ function Provenance({ derived }: { derived: Derived | null }) {
   );
 }
 
-function SampleBrowser({ source }: { source: Source }) {
+function SampleBrowser({ source, onResized }: { source: Source; onResized: () => void }) {
   const samples = useAsync<{ samples: SampleInfo[] }>(() => listSamples(source.id), [source.id]);
   const [index, setIndex] = useState(0);
 
@@ -169,10 +173,197 @@ function SampleBrowser({ source }: { source: Source }) {
             ))}
           </div>
           <SampleView source={source} index={index} />
+          <ResizeForm source={source} samples={samples.data.samples} onDone={onResized} />
         </>
       )}
     </>
   );
+}
+
+/** Resize the SELECTED source into a derived one (D19, ui.md §2).
+ *
+ * It lives here, under the source you are looking at, and takes no source
+ * `select` of its own **on purpose**: a second picker would let you resize A
+ * while inspecting B, and picking the wrong source does not fail -- it builds a
+ * perfectly valid dataset that measures something else (organizacion.md §3).
+ */
+function ResizeForm({
+  source,
+  samples,
+  onDone,
+}: {
+  source: Source;
+  samples: SampleInfo[];
+  onDone: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [axis, setAxis] = useState<"width" | "height">("width");
+  const [value, setValue] = useState(80);
+  const [job, setJob] = useState<Job | null>(null);
+  const [problem, setProblem] = useState<ApiProblem | null>(null);
+
+  useEffect(() => {
+    setName("");
+    setJob(null);
+    setProblem(null);
+  }, [source.id]);
+
+  // A job (R3): the result arrives by polling, not from the POST.
+  useEffect(() => {
+    if (!job || job.state === "done" || job.state === "error") return;
+    const timer = setInterval(async () => {
+      const fresh = await getJob(job.id);
+      setJob(fresh);
+      if (fresh.state === "done") {
+        clearInterval(timer);
+        onDone();
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [job, onDone]);
+
+  // Shown live, from a real sample: it turns "80" into a decision instead of a
+  // bet, and it is where you SEE that this only ever shrinks -- before sending.
+  const first = samples[0];
+  const preview = previewSize(first, axis, value);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setProblem(null);
+    try {
+      setJob(
+        await resizeSource(source.id, {
+          name,
+          [axis]: value,
+        } as { name: string; width?: number; height?: number })
+      );
+    } catch (err) {
+      setProblem(err instanceof ApiError ? err.problem : { code: "unknown", message: String(err) });
+    }
+  }
+
+  return (
+    <form className="card card--form" onSubmit={submit}>
+      <h2 className="card__title">Redimensionar esta fuente</h2>
+      <p className="card__hint">
+        Crea una <strong>fuente derivada</strong> reduciendo las imágenes y reescalando su
+        geometría. Se mantiene la proporción: das <strong>el ancho o el alto</strong>, y el otro
+        sale solo. <strong>Solo reduce</strong> — ampliar interpola, y un dataset de patches
+        extraído de ahí mediría el interpolador. El original no se toca.
+      </p>
+
+      {problem && <ErrorNote problem={problem} />}
+
+      <div className="form__grid">
+        <label className="field">
+          <span className="field__label">Nombre de la derivada</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            placeholder={`${source.id.split("/").pop()}-${axis === "width" ? "w" : "h"}${value}`}
+          />
+        </label>
+
+        <label className="field">
+          <span className="field__label">
+            Dimensión <span className="field__hint">una de las dos; la otra se deriva</span>
+          </span>
+          <div className="resize-dim">
+            <select value={axis} onChange={(e) => setAxis(e.target.value as "width" | "height")}>
+              <option value="width">ancho</option>
+              <option value="height">alto</option>
+            </select>
+            <input
+              type="number"
+              min={1}
+              value={value}
+              onChange={(e) => setValue(+e.target.value)}
+              required
+            />
+            <span className="resize-dim__unit">px</span>
+          </div>
+        </label>
+      </div>
+
+      {preview && (
+        <p className={`resize-preview ${preview.grows ? "resize-preview--grows" : ""}`}>
+          {preview.from} → <strong>{preview.to}</strong>{" "}
+          {preview.grows ? (
+            <span className="field__hint">
+              — esto <strong>ampliaría</strong>, y se rechazará: pide una dimensión menor que{" "}
+              {axis === "width" ? first.width : first.height}
+            </span>
+          ) : (
+            <span className="field__hint">
+              — {source.num_samples} imágenes, ×{preview.scale}
+            </span>
+          )}
+        </p>
+      )}
+
+      {/* Same shape as the extraction form: `row-actions` + `job-state`, and the
+          job's failure rendered as an ErrorNote. Reused rather than restyled --
+          two forms that do the same thing (POST -> job -> poll) should not look
+          like two different mechanisms. */}
+      <div className="row-actions">
+        <button
+          className="button"
+          type="submit"
+          disabled={!name || !value || Boolean(job && job.state !== "error")}
+        >
+          Redimensionar
+        </button>
+        {job && (
+          <span className="job-state" data-state={job.state}>
+            job {job.id} · {job.state}
+          </span>
+        )}
+      </div>
+      {job?.state === "error" && (
+        <ErrorNote problem={{ code: "job_failed", message: job.error ?? "el job falló" }} />
+      )}
+    </form>
+  );
+}
+
+/** Python's `round`: half to EVEN, not half up. `Math.round(2.5)` is 3; this is 2.
+ *
+ * Measured, not theorised: a 100×50 source asked for width 5 gives height **2**
+ * on the server and **3** from `Math.round`. One pixel, in a preview, in a case
+ * that needs an exact .5 -- which is precisely the profile of every trap in
+ * organizacion.md §3: small, silent, and nobody's decision.
+ */
+function roundHalfToEven(x: number): number {
+  const floor = Math.floor(x);
+  const diff = x - floor;
+  if (diff !== 0.5) return Math.round(x);
+  return floor % 2 === 0 ? floor : floor + 1;
+}
+
+/** The output size for one sample, mirroring `itf.imageops.target_size`.
+ *
+ * A COPY of a rule that lives in Python, and worth being uneasy about -- it is
+ * the shape of contract ⑤. Tolerable only because it is a *preview*: the
+ * authority is `check_resize`, which refuses with a 400, and nothing here can let
+ * a bad request through. If it ever starts deciding instead of previewing, it
+ * moves to the server.
+ *
+ * But a preview that lies is worse than no preview, so the mirror is exact,
+ * rounding included.
+ */
+function previewSize(sample: SampleInfo | undefined, axis: "width" | "height", value: number) {
+  if (!sample || !value || value < 1) return null;
+  const [w, h] =
+    axis === "width"
+      ? [value, Math.max(1, roundHalfToEven((sample.height * value) / sample.width))]
+      : [Math.max(1, roundHalfToEven((sample.width * value) / sample.height)), value];
+  return {
+    from: `${sample.width}×${sample.height}`,
+    to: `${w}×${h}`,
+    grows: w > sample.width || h > sample.height,
+    scale: (w / sample.width).toFixed(2).replace(/\.?0+$/, ""),
+  };
 }
 
 function SampleView({ source, index }: { source: Source; index: number }) {

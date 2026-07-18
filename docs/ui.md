@@ -168,8 +168,37 @@ es el tamaño, que no está en la tabla.
 - **`from`, no `from_declared_id`**: se enseña el id direccionable, el que sirve para volver a la
   fuente. El declarado no es único — dos `clear-paragraphs-02` comparten el suyo — así que
   enseñarlo invitaría a confundir precisamente el par que ya causó el error del 14,5×.
-- Sin botón de crear, **de momento**: el resize se lanza por `itf-resize` o por
-  `POST /sources/{id}/resize`. Cuando lo tenga, va aquí y no en Patches — redimensionar es de A.
+#### El formulario de resize — **aquí, no en Patches**
+
+Redimensionar produce una fuente, así que vive en la pantalla de fuentes. Ponerlo en Patches sería
+volver al pecado original de esta UI: elegir la fuente *dentro* del formulario de extracción, que
+es lo que hacía imposible mirar un dataset por sí solo.
+
+Es el mismo patrón que «Construir un dataset de patches»: **POST → job → polling** (R3), y al
+terminar se refresca la lista. Lo propio de este formulario:
+
+- **La fuente de origen es la seleccionada en la tabla**, no un `select` aparte. Ya hay una fila
+  elegida y su galería debajo; un segundo selector permitiría redimensionar A mientras miras B, que
+  es una forma barata de equivocarse de fuente — y equivocarse de fuente **no falla**, produce un
+  dataset válido que mide otra cosa (organizacion.md §3).
+- **Ancho o alto, uno de los dos**, con un radio. No dos campos que se puedan rellenar a la vez: la
+  proporción se mantiene por construcción y pedir las dos sería pedir una deformación. La regla la
+  hace cumplir `check_resize` (400); el radio es lo que evita **llegar** al 400.
+- **Enseña el tamaño resultante en vivo** — `160×160 → 80×80` — calculado de la muestra
+  seleccionada. Es lo que convierte «80» en una decisión en vez de una apuesta, y **es donde se ve
+  que solo se reduce** antes de enviar.
+  > Ese cálculo **duplica** `itf.imageops.target_size`, y eso es contrato ⑤ otra vez. Se tolera
+  > porque es un *preview*: la autoridad es `check_resize`, que rechaza con 400, y nada de aquí
+  > puede colar una petición mala. **Pero un preview que miente es peor que ninguno**, así que el
+  > espejo es exacto, redondeo incluido: `round` de Python es **al par**, `Math.round` no
+  > (`100×50` con ancho 5 da alto 2 en el servidor y 3 con `Math.round`). Verificado sobre 25.200
+  > combinaciones, cero discrepancias. Si algún día decide en vez de previsualizar, se va al
+  > servidor.
+- **El 400 se enseña con su `hint`**, como el resto (R4). `upscale_not_allowed` dice por qué no y
+  qué pedir en su lugar; tragárselo y enseñar «error» tiraría la mitad útil.
+- **No hay borrar**, todavía. Una derivada se borra a mano (`data/sources/<name>`). Cuando lo haya,
+  tendrá que avisar de qué datasets de patches la referencian — es el contrato ③ otra vez, y esa es
+  razón suficiente para no improvisarlo ahora.
 
 ### Patches (B)
 
