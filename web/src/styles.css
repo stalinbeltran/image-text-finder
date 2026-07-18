@@ -313,6 +313,23 @@ code {
   transform: translateX(-1px);
 }
 
+/* ── Procedencia de una fuente derivada (A', D19) ──────────────────────────── */
+
+/* Secondary, not primary: the row's identity is its own id, and the parent is
+   context. Loud enough to separate a derived source from an original at a
+   glance, quiet enough not to compete with the name. */
+.provenance {
+  color: var(--itf-ink-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* An ORIGINAL, and it renders as a dash on purpose: absent means "no parent",
+   not "parent unknown" (formatos.md §2). */
+.muted {
+  color: var(--itf-ink-muted);
+}
+
 /* ── NumberTable (R5: the accessible twin of every heat map) ───────────────── */
 
 .number-table__scroll {

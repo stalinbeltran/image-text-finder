@@ -133,7 +133,7 @@ punto** y se vuelve. Los números se quitan; los grupos no ordenan pasos, agrupa
 
 Para cada una: qué posee y — más importante — **qué no toca**. La frontera es el contenido.
 
-### Fuentes (A) — solo lectura
+### Fuentes (A) — solo lectura, salvo el resize
 
 Lista de datasets bajo `DATASETS_ROOT`, con nº de muestras y miniaturas. Ver una muestra con
 sus párrafos dibujados (la verdad de campo).
@@ -142,6 +142,34 @@ sus párrafos dibujados (la verdad de campo).
 - **Endpoints**: `GET /datasets`, `GET /datasets/{id}`, `GET /datasets/{id}/samples`, `GET /image`.
 - *Hoy la fuente se elige dentro del formulario de extracción; separarla la hace inspeccionable
   por sí sola, que es lo que hace falta para juzgar si el dataset es bueno.*
+
+#### Las fuentes derivadas caen aquí, y **no llevan pantalla propia** *(D19)*
+
+Una fuente redimensionada (A′) **es una fuente**, así que sale en esta tabla, en esta galería y
+en este visor, sin código nuevo. Eso no es una comodidad: es la comprobación de que la derivación
+no inventó un formato. **Si hiciera falta una pantalla de «datasets redimensionados», la
+reutilización habría sido mentira** — y además rompería la regla de arriba, *una pantalla, un
+dominio*, metiendo una segunda pantalla para A.
+
+Y el visor que ya existe resulta ser **la herramienta de depuración correcta para un resize**: el
+overlay SVG dibuja el `quad` **encima de los píxeles redimensionados**. Si la geometría no hubiera
+seguido a la imagen, se ve de un vistazo. No hay que construir nada para eso.
+
+**Lo único que la pantalla no puede decir hoy, y sí debe**: cuáles de esas filas son derivadas, de
+qué padre y a qué escala. Sin eso, una derivada y una original **se leen igual salvo por el
+nombre** — y el nombre del directorio **no es un dato** (organizacion.md ⑧). La columna
+«Imágenes» tampoco distingue: una derivada tiene *las mismas* muestras que su padre; lo que cambia
+es el tamaño, que no está en la tabla.
+
+- Una **columna de procedencia** que declare `← <padre> ×<escala>`, tomada del bloque `derived`
+  que `GET /sources` ya manda.
+- **Ausente ⇒ original**, y se pinta como tal (un guion), no como «derivada desconocida»: la
+  ausencia significa algo (formatos.md §2).
+- **`from`, no `from_declared_id`**: se enseña el id direccionable, el que sirve para volver a la
+  fuente. El declarado no es único — dos `clear-paragraphs-02` comparten el suyo — así que
+  enseñarlo invitaría a confundir precisamente el par que ya causó el error del 14,5×.
+- Sin botón de crear, **de momento**: el resize se lanza por `itf-resize` o por
+  `POST /sources/{id}/resize`. Cuando lo tenga, va aquí y no en Patches — redimensionar es de A.
 
 ### Patches (B)
 

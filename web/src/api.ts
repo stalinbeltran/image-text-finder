@@ -45,11 +45,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 // ── A: sources ───────────────────────────────────────────────────────────────
 
+/** The provenance of a derived source (A'), from `dataset.json` (formatos.md §4.6). */
+export interface Derived {
+  /** The ADDRESSABLE id of the parent -- what you would type to get it back. */
+  from: string;
+  /** What the parent calls itself. Not unique: two `clear-paragraphs-02` share one. */
+  from_declared_id: string;
+  op: string;
+  request: { width?: number; height?: number };
+  size: [number, number] | null;
+  scale: [number, number] | null;
+}
+
 export interface Source {
   id: string;
   source_id: string;
   num_samples: number;
   num_overlapping: number;
+  /** `null` means an ORIGINAL, not "a derived one we lost track of" (D19). */
+  derived: Derived | null;
 }
 
 export interface SampleInfo {
@@ -69,7 +83,8 @@ export interface Geometry {
   blocks: { block_id: string; kind: string; angle: number; quad: number[][] }[];
 }
 
-export const listSources = () => request<{ sources: Source[]; root: string }>("/sources");
+export const listSources = () =>
+  request<{ sources: Source[]; root: string; derived_root: string }>("/sources");
 
 export const listSamples = (sourceId: string, patchDataset?: string) =>
   request<{ samples: SampleInfo[] }>(

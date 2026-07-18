@@ -4,6 +4,7 @@ import {
   listSources,
   sampleGeometry,
   sampleImageUrl,
+  type Derived,
   type Geometry,
   type SampleInfo,
   type Source,
@@ -33,7 +34,9 @@ export function Sources() {
       <p className="screen__lede">
         Las imágenes y la geometría de sus párrafos: la verdad de campo. Las produce{" "}
         <code>image-text-sample-generator</code>, viven fuera del repo y aquí <strong>solo se
-        leen</strong>. Aquí no se decide <code>n</code> — eso es de Patches.
+        leen</strong>. Las <strong>derivadas</strong> (un resize) son fuentes de pleno derecho y
+        salen en esta misma lista, con su procedencia. Aquí no se decide <code>n</code> — eso es
+        de Patches.
       </p>
 
       {sources.loading && <Loading what="las fuentes" />}
@@ -48,14 +51,21 @@ export function Sources() {
 
       {sources.data && sources.data.sources.length > 0 && (
         <>
+          {/* Two roots since D19, and they are not interchangeable: the first is
+              external and read-only, the second is ours and is where a resize
+              writes. Saying only one of them would make a derived source look
+              like it came from the generator. */}
           <p className="screen__note">
             Raíz: <code>{sources.data.root}</code>
+            <br />
+            Derivadas: <code>{sources.data.derived_root}</code>
           </p>
           <div className="table__scroll">
             <table className="table">
               <thead>
                 <tr>
                   <th>Fuente</th>
+                  <th>Procedencia</th>
                   <th className="table__num">Imágenes</th>
                   <th className="table__num">Con solape</th>
                   <th />
@@ -66,6 +76,9 @@ export function Sources() {
                   <tr key={s.id} className={selected?.id === s.id ? "is-selected" : ""}>
                     <td>
                       <code>{s.id}</code>
+                    </td>
+                    <td>
+                      <Provenance derived={s.derived} />
                     </td>
                     <td className="table__num">{s.num_samples}</td>
                     <td className="table__num">
@@ -92,6 +105,36 @@ export function Sources() {
         </>
       )}
     </section>
+  );
+}
+
+/** Where a source came from: its parent and the scale, or nothing if it is an original.
+ *
+ * The column exists because **the directory name is not a datum** (organizacion.md
+ * ⑧). A derived source has exactly the same number of images as its parent, so
+ * "Imágenes" does not separate them either -- what changed is the size, and
+ * without this the two rows read identically.
+ *
+ * `null` is rendered as a dash, not as "unknown": absent means ORIGINAL, and that
+ * is why the absence is legal (formatos.md §2).
+ *
+ * Shows `from`, never `from_declared_id`: the addressable id is the one that
+ * takes you back to the parent, and the declared one is **not unique** -- the two
+ * `clear-paragraphs-02` share theirs, which is the exact pair behind the 14.5x
+ * mistake this project already made once.
+ */
+function Provenance({ derived }: { derived: Derived | null }) {
+  if (!derived) return <span className="muted">—</span>;
+
+  const scale = derived.scale ? `×${derived.scale[0].toFixed(2).replace(/\.?0+$/, "")}` : "";
+  const size = derived.size ? `${derived.size[0]}×${derived.size[1]}` : "tamaños mixtos";
+  return (
+    <span
+      className="provenance"
+      title={`${derived.op} de ${derived.from} → ${size}. El padre se declara a sí mismo como '${derived.from_declared_id}', que no es único.`}
+    >
+      ← <code>{derived.from}</code> {scale}
+    </span>
   );
 }
 
