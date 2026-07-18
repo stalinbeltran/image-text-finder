@@ -77,6 +77,10 @@ class Layout:
     sweeps: Path
     #: The job queue's persisted records (fase 7).
     jobs: Path
+    #: A' — where the resize writes (D19). Throwaway like the rest, and here it
+    #: matters more than usual: the default points at the REAL `data/sources/`,
+    #: so a test that forgot to override it would quietly litter the repo.
+    derived_sources: Path
 
     def write_source(self, name: str = "tiny", **kwargs) -> str:
         write_tiny_source(self.datasets / name, **kwargs)
@@ -166,6 +170,7 @@ def layout(tmp_path: Path) -> Layout:
         cache=tmp_path / "cache" / "diagnostics",
         sweeps=tmp_path / "sweeps",
         jobs=tmp_path / "jobs",
+        derived_sources=tmp_path / "derived-sources",
     )
 
 
@@ -194,7 +199,8 @@ def itf_api(layout: Layout):
         diagnostics_cache_root=layout.cache,
         sweeps_root=layout.sweeps,
         jobs_root=layout.jobs,
-        allowed_roots=(layout.datasets,),
+        derived_sources_root=layout.derived_sources,
+        allowed_roots=(layout.datasets, layout.derived_sources),
         cors_origins=("http://localhost:5173",),
     )
     with TestClient(create_app(settings)) as client:

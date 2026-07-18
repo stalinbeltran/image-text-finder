@@ -30,6 +30,7 @@ dev = [
 
 [project.scripts]
 itf-extract = "itf.patches.cli:main"
+itf-resize = "itf.datasets.cli:main"
 itf-train = "itf.training.cli:main"
 itf-api = "itf.api.__main__:main"
 

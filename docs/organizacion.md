@@ -53,6 +53,39 @@ cualquier comparación con lo ya entrenado en CPU.
 - **Ojo**: vive **fuera del repo** (`ITF_DATASETS_ROOT`, por defecto apunta a
   `image-text-sample-generator`). Es una dependencia externa disfrazada de carpeta local.
 
+#### A′ — la fuente derivada (resize)
+
+*(D19, 2026-07-18.)* Una fuente redimensionada **es una fuente**: imágenes + geometría, mismo
+`SourceDataset`, mismo `labels.jsonl`. No es un dominio nuevo y no merece uno — lo único que
+cambia es **quién la escribió**.
+
+Y eso es justo lo que hay que resolver, porque A es externa y solo-lectura:
+
+- **Dos raíces, no una.** La externa (`ITF_DATASETS_ROOT`) se sigue leyendo y **nunca se
+  escribe**; las derivadas van a `data/sources/<name>/`, que es nuestro y está gitignored como
+  el resto de `data/`. `discover_sources` recorre las dos y el `id` lleva prefijo de raíz, así
+  que una derivada no puede sombrear a una original por colisión de nombre.
+- **Solo reduce.** Ampliar devuelve `400`. Interpolar un render sintético no añade información:
+  añade interpolador. Un B extraído de una fuente ampliada mediría LANCZOS, no el modelo — y el
+  fallo sería silencioso, que es el patrón de §3.
+- **La proporción se mantiene por construcción**: la entrada es **el ancho o el alto**, nunca
+  los dos. La otra dimensión se deriva.
+- **Dos factores de escala, no uno.** Los quads se escalan con `sx = out_w/W`, `sy = out_h/H`
+  medidos de la imagen **ya redimensionada**, no con el factor pedido. Con un solo factor, el
+  redondeo del lado derivado dejaría la geometría desplazada respecto al píxel — poco, y por
+  eso peligroso.
+- **La máscara, si la hay, va con NEAREST.** Interpolar una máscara de etiquetas fabrica clases
+  que no existen. Es `ausente ≠ cero` (formatos.md §2) en versión continua.
+
+**La separación que importa, y es lo que pidió el encargo**: el mecanismo de píxeles
+(`itf.imageops`, sin un solo import de `itf`) **no sabe qué es un quad**, y el de coordenadas
+(`itf.geometry.scale_quad`) **no sabe qué es un fichero**. La fuente derivada es la composición
+de los dos. Por eso el primero sirve tal cual para una imagen cualquiera de prueba, que es la
+razón de que estén separados y no una elegancia.
+
+**No se extrae como librería** (librerias.md §0: *se extrae en la segunda vez*): existe en un
+solo proyecto. Se escribe library-shaped y se anota como candidato.
+
 ### B — Dataset de patches
 
 Lo definen sus parámetros de extracción: `source`, `patch_size` (n), `stride`,
@@ -351,6 +384,19 @@ habría nada que comparar.
 Lo que hace falta para cerrarlo: que B tenga una **huella de contenido** (hash del `.npz` o
 del manifest) registrada en el manifest y copiada en cada run. Entonces un barrido puede
 verificar que sus hijos son comparables, en vez de asumirlo.
+
+**El resize añade un eje, y es de los caros de detectar** *(D19)*. Con `n` fijo, redimensionar
+la fuente **cambia cuánto texto cabe en un patch**: es la misma palanca que hizo que las dos
+`clear-paragraphs-02` dieran 49 y 713 patches por imagen (§3), pero ahora **la accionamos
+nosotros a propósito**. Dos consecuencias que hay que sostener a mano:
+
+- **La derivada declara su padre y su escala** en `dataset.json` (`derived_from`, `scale`), y B
+  las arrastra a su manifest como cualquier `source_id`. Sin eso, dos B a resoluciones distintas
+  tienen procedencias que se leen idénticas salvo por el nombre del directorio — y el nombre no
+  es un dato.
+- **El holdout (D16) se redimensiona con la misma orden o con ninguna.** Medir un modelo
+  entrenado a 320 px contra un holdout a 640 no es un resultado malo: es un resultado que no
+  significa nada, y tiene toda la cara de significar algo.
 
 Ojo con los **dos `seed`**, que ya están bien separados y conviene no mezclar:
 

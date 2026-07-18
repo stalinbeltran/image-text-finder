@@ -156,10 +156,11 @@ barato. La capa objetivo:
 | Módulo | Puede importar de |
 |---|---|
 | `itf.geometry` (G: el vocabulario y la ventana) | — |
-| `itf.datasets` (A) | — |
+| `itf.datasets` (A) | `geometry`, `imageops`, `validation` — **solo el resize** (D19). El *lector* de A no importa nada, como siempre; quien importa es `datasets/resize.py`, que es la composición de los dos mecanismos y por definición conoce a ambos. Es la forma del arreglo de ⑦, no una excepción: A necesita coordenadas (G) y píxeles, y la alternativa —reescribir el escalado de quads dentro del loader— son dos fórmulas que pueden divergir |
 | `itf.matrixview` (matriz → payload) | **nada de `itf`** — es puro: arrays. Y así se queda: es lo que la mantiene extraíble (librerias.md §5) |
 | `itf.models` (C) | **solo `geometry`** |
 | `itf.validation` (contratos ① y ②) | **nada de `itf`** — es puro: dos dicts |
+| `itf.imageops` (píxeles: resize proporcional) | **nada de `itf`** — es puro: una imagen y una dimensión. No sabe qué es un quad, y eso es lo que lo hace servir para una imagen cualquiera (D19, librerias.md §2) |
 | `itf.metrics` (qué significan los números) | **nada de `itf`** — es puro: arrays |
 | `itf.patches` (B) | `datasets`, `geometry` |
 | `itf.training` (D) | `patches`, `models`, `validation`, `metrics`, `geometry` |

@@ -188,7 +188,8 @@ def test_startup_resumes_an_unfinished_sweep_to_completion(layout):
         diagnostics_cache_root=layout.cache,
         sweeps_root=layout.sweeps,
         jobs_root=layout.jobs,
-        allowed_roots=(layout.datasets,),
+        derived_sources_root=layout.derived_sources,
+        allowed_roots=(layout.datasets, layout.derived_sources),
         cors_origins=("http://localhost:5173",),
     )
 

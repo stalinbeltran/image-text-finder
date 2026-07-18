@@ -350,9 +350,87 @@ CPU ahorradas.
   y `blocks[].{block_id,kind,angle,quad}`, con `quad` (4,2) **horario desde TL**. Es una
   dependencia entre proyectos: si cambia allí, `datasets/loader.py` rompe aquí, y nada lo detecta
   salvo un test con un `labels.jsonl` de muestra.
+  **Matiz desde D19**: ahora también lo *escribimos* (§4.6). Eso no nos hace dueños del formato —
+  nos hace un segundo productor obligado a seguir al primero. Si el generador cambia su esquema,
+  las derivadas viejas quedan igual de rotas que los originales viejos, y está bien así: la
+  alternativa es un formato nuestro que diverge en silencio.
 - **El storage del barrido** es de `optuna` (SQLite). Nuestro es `sweeps/<name>/spec.json` (lo
   fijo, el espacio, el objetivo, el presupuesto). **La frontera importa**: los `trials` de optuna
   no son nuestros runs; un trial lanza un run y guarda su referencia (librerias.md).
+
+### 4.6 `data/sources/<name>/` — la fuente derivada (A′)
+
+*(D19, 2026-07-18.)* Lo que escribe el resize. **Es el mismo formato de A** — `labels.jsonl`,
+`dataset.json`, las imágenes — porque el consumidor es el mismo `SourceDataset` y no hay ninguna
+ventaja en que no lo sea.
+
+```
+data/sources/<name>/
+├── dataset.json      # metadatos + el bloque `derived` (abajo)
+├── labels.jsonl      # una línea por muestra, mismo esquema que A
+└── images/…          # las imágenes redimensionadas
+```
+
+**Cruza la frontera que acaba de describir §4.5, y conviene decirlo en voz alta**: hasta hoy solo
+*leíamos* `labels.jsonl`. Ahora lo producimos. Eso no nos hace dueños del formato — nos hace un
+**segundo productor obligado a seguir al primero**. La regla que lo mantiene sano:
+
+> **Los campos que no consumimos se copian tal cual y no se inventan si faltan** (§2). No
+> "mejoramos" el esquema: una derivada que no se lea con el mismo parser que un original es una
+> derivada rota. Si el generador cambia su esquema, las derivadas viejas quedan igual de rotas
+> que los originales viejos — y está bien así: la alternativa es un formato nuestro que diverge
+> en silencio.
+
+**Y aquí hay una excepción que no es opcional: "tal cual" no puede incluir píxeles.** El formato
+anida geometría que nosotros **no leemos** — `blocks[].box`, `blocks[].lines[].quad`,
+`lines[].words[].box` (SAMPLE_FORMAT.md §3.1) — y copiarla sin escalar produciría un dataset con
+el `quad` a la resolución nueva y el `box` a la vieja. **Cargaría sin quejarse y dibujaría mal.**
+
+> **El resize es todo o nada**: si no puede mover *todas* las coordenadas, no debe mover ninguna.
+> Se reescalan `quad` y `box` **donde aparezcan, a cualquier profundidad**, y el recorrido es
+> recursivo a propósito: una versión que solo mirase `labels.blocks` sería correcta en
+> `clear-paragraphs` (que no trae `lines`) y silenciosamente incorrecta en `mixed-layout` — que es
+> el peor sitio donde estar en lo cierto por casualidad.
+
+Esto **amplía** lo que §4.5 dice que especificamos: como productores dependemos de dos campos más
+(`box` y el anidamiento), no solo de los que consumimos como lectores. Es el precio de escribir el
+formato de otro, y está aquí escrito para que se vea.
+
+El bloque propio, y es el único añadido:
+
+```jsonc
+// dataset.json
+{ "id": "clear-paragraphs-02-reducidos-w80",
+  "derived": {
+    "from": "clear-paragraphs-02-reducidos",       // el id DIRECCIONABLE del padre
+    "from_declared_id": "clear-paragraphs-02-8ea1ac04",  // lo que el padre dice de sí mismo
+    "op": "resize",
+    "request": {"width": 320},               // lo que se pidió: width XOR height
+    "size": [320, 240],                      // lo que salió
+    "scale": [0.5, 0.5],                     // sx, sy REALES (out/in), no el factor pedido
+    "resample": "lanczos",                   // "nearest" para las máscaras
+    "created": "2026-07-18T…" } }
+```
+
+- **`from` y `from_declared_id` son dos campos porque no coinciden, y eso está medido.**
+  `clear-paragraphs-02-reducidos` y `clear-paragraphs-02-8ea1ac04` **declaran el mismo `id`
+  dentro de su propio `dataset.json`** — la reducida se quedó con el de la grande. Son justo las
+  dos fuentes de la trampa del 14,5× de área (organizacion.md §3), así que fiarse del id
+  declarado hace que `from` nombre **al padre equivocado**, en silencio y precisamente en el caso
+  que el proyecto ya sabe que es peligroso. `from` es el id **direccionable** (lo que escribirías
+  en `--source`); `from_declared_id` es la palabra del generador, guardada aparte. *Juntarlos es
+  lo que perdía la información.*
+- **`scale` son dos números y sale de la imagen resultante**, no del factor pedido
+  (organizacion.md §1-A′). Es el dato con el que se reescalaron los quads; escribir el pedido
+  sería documentar la intención en lugar del hecho.
+- **`derived` ausente ⇒ es una fuente original**, no "una derivada de la que no se sabe el
+  padre". Es la afinación de §2: *dato* ausente ≠ *declaración* ausente. Aquí la ausencia
+  **significa** algo, y por eso es legal.
+- **Una derivada de una derivada encadena**: `from` apunta al padre inmediato. No se aplana el
+  historial, porque aplanarlo obligaría a recomponer escalas, y es ahí donde se pierde el
+  redondeo.
+
+**Qué NO lleva**: nada de patches, nada de `n`. A′ es A — no sabe que la CNN existe.
 
 ---
 

@@ -96,6 +96,23 @@ Ver [README.md](README.md) para montar y correr.
 > `dataset.py:27-28`), habla del **código anterior** — resuelve contra el tag. Son los hallazgos
 > que motivaron el diseño.
 
+> **Fuera de plan (2026-07-18): el resize de fuentes, D19.** Redimensionar una fuente manteniendo
+> proporción, reescalando su geometría. **Tres piezas separadas a propósito**: `itf.imageops` (los
+> píxeles, **sin un import de `itf`** — por eso sirve para una imagen cualquiera),
+> `itf.geometry.scale_quad` (las coordenadas) y `itf.datasets.resize` (la composición). Escribe una
+> **fuente derivada A′** en `data/sources/`, **segunda raíz** — A sigue siendo externa y
+> solo-lectura. Ids con prefijo `derived/`; `POST /sources/{id}/resize` → job; `itf-resize`.
+> **Solo reduce** (`400 upscale_not_allowed`, comprobado contra *todas* las muestras, no la
+> primera). Tres cosas que solo aparecieron al correrlo y que conviene no re-aprender:
+> **(1)** el formato anida geometría que no leemos (`box`, `lines[]`, `words[]`) y copiarla sin
+> escalar deja el dataset internamente incoherente — el resize es **todo o nada**, y el recorrido es
+> recursivo; **(2)** `dataset.json.id` **no es único**: `clear-paragraphs-02-reducidos` declara el
+> id de `-8ea1ac04`, así que la procedencia guarda `from` (id **direccionable**) y
+> `from_declared_id` aparte; **(3)** reducir mucho **borra el texto** — a 80 px la tinta bajo umbral
+> cae del 3,4 % al 0,2 % aunque la geometría siga siendo correcta. La resolución de A es un **eje de
+> investigación** (⑧), no una forma de ahorrar disco. Y la resolución de ids vive en
+> **`itf.datasets.roots`, una sola vez**: la usan `GET /sources`, `itf-extract` e `itf-resize`.
+
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.
 

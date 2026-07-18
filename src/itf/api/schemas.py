@@ -33,6 +33,23 @@ class BuildPatchDatasetBody(BaseModel):
     seed: int = 1
 
 
+class ResizeSourceBody(BaseModel):
+    """`POST /sources/{id}/resize` — produce a derived source A' (D19).
+
+    **`width` XOR `height`, and the model does not enforce the XOR**: the check
+    lives in `itf.datasets.resize.check_resize`, which is pure and is also what
+    the CLI calls. Enforcing it here too would be the same rule in two places --
+    exactly the shape of contract ⑤ -- and the one that drifts is whichever is
+    not the one being read.
+    """
+
+    #: The name of the derived source, under the LOCAL sources root. A is
+    #: external and read-only, so this never lands next to the parent.
+    name: str = Field(min_length=1)
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
+
+
 class NetworkBody(BaseModel):
     """`POST /networks` / `POST /networks/validate`. C, and only C.
 

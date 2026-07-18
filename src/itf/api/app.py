@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,9 +40,12 @@ from itf.api.schemas import (
     PredictBody,
     RecipeBody,
     RenameRunBody,
+    ResizeSourceBody,
     WindowBody,
 )
-from itf.datasets import SourceDataset, discover_sources
+from itf.datasets import SourceDataset
+from itf.datasets.resize import ResizeRequest, check_resize, resize_source, source_sizes
+from itf.datasets.roots import list_ids, source_roots, split_id
 from itf.diagnostics import (
     DEFAULT_CHECKPOINT,
     NotMeasurable,
@@ -125,6 +129,11 @@ def get_context(request: Request) -> Context:
 # ── A: /sources ───────────────────────────────────────────────────────────────
 
 
+def _source_roots(c: Context) -> tuple[tuple[str, Path], ...]:
+    """The two source roots (D19), resolved. The mapping itself is `itf.datasets.roots`."""
+    return source_roots(c.settings.datasets_root.resolve(), c.settings.derived_sources_root.resolve())
+
+
 def _source_path(c: Context, source_id: str) -> Path:
     """Resolve a source id to a directory, refusing anything outside the root.
 
@@ -135,8 +144,8 @@ def _source_path(c: Context, source_id: str) -> Path:
     Resolve FIRST, check AFTER: checked before resolving, `../..` walks straight
     out of the root and the check reads as if it passed.
     """
-    root = c.settings.datasets_root.resolve()
-    candidate = (root / source_id).resolve()
+    root, rel = split_id(source_id, _source_roots(c))
+    candidate = (root / rel).resolve()
     if candidate != root and root not in candidate.parents:
         raise not_found(
             "source_not_found",
@@ -163,19 +172,28 @@ def _sample(c: Context, source_id: str, index: int):
 def register_sources(app: FastAPI) -> None:
     @app.get("/sources")
     def list_sources(c: Context = Depends(get_context)) -> dict:
+        """Every source, from both roots. Derived ones say so (D19)."""
         out = []
-        for path in discover_sources(c.settings.datasets_root):
+        for source_id, path in list_ids(_source_roots(c)):
             ds = SourceDataset(path)
             samples = ds.samples()
             out.append(
                 {
-                    "id": path.relative_to(c.settings.datasets_root).as_posix(),
+                    "id": source_id,
                     "source_id": ds.id,
                     "num_samples": len(samples),
                     "num_overlapping": sum(1 for s in samples if s.has_overlap),
+                    # Absent means an ORIGINAL, not "a derived one we lost track
+                    # of" (formatos.md §4.6). The screen can say which parent and
+                    # which scale instead of guessing from a name.
+                    "derived": ds.meta.get("derived"),
                 }
             )
-        return {"sources": out, "root": str(c.settings.datasets_root)}
+        return {
+            "sources": out,
+            "root": str(c.settings.datasets_root),
+            "derived_root": str(c.settings.derived_sources_root),
+        }
 
     @app.get("/sources/{source_id:path}/samples")
     def list_samples(
@@ -246,6 +264,54 @@ def register_sources(app: FastAPI) -> None:
             buf = io.BytesIO()
             img.save(buf, format="PNG")
         return Response(content=buf.getvalue(), media_type="image/png")
+
+    @app.post("/sources/{source_id:path}/resize", status_code=202)
+    def resize_source_endpoint(
+        source_id: str, body: ResizeSourceBody, c: Context = Depends(get_context)
+    ) -> dict:
+        """→ job. The only write in all of `/sources`, and it writes elsewhere (D19).
+
+        The parent is never touched: A is external and read-only, so the output
+        goes to the local derived root and comes back with a `derived/` id.
+
+        Every refusal happens HERE, before the job exists. `check_resize` is pure
+        and reads only `labels.jsonl` -- no image is opened -- so "this would
+        upscale 3 of your 500 samples" costs milliseconds instead of being
+        discovered by sample 400 with 399 files already on disk.
+        """
+        src = _source_path(c, source_id)
+        req = ResizeRequest(name=body.name, to_width=body.width, to_height=body.height)
+
+        if "/" in body.name or "\\" in body.name or body.name in (".", ".."):
+            raise bad_request(
+                "invalid_name",
+                f"'{body.name}' no vale como nombre de fuente",
+                "usa un nombre sin barras ni '..'",
+            )
+
+        problems = check_resize(source_sizes(src), req)
+        if problems:
+            first = problems[0]
+            raise bad_request(first["code"], first["message"], first["hint"], problems=problems)
+
+        dst = c.settings.derived_sources_root / body.name
+        if dst.exists():
+            raise conflict(
+                "source_exists",
+                f"ya existe una fuente derivada llamada '{body.name}'",
+                "elige otro nombre, o borra la que hay primero",
+            )
+
+        # Cooperative cancellation, the queue's shape: `cancel` ASKS, the work
+        # function checks between samples and cuts where nothing is half-written.
+        stop = threading.Event()
+        job = c.jobs.submit(
+            "resize-source",
+            lambda: resize_source(src, dst, req, source_id=source_id, should_stop=stop.is_set),
+            detail={"name": body.name, "source": source_id, "request": req.as_json()},
+            cancel=stop.set,
+        )
+        return job.as_dict()
 
 
 # ── B: /patch-datasets ────────────────────────────────────────────────────────

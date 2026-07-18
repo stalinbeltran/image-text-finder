@@ -13,14 +13,18 @@ from pathlib import Path
 
 import yaml
 
-from itf.datasets.loader import discover_sources
+from itf.datasets.roots import list_ids, resolve, source_roots
 from itf.patches.extract import PatchExtractConfig, extract_dataset
 from itf.settings import Settings
 
 
 def _resolve_source(value: str, settings: Settings) -> str:
     """Accept an id, a relative path or an absolute path -- and if none resolves,
-    **say which sources exist**, with their absolute paths.
+    **say which sources exist**, with their ids and absolute paths.
+
+    Both source roots, since D19: `--source derived/<name>` reaches a resized
+    source. The two-root lookup itself lives in `itf.datasets.roots`, because
+    three callers need it and three copies is contract ⑤ with another subject.
 
     Why this exists: `--source ..\\image-text-sample-generator\\...` only works if
     you are standing in the repo root, and the README documented exactly that. The
@@ -39,26 +43,20 @@ def _resolve_source(value: str, settings: Settings) -> str:
     the domain modules take explicit paths and must stay callable on any directory
     from a test (settings.py).
     """
-    if Path(value).expanduser().is_dir():
-        return str(Path(value).expanduser().resolve())
+    roots = source_roots(settings.datasets_root, settings.derived_sources_root)
+    found = resolve(value, roots)
+    if found is not None:
+        return str(found)
 
-    as_id = (settings.datasets_root / value).expanduser()
-    if as_id.is_dir():
-        return str(as_id.resolve())
-
-    # `discover_sources`, not `iterdir`: a source is a directory with a
-    # `labels.jsonl`, and the generator NESTS them (`clean-paragraphs-01/reducido`).
-    # Listing top-level directories would offer `clean-paragraphs-01`, which is not
-    # itself a source -- an error message that lies is worse than none.
-    found = discover_sources(settings.datasets_root)
-    lines = "\n".join(f"    {p}" for p in found) or "    (ninguna)"
+    listing = "\n".join(f"    {sid}\n      {path}" for sid, path in list_ids(roots)) or "    (ninguna)"
     raise SystemExit(
         f"itf-extract: no encuentro la fuente '{value}'.\n"
         f"  Se admite un id, una ruta relativa o una ruta ABSOLUTA (la más segura: no\n"
         f"  depende de desde dónde ejecutes).\n"
         f"  Busqué en: {settings.datasets_root}\n"
+        f"          y: {settings.derived_sources_root} (las derivadas, con prefijo 'derived/')\n"
         f"  Hay estas fuentes (nómbralas ENTERAS: hay nombres que solo se distinguen\n"
-        f"  por el sufijo y NO fallan si te equivocas, solo miden otra cosa):\n{lines}\n"
+        f"  por el sufijo y NO fallan si te equivocas, solo miden otra cosa):\n{listing}\n"
         f"  Para apuntar a otro sitio: $env:ITF_DATASETS_ROOT = \"D:\\mis\\datasets\""
     )
 

@@ -142,6 +142,48 @@ y `clear-paragraphs-02-8ea1ac04` (640×480)— y **equivocarse no falla**: const
 perfectamente válido con **14,5× más patches por imagen** y un desbalance de ~67:1 en vez de 3,9:1.
 La que miden [docs/protocolo.md](docs/protocolo.md) §1 y el ejemplo de abajo es **la de 160×160**.
 
+### Redimensionar una fuente (fuente derivada)
+
+Reduce las **imágenes completas** de una fuente y **reescala su geometría** para que todo siga
+cuadrando. Se da **el ancho o el alto, nunca los dos**: la proporción se mantiene por construcción.
+
+```powershell
+.\.venv\Scripts\itf-resize.exe --source clear-paragraphs-02-reducidos --name cp02-w80 --width 80
+```
+
+Escribe en `data\sources\<name>\` — **nunca junto al original**: la fuente es externa y de solo
+lectura (docs/organizacion.md §1-A). A partir de ahí es una fuente más: sale en `GET /sources` con
+el id **`derived/cp02-w80`**, y este comando funciona igual que sobre una original:
+
+```powershell
+.\.venv\Scripts\itf-extract.exe --source derived/cp02-w80 --out data\patch-datasets\prueba-w80 --patch-size 40 --stride 20
+```
+
+Da **9 patches por imagen** en vez de los 49 del original de 160×160 — que es, exactamente, el eje
+que abre el resize: con `n` fijo, cambiar la resolución cambia cuánto texto cabe en un patch.
+
+Desde el API es un job (son N imágenes):
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/sources/clear-paragraphs-02-reducidos/resize `
+  -ContentType application/json -Body '{"name":"cp02-w80","width":80}'
+```
+
+**Solo reduce.** Ampliar sale con `upscale_not_allowed`: interpolar un render sintético no añade
+información, y un dataset de patches extraído de ahí mediría el interpolador.
+
+Verificado el 2026-07-18 sobre las 200 imágenes de `clear-paragraphs-02-reducidos`, por CLI y por
+API: 160×160 → 80×80, `quad` y `box` exactamente a la mitad, el contraste dentro/fuera del párrafo
+se conserva (217,7/166,8 → 218,8/165,8) —que es la comprobación de que la geometría siguió a los
+píxeles— y la raíz externa queda intacta. Ampliar devuelve `400 upscale_not_allowed` con el arreglo.
+
+> **Cuidado con cuánto reduces, y esto también está medido.** A 80 px el texto de esta fuente
+> prácticamente desaparece: LANCZOS convierte los trazos finos en gris, y la tinta que cruza un
+> umbral de 128 cae del **3,4 % al 0,2 %**. La geometría sigue siendo correcta —el párrafo está
+> donde dice la etiqueta— pero **ya no hay casi nada que aprender dentro**. Reducir es una palanca
+> de investigación (cambia cuánto texto cabe en un patch de `n×n`), no una forma de ahorrar disco:
+> mira una imagen derivada antes de extraer un B de ella.
+
 ### Entrenar
 
 Hacen falta tres cosas con **nombre**: un dataset de patches (B), una red (C) y una receta (D).
@@ -466,9 +508,12 @@ quitado el ⑤ (`itf.inference.predict` importa la ventana de `itf.geometry`, no
 
 - **Python 3.12** (PyTorch aún no tiene wheels para 3.14). Verificado con **3.12.10**.
 - El intérprete del proyecto es `.\.venv\Scripts\python.exe`.
-- Los tres scripts que declara `pyproject.toml` —**`itf-extract`, `itf-api` e `itf-train`**—
-  funcionan. `itf-train` llegó en la fase 3, y desde la fase 4 pasa por la misma puerta que el API:
-  valida con `check_run` y reserva el nombre con `RunStore.create`.
+- Los cuatro scripts que declara `pyproject.toml` —**`itf-extract`, `itf-api`, `itf-train` e
+  `itf-resize`**— funcionan. `itf-train` llegó en la fase 3, y desde la fase 4 pasa por la misma
+  puerta que el API: valida con `check_run` y reserva el nombre con `RunStore.create`.
+- **La consola de Windows es cp1252**, así que los CLIs escriben ASCII en lo que imprimen. No es
+  quisquillosidad: un `→` en la descripción de `itf-resize` hacía que **`--help` reventara** con
+  `UnicodeEncodeError`. Se encontró ejecutándolo, que es la única forma.
 - **Solo CPU hoy.** Habrá GPU para procesamiento masivo; por eso `device` ya está fuera de la
   identidad de la receta (contrato ⑩). Y por eso el límite de workers es **1**: torch ya usa
   todos los núcleos y cada run carga su `PatchDataset` entero en RAM, así que lanzar N

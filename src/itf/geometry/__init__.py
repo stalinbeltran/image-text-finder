@@ -27,6 +27,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import numpy as np
+
 # The quad in SAMPLE_FORMAT is clockwise from the top-left, so the corner order
 # is fixed project-wide. `y[:, c]` means CORNER_NAMES[c] everywhere, and the
 # manifest carries this order because it is semantics, not decoration: lose it
@@ -106,3 +108,26 @@ def windows(width: int, height: int, n: int, stride: int) -> list[Window]:
         for y0 in positions(height, n, stride)
         for x0 in positions(width, n, stride)
     ]
+
+
+def scale_quad(quad: np.ndarray, sx: float, sy: float) -> np.ndarray:
+    """Scale a ``(4, 2)`` quad in image pixels by ``(sx, sy)``. **The formula, once.**
+
+    Lives here for the reason `window_at` does: this is coordinates, everybody's
+    floor, and multiplying an (x, y) pair by a factor is exactly the kind of
+    two-line thing that gets re-typed at each call site until one of them
+    transposes the axes. `y` before `x` is the convention in the arrays and `x`
+    before `y` in the quads, which is precisely how that mistake happens.
+
+    **Two factors, not one** -- see `itf.imageops`: the derived dimension is
+    rounded, so sx and sy differ slightly and using either for both leaves the
+    geometry a fraction of a pixel off the pixels it describes.
+
+    Stays float: rounding to int here would quantise corner positions to the
+    output grid, and B normalises these to [0, 1] within a patch anyway, so the
+    precision is not decorative.
+    """
+    q = np.asarray(quad, dtype=np.float32)
+    if q.shape != (NUM_CORNERS, 2):
+        raise ValueError(f"esperaba un quad ({NUM_CORNERS}, 2); me llegó {q.shape}")
+    return q * np.asarray([sx, sy], dtype=np.float32)

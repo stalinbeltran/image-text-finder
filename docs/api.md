@@ -147,10 +147,38 @@ GET  /sources/{id}/samples                 listado por muestra
        ?patch_dataset=<B>                  anota cada muestra con su split (train/val/test)
 GET  /sources/{id}/samples/{index}/image   la imagen
        ?w=<px>                             reducida (miniaturas)
+POST /sources/{id}/resize                → job   {name, width | height}
 ```
 
 El `?patch_dataset=` es el cruce legítimo A×B de la pestaña Predecir (ui.md §2): permite
 "predice solo el test". **Sustituye a `/image?path=`** (ver §6).
+
+**`POST /sources/{id}/resize`** *(D19)* — la única escritura de todo `/sources`, y produce una
+**fuente derivada** en `data/sources/<name>/` (formatos.md §4.6). Es un job por R3: son N
+imágenes, y a 500 muestras eso pasa del segundo.
+
+```jsonc
+{ "name": "clear-paragraphs-02-w320",   // el nombre de la derivada
+  "width": 320 }                        // width XOR height, nunca los dos
+```
+
+Los `400` antes de reservar nada, con razón y arreglo (R4) — el patrón de `POST /runs`:
+
+| `code` | Cuándo |
+|---|---|
+| `resize_needs_one_dimension` | Ni `width` ni `height`, o **los dos**. La proporción se mantiene por construcción: dar las dos sería pedir una deformación |
+| `upscale_not_allowed` | El destino es mayor que el origen en alguna muestra. Ampliar interpola y un B de ahí mide el interpolador |
+| `source_exists` | Ya hay una fuente con ese `name`. **No se sobrescribe en silencio** — es la trampa nº5 de organizacion.md §3 con otro sujeto |
+| `source_not_found` | El `{id}` padre no existe |
+
+`upscale_not_allowed` se comprueba **contra la muestra más pequeña de la fuente**, no contra la
+primera. Una fuente con tamaños mixtos donde `width=320` reduce 9 imágenes y amplía 1 debe
+rechazarse entera: aceptarla dejaría una sola muestra interpolada dentro de un dataset por lo
+demás legítimo, que es exactamente el fallo que nadie encuentra luego.
+
+**La escritura va a la raíz local**, nunca a `ITF_DATASETS_ROOT`: A es externa y solo-lectura
+(organizacion.md §1-A). El allowlist de raíces de D4 pasa a tener dos entradas, y solo una es
+escribible.
 
 ### `/patch-datasets` (B)
 

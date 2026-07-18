@@ -47,6 +47,12 @@ class Settings:
     #: a job is ephemeral, and what survives a restart is the run/sweep behind it,
     #: not the job row. Defaulted so the existing test fixtures need not pass it.
     jobs_root: Path = REPO_ROOT / "data" / "jobs"
+    #: A' — where the resize writes (D19). A SECOND source root, ours and
+    #: writable, because `datasets_root` belongs to image-text-sample-generator
+    #: and we only ever read it (organizacion.md §1-A). Under `data/`, so
+    #: gitignored like everything derived: a resized source recomputes exactly
+    #: from parent + request. Defaulted so existing fixtures need not pass it.
+    derived_sources_root: Path = REPO_ROOT / "data" / "sources"
     #: Every root a client-supplied path is allowed to resolve under (D4).
     allowed_roots: tuple[Path, ...] = ()
     cors_origins: tuple[str, ...] = ()
@@ -86,7 +92,11 @@ class Settings:
             diagnostics_cache_root=data_root / "cache" / "diagnostics",
             sweeps_root=sweeps_root,
             jobs_root=data_root / "jobs",
-            allowed_roots=(datasets_root, *extra_roots),
+            derived_sources_root=data_root / "sources",
+            # Both source roots are readable; only the derived one is ever
+            # written. D4 is about what a client-supplied path may resolve to,
+            # and a derived source is addressed by id exactly like an original.
+            allowed_roots=(datasets_root, data_root / "sources", *extra_roots),
             cors_origins=tuple(o.strip() for o in origins.split(",") if o.strip()),
         )
 
