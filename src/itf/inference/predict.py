@@ -37,7 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
-from itf.geometry import CORNER_NAMES, window_at, windows
+from itf.geometry import CORNER_NAMES, positions, window_at, windows
 from itf.models import ConfigurableCNN
 
 #: `threshold`, `stride`, the NMS radius and `min_size` are **F, not D**
@@ -90,6 +90,37 @@ def default_stride(patch_size: int) -> int:
     """Half the patch: every corner is seen by ~4 windows, so NMS has something
     to merge and a corner is never decided by a single crop."""
     return max(patch_size // 2, 1)
+
+
+def grid_coverage(width: int, height: int, n: int, stride: int) -> dict:
+    """How much of the image the sliding window actually looks at.
+
+    **A stride larger than the patch leaves gaps**, and that failure is silent in
+    the worst way: the prediction comes back, it is well formed, and the corners
+    that lived in the unseen strips are simply absent -- indistinguishable, on
+    screen, from a model that failed to detect them. On a 10-px patch with the
+    stride of 20 that the UI used to hardcode, 30 of 80 pixel columns were never
+    seen by any window, and image 1 of `dirty-paragraphs-80ancho` reported zero
+    TL corners for three real paragraphs.
+
+    So the payload carries it and V11 says it out loud. Reported rather than
+    refused: a coarse stride is a legitimate thing to ask for (it is F, tuned per
+    call), and the honest answer is "here it is, and here is what it could not
+    see" -- not an error, and not a silent hole.
+    """
+    seen_x, seen_y = set(), set()
+    for x0 in positions(width, n, stride):
+        seen_x.update(range(x0, x0 + n))
+    for y0 in positions(height, n, stride):
+        seen_y.update(range(y0, y0 + n))
+    return {
+        "stride": int(stride),
+        "patch_size": int(n),
+        # Gaps appear exactly when the step outruns the window.
+        "has_gaps": bool(stride > n),
+        "unseen_columns": int(width - len(seen_x)),
+        "unseen_rows": int(height - len(seen_y)),
+    }
 
 
 @torch.no_grad()
@@ -350,7 +381,7 @@ def predict_image(
     stride: int | None = None,
     threshold: float = DEFAULT_THRESHOLD,
     nms_radius: float | None = None,
-    min_size: float = DEFAULT_MIN_SIZE,
+    min_size: float | None = None,
     device: str = "cpu",
 ) -> dict:
     """The three stages, all three returned (V11).
@@ -364,6 +395,7 @@ def predict_image(
     n = model.config.input_size
     stride = stride or default_stride(n)
     radius = nms_radius if nms_radius is not None else stride / 2.0
+    min_size = DEFAULT_MIN_SIZE if min_size is None else min_size
 
     raw = detect_corners(model, image, stride=stride, threshold=threshold, device=device)
     corners = merge(raw, radius=radius)
@@ -376,6 +408,15 @@ def predict_image(
         "corners": [d.as_dict() for d in corners],
         "paragraphs": paragraphs,
         "image_size": [int(image.shape[1]), int(image.shape[0])],
+        # The patch the model actually eats. Every knob below is measured in
+        # units of it -- a stride of 20 is fine on a 40-px patch and skips half
+        # the image on a 10-px one -- so a client that shows sliders cannot
+        # calibrate them without this, and a hardcoded default is a number that
+        # silently means something different per run.
+        "patch_size": n,
+        "coverage": grid_coverage(
+            int(image.shape[1]), int(image.shape[0]), n, stride
+        ),
         # The knobs that produced this, echoed back. The sliders are live (ui.md
         # §2) and the answers arrive out of order: without knowing which stride a
         # payload came from, a slow response overwrites a newer one.

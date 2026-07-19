@@ -614,6 +614,21 @@ export interface Prediction {
   /** Echoed back. The sliders are live, so answers arrive out of order: without
    *  this, a slow response overwrites a newer one. */
   knobs: { threshold: number; stride: number; nms_radius: number; min_size: number };
+  /** The patch this run's model eats. **Every knob is measured in units of it**,
+   *  so a client that hardcodes a stride is choosing a different thing per run:
+   *  20 px is "every other window" on a 40-px patch and "skip half the image" on
+   *  a 10-px one. */
+  patch_size: number;
+  /** What the sliding window actually looked at. `has_gaps` is the silent
+   *  failure: a stride above the patch size returns a perfectly well-formed
+   *  answer with the corners of the unseen strips simply missing. */
+  coverage: {
+    stride: number;
+    patch_size: number;
+    has_gaps: boolean;
+    unseen_columns: number;
+    unseen_rows: number;
+  };
   source: string;
   index: number;
 }
@@ -625,9 +640,12 @@ export interface PredictKnobs {
   threshold: number;
   /** The stride of INFERENCE. **Not B's**, which is part of the dataset's
    *  identity — the shared name is a dangerous coincidence (glosario.md). */
-  stride?: number;
-  nms_radius?: number;
-  min_size: number;
+  /** `null` is not "0" and not "20": it means **let F choose half the patch**
+   *  and tell us what it chose. There is no constant a client can honestly
+   *  default this to without knowing the model's patch size. */
+  stride?: number | null;
+  nms_radius?: number | null;
+  min_size?: number | null;
 }
 
 export const predict = (run: string, source: string, index: number, knobs: PredictKnobs) =>

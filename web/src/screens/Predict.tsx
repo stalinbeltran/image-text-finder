@@ -163,27 +163,64 @@ function ImagePicker({ run, source }: { run: string; source: string }) {
   );
 }
 
+/** The knobs, once the run has told us how big its patch is.
+ *
+ * `null` until the first answer arrives, and that is the point: **every one of
+ * these is measured in units of the patch**, so there is no honest constant to
+ * initialise them with. The screen used to hardcode `stride: 20`, a number
+ * written for a 40-px patch; against a run trained on 10-px patches that stride
+ * skips half the image, and V11 quietly reported no TL corners at all for
+ * paragraphs that were plainly there. The stride is not wrong in general -- it
+ * was wrong *for that run*, which is exactly the kind of default nobody chooses
+ * and everybody inherits (organizacion.md §3).
+ *
+ * So the first request sends no stride: `predict_image` fills in `n / 2`, and
+ * the payload comes back saying which stride that was and how big the patch is.
+ * The sliders calibrate themselves from the model instead of from a guess.
+ */
+interface Knobs {
+  threshold: number;
+  stride: number;
+  nmsRadius: number;
+  minSize: number;
+}
+
 function PredictStage({ run, source, index }: { run: string; source: string; index: number }) {
-  const [threshold, setThreshold] = useState(0.5);
-  const [stride, setStride] = useState(20);
-  const [nmsRadius, setNmsRadius] = useState(10);
-  const [minSize, setMinSize] = useState(4);
+  const [knobs, setKnobs] = useState<Knobs | null>(null);
   const [visible, setVisible] = useState<Record<Stage, boolean>>({
     raw: false,
     corners: true,
     paragraphs: true,
   });
 
+  // A different run may have a different patch size, so the knobs it calibrated
+  // no longer mean the same thing. Recalibrate rather than carry them over.
+  useEffect(() => setKnobs(null), [run]);
+
   const result = useAsync(
     () =>
       predict(run, source, index, {
-        threshold,
-        stride,
-        nms_radius: nmsRadius,
-        min_size: minSize,
+        threshold: knobs?.threshold ?? 0.5,
+        // Absent, not 20: let F choose half the patch and tell us what it chose.
+        stride: knobs?.stride ?? null,
+        nms_radius: knobs?.nmsRadius ?? null,
+        min_size: knobs?.minSize ?? null,
       }),
-    [run, source, index, threshold, stride, nmsRadius, minSize]
+    [run, source, index, knobs]
   );
+
+  // Adopt whatever the model's own defaults turned out to be, once.
+  const patch = result.data?.patch_size ?? null;
+  useEffect(() => {
+    if (!knobs && result.data) {
+      setKnobs({
+        threshold: result.data.knobs.threshold,
+        stride: result.data.knobs.stride,
+        nmsRadius: result.data.knobs.nms_radius,
+        minSize: result.data.knobs.min_size,
+      });
+    }
+  }, [knobs, result.data]);
 
   return (
     <section className="view">
@@ -199,16 +236,40 @@ function PredictStage({ run, source, index }: { run: string; source: string; ind
         párrafo. <strong>Sin las crudas, "salió mal" no es diagnosticable.</strong>
       </Declares>
 
-      <div className="controls controls--knobs">
-        <Slider label="Umbral" title="p(esquina) por encima del cual cuenta una detección" value={threshold} min={0} max={1} step={0.01} onChange={setThreshold} format={(v) => v.toFixed(2)} />
-        <Slider label="Stride" title="el stride de INFERENCIA, no el de B: cada cuántos px se coloca la ventana" value={stride} min={4} max={40} step={2} onChange={setStride} format={(v) => `${v} px`} />
-        <Slider label="Radio NMS" title="dos detecciones más cerca que esto, de la misma esquina, son la misma vista dos veces" value={nmsRadius} min={0} max={30} step={1} onChange={setNmsRadius} format={(v) => `${v} px`} />
-        <Slider label="Mínimo" title="cajas más finas que esto son dos esquinas que se emparejaron por azar, no un párrafo" value={minSize} min={0} max={40} step={1} onChange={setMinSize} format={(v) => `${v} px`} />
-      </div>
-      <p className="card__hint">
-        Son knobs de <strong>F</strong>: se ajustan post-hoc, sobre el modelo ya entrenado. Mover
-        cualquiera <strong>no reentrena nada</strong> — es un forward, no una tarde.
-      </p>
+      {knobs && patch && (
+        <>
+          {/* Ranges in units of the patch, not absolutes: "stride 20" means
+              "every other window" on a 40-px patch and "skip half the image" on
+              a 10-px one. A slider whose maximum is a constant lets you ask for
+              the second without ever saying so. */}
+          <div className="controls controls--knobs">
+            <Slider label="Umbral" title="p(esquina) por encima del cual cuenta una detección" value={knobs.threshold} min={0} max={1} step={0.01} onChange={(v) => setKnobs({ ...knobs, threshold: v })} format={(v) => v.toFixed(2)} />
+            <Slider label="Stride" title={`el stride de INFERENCIA, no el de B: cada cuántos px se coloca la ventana de ${patch} px. Por encima de ${patch} la rejilla deja huecos.`} value={knobs.stride} min={1} max={Math.max(2 * patch, 4)} step={1} onChange={(v) => setKnobs({ ...knobs, stride: v })} format={(v) => `${v} px`} />
+            <Slider label="Radio NMS" title="dos detecciones más cerca que esto, de la misma esquina, son la misma vista dos veces" value={knobs.nmsRadius} min={0} max={Math.max(patch, 4)} step={0.5} onChange={(v) => setKnobs({ ...knobs, nmsRadius: v })} format={(v) => `${v} px`} />
+            <Slider label="Mínimo" title="cajas más finas que esto son dos esquinas que se emparejaron por azar, no un párrafo" value={knobs.minSize} min={0} max={Math.max(2 * patch, 4)} step={1} onChange={(v) => setKnobs({ ...knobs, minSize: v })} format={(v) => `${v} px`} />
+          </div>
+          <p className="card__hint">
+            Son knobs de <strong>F</strong>: se ajustan post-hoc, sobre el modelo ya entrenado. Mover
+            cualquiera <strong>no reentrena nada</strong> — es un forward, no una tarde. La ventana
+            de este run mide <strong>{patch}×{patch} px</strong> y los rangos van en función de ella.
+          </p>
+        </>
+      )}
+
+      {/* The failure this catches is silent: gaps in the grid do not error, they
+          just return an image with corners missing from the strips nobody
+          looked at — which reads as "the model did not detect it". */}
+      {result.data?.coverage?.has_gaps && (
+        <p className="async async--warning" role="alert">
+          <strong>La rejilla deja huecos.</strong> Con stride {result.data.coverage.stride} px sobre
+          una ventana de {result.data.coverage.patch_size} px hay{" "}
+          <strong>{result.data.coverage.unseen_columns} columnas</strong> y{" "}
+          <strong>{result.data.coverage.unseen_rows} filas</strong> de píxeles que{" "}
+          <strong>ninguna ventana llega a ver</strong>: las esquinas que caigan ahí no faltan porque
+          el modelo falle, sino porque nadie miró. Baja el stride a {result.data.coverage.patch_size}{" "}
+          px o menos.
+        </p>
+      )}
 
       <div className="row-actions">
         {STAGES.map((s) => (

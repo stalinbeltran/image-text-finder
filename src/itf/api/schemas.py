@@ -154,8 +154,9 @@ class PredictBody(BaseModel):
     #: closer than half of that is the same corner seen twice.
     nms_radius: float | None = Field(default=None, ge=0.0)
     #: Boxes thinner than this are two corners that happened to pair, not a
-    #: paragraph.
-    min_size: float = Field(default=4.0, ge=0.0)
+    #: paragraph. Optional like the two above so a client can say "your default,
+    #: whatever it is" instead of pinning a number it had to invent.
+    min_size: float | None = Field(default=None, ge=0.0)
 
 
 class WindowBody(BaseModel):

@@ -5,7 +5,11 @@ import { Declares } from "../components/Declares";
 import { Meter } from "../components/Meter";
 import { cornerColors, CORNER_NAMES, type CornerName } from "../theme/palette";
 
-/** V5 — the scrubber. **Fix E and the image, drag one 40×40 window over it.**
+/** V5 — the scrubber. **Fix E and the image, drag one n×n window over it.**
+ *
+ * `n` is the run's `patch_size` and comes from the payload, never from a
+ * constant: the runs in this project are not all 40 px, and a screen that says
+ * "40×40" against a 10-px model is confidently wrong.
  *
  * Two things make it worth a view of its own (ui.md §4.1):
  *
@@ -98,7 +102,11 @@ export function Scrubber({ run, source, index }: { run: string; source: string; 
         varies="el recorte (x0, y0)"
         measures="la predicción y su estabilidad"
       >
-        Arrastra la ventana de 40×40 por la imagen y lee las 4 cabezas en vivo. La entrada está{" "}
+        {/* El tamaño lo dice el modelo, no la prosa: este texto decía «40×40»
+            fijo, y contra un run de patches de 10 px era simplemente falso — la
+            misma constante heredada que hacía que V11 mandara stride 20. */}
+        Arrastra la ventana de {data ? `${data.patch_size}×${data.patch_size}` : "n×n"} por la
+        imagen y lee las 4 cabezas en vivo. La entrada está{" "}
         <strong>en distribución</strong> (recorta píxeles reales, no los inventa), y mide{" "}
         <strong>cuánto tiembla</strong> la predicción al mover la ventana 1 px — que es lo que fija
         el <code>stride</code> de inferencia y el radio de NMS.

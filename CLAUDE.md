@@ -334,6 +334,17 @@ aparecieron por no elegir. Construir desde cero **no protege de ellas: las invit
   implícito, `log(0)` no existe y **Plot descarta todas las barras sin avisar**, dejando los ejes.
   Se caza contando marcas en el SVG, no mirando. Y dos series de `rect` sobre el mismo rango x **se
   tapan**, no se agrupan. *(Fase 5.)*
+- **Un knob de F escrito a mano significa algo distinto en cada run**: la pantalla de Predecir traía
+  `stride = 20`, `nms = 10`, y V5 decía «la ventana de 40×40» — números correctos para un patch de
+  **40**. Contra `dirty-10-lr-optim-*` (patch **10**) ese stride salta de 20 en 20 con una ventana de
+  10: **30 de 80 columnas no las mira nadie**, y V11 daba **cero TL** en imágenes con tres párrafos.
+  **No falla**: devuelve una predicción bien formada a la que le faltan las esquinas de las franjas
+  que nadie vio, indistinguible en pantalla de un modelo que no las detectó. Y **parece un error de
+  cálculo**: V5 (off-grid, donde tú sueltas la ventana) acertaba y V11 no, así que la sospecha
+  natural es que uno convierte mal las coordenadas. **No era eso** — los dos hacen
+  `win.x0 + frac*n` y coinciden hasta el último decimal (`test_predict_coverage`). La regla: **todo
+  knob de F va en unidades del patch**, el payload trae `patch_size`, y el cliente que no sabe qué
+  mandar **manda `null`** y adopta lo que F elija (`n/2`). *(2026-07-19.)*
 - **Releer la fuente entera para mirar una imagen**: `SourceDataset.samples()` parsea el
   `labels.jsonl` **completo**, y ahí dentro va toda la geometría anidada (`blocks[]`, `lines[]`,
   `words[]`). En `dirty-paragraphs-80ancho` eso son **522 MB y 30 s**. `GET /sources`, `GET
