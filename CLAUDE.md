@@ -334,6 +334,21 @@ aparecieron por no elegir. Construir desde cero **no protege de ellas: las invit
   implícito, `log(0)` no existe y **Plot descarta todas las barras sin avisar**, dejando los ejes.
   Se caza contando marcas en el SVG, no mirando. Y dos series de `rect` sobre el mismo rango x **se
   tapan**, no se agrupan. *(Fase 5.)*
+- **Un overlay SVG y su imagen no encuadran igual**: `<svg viewBox="0 0 w h">` trae por defecto
+  `preserveAspectRatio="xMidYMid meet"` — encaja el viewBox y **centra lo que sobra**. La `<img>`
+  debajo iba con `width:100%; height:auto`, que no centra nada: se desborda y la recorta
+  `overflow:hidden`. Mientras la caja del stage tuvo la proporción de la imagen coincidieron; en
+  cuanto dejó de tenerla, **divergieron de lado**. Y el culpable de que dejara de tenerla fue
+  `flex: 1 1 420px` en un contenedor **flex column** (`.predict-stage`): ahí el basis cae sobre la
+  **altura** y pisa el `aspect-ratio` que la pantalla calcula del payload. Una imagen 80×60 recibía
+  una caja de 640×**420**: abajo recortada y cada esquina dibujada **4,6 px de imagen a la
+  derecha**. **Parecía un error de cálculo del modelo** — el usuario lo reportó como «las esquinas
+  salen desplazadas» — y el payload era correcto todo el tiempo. V5 se libraba **por casualidad**
+  (`max-width:560px` sobre 420 da 4:3 exacto), que es lo que hacía que las dos vistas se
+  contradijeran. Se arregla haciendo que **los dos lados encuadren con la misma regla**
+  (`object-fit: contain` en la img), no ajustando la caja: ajustar la caja lo vuelve a romper el día
+  que alguien cambie el layout. **Se mide leyendo `getBoundingClientRect()` de img y svg, no
+  mirando** — un overlay desplazado tiene toda la cara de un overlay. *(2026-07-19.)*
 - **Un knob de F escrito a mano significa algo distinto en cada run**: la pantalla de Predecir traía
   `stride = 20`, `nms = 10`, y V5 decía «la ventana de 40×40» — números correctos para un patch de
   **40**. Contra `dirty-10-lr-optim-*` (patch **10**) ese stride salta de 20 en 20 con una ventana de

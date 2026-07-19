@@ -913,8 +913,24 @@ code {
   overflow: hidden;
 }
 
+/* `object-fit: contain` is not cosmetic here: it is what makes the image obey
+   the SAME letterbox rule as the overlay on top of it.
+
+   An `<svg viewBox="0 0 w h">` defaults to `preserveAspectRatio="xMidYMid meet"`
+   — it fits the viewBox inside its viewport and CENTRES the leftover. The image
+   used to be `width: 100%; height: auto`, which does not centre anything: it
+   just overflows and gets cropped by `overflow: hidden`. So the moment the stage
+   box stopped matching the image's aspect ratio the two disagreed, and they
+   disagreed *sideways* — every corner drew ~40 px right of where it belonged
+   while still looking like a plausible overlay. Measured on V11: the stage was
+   640×420 for an 80×60 image, and the marks sat 4.6 image px to the right.
+
+   With `contain` both sides letterbox identically, so the marks stay on the
+   pixels they describe whatever the container does to the box. */
 .sample-view__stage img {
   width: 100%;
+  height: 100%;
+  object-fit: contain;
   display: block;
 }
 
@@ -1329,6 +1345,16 @@ code {
   gap: 8px;
   margin: 10px 0;
   max-width: 640px;
+}
+
+/* `.sample-view__stage` carries `flex: 1 1 420px`, and this is a COLUMN flex
+   container — so that basis lands on the HEIGHT and overrode the inline
+   `aspect-ratio` the screen sets from the payload. An 80×60 image got a 640×420
+   box instead of 640×480: the bottom was cropped and the overlay letterboxed.
+   The stage must be sized by its aspect ratio, so it opts out of flexing. */
+.predict-stage .sample-view__stage {
+  flex: 0 0 auto;
+  width: 100%;
 }
 
 /* While a new prediction is in flight the last one stays on screen, dimmed. The
