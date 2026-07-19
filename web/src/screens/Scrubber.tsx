@@ -109,7 +109,9 @@ export function Scrubber({ run, source, index }: { run: string; source: string; 
         imagen y lee las 4 cabezas en vivo. La entrada está{" "}
         <strong>en distribución</strong> (recorta píxeles reales, no los inventa), y mide{" "}
         <strong>cuánto tiembla</strong> la predicción al mover la ventana 1 px — que es lo que fija
-        el <code>stride</code> de inferencia y el radio de NMS.
+        el <code>stride</code> de inferencia y el radio de NMS. El <strong>área</strong> de cada
+        punto es proporcional a su score (relleno si pasa de 0,5; aro vacío si no), así que se ve
+        qué esquinas detecta sin mirar los medidores.
       </Declares>
 
       {loading && !data && <Loading what="la ventana" />}
@@ -141,17 +143,47 @@ export function Scrubber({ run, source, index }: { run: string; source: string; 
                 height={data.patch_size}
                 className="scrubber__window"
               />
-              {/* The predicted corners, in image px. */}
-              {data.corners.map((c) => (
-                <circle
-                  key={c.corner}
-                  cx={c.image_x}
-                  cy={c.image_y}
-                  r={Math.max(2, data.image_size[0] / 140)}
-                  fill={colors[c.corner as CornerName]}
-                  opacity={0.9}
-                />
-              ))}
+              {/* The predicted corners, in image px. **El radio lleva el score**:
+                  el área es proporcional a la puntuación (r ∝ √score), que es la
+                  codificación honesta para un punto — el ojo lee área, no radio.
+                  Un punto grande = detectada; uno diminuto = la cabeza dice que no,
+                  pero sigue dibujado (con el aro vacío) porque *dónde* la sitúa
+                  cuando no la ve también es información. Sin esto los cuatro puntos
+                  se veían idénticos y una esquina inventada tenía la misma cara
+                  que una detectada. */}
+              {data.corners.map((c) => {
+                // El punto más grande cabe en la ventana: el radio se mide en
+                // unidades del patch (que es de 10 px en unos runs y de 40 en
+                // otros), con un tope en unidades de imagen para que un patch
+                // grande no tape el recorte. El radio fijo de antes —imagen/140—
+                // dibujaba sobre un patch de 10 px puntos más anchos que la
+                // propia ventana.
+                const rMax = Math.max(3, Math.min(data.patch_size * 0.5, data.image_size[0] / 40));
+                // El suelo se mide contra `rMax`, no en píxeles absolutos: un
+                // score de 0,000 tenía que seguir siendo un punto localizable.
+                const rMin = rMax * 0.18;
+                const r = rMin + (rMax - rMin) * Math.sqrt(Math.max(0, Math.min(1, c.score)));
+                const hit = c.score >= 0.5;
+                return (
+                  <circle
+                    key={c.corner}
+                    cx={c.image_x}
+                    cy={c.image_y}
+                    r={r}
+                    fill={hit ? colors[c.corner as CornerName] : "none"}
+                    stroke={colors[c.corner as CornerName]}
+                    // El trazo también en px de imagen: con `rMax * 0.14` sobre un
+                    // patch de 10 px salía un pelo de medio píxel — un aro correcto
+                    // e invisible en pantalla.
+                    strokeWidth={Math.max(rMax * 0.25, data.image_size[0] / 400)}
+                    opacity={hit ? 0.9 : 0.65}
+                  >
+                    <title>
+                      {c.corner}: {c.score.toFixed(3)}
+                    </title>
+                  </circle>
+                );
+              })}
             </svg>
           </div>
 
