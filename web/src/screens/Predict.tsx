@@ -8,7 +8,7 @@ import {
   type Prediction,
   type SampleInfo,
 } from "../api";
-import { Empty, ErrorNote, Loading } from "../components/Async";
+import { Empty, ErrorNote, Loading, Working } from "../components/Async";
 import { Declares } from "../components/Declares";
 import { cornerColors } from "../theme/palette";
 import { useAsync } from "../useAsync";
@@ -224,6 +224,7 @@ function PredictStage({ run, source, index }: { run: string; source: string; ind
       </div>
 
       {result.loading && !result.data && <Loading what="la predicción" />}
+      {result.loading && result.data && <Working what="la predicción" />}
       {result.error && <ErrorNote problem={result.error} />}
       {result.data && (
         <PipelineOverlay

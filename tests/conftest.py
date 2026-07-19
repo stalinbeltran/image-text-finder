@@ -72,6 +72,11 @@ class Layout:
     #: is not just hygiene: a cache keyed on a run name would hand one test's
     #: table to another if they shared a root.
     cache: Path
+    #: The source offset index (`itf.datasets.index`). Throwaway for the same
+    #: reason as `derived_sources`: the default points at the REAL
+    #: `data/cache/sources/`, so a test that forgot to override it would write
+    #: index files for its tmp sources into the repo.
+    sources_index_cache: Path
     #: H — the sweeps (fase 7). Throwaway so a test never writes `sweeps/` in the
     #: real repo, and so optuna's SQLite lands in tmp.
     sweeps: Path
@@ -168,6 +173,7 @@ def layout(tmp_path: Path) -> Layout:
         networks=tmp_path / "configs" / "networks",
         recipes=tmp_path / "configs" / "recipes",
         cache=tmp_path / "cache" / "diagnostics",
+        sources_index_cache=tmp_path / "cache" / "sources",
         sweeps=tmp_path / "sweeps",
         jobs=tmp_path / "jobs",
         derived_sources=tmp_path / "derived-sources",
@@ -197,6 +203,7 @@ def itf_api(layout: Layout):
         networks_root=layout.networks,
         recipes_root=layout.recipes,
         diagnostics_cache_root=layout.cache,
+        sources_index_cache_root=layout.sources_index_cache,
         sweeps_root=layout.sweeps,
         jobs_root=layout.jobs,
         derived_sources_root=layout.derived_sources,

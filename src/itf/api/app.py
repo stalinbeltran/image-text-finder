@@ -44,6 +44,7 @@ from itf.api.schemas import (
     WindowBody,
 )
 from itf.datasets import SourceDataset
+from itf.datasets.index import SourceIndex, count_lines, load_index, peek_index
 from itf.datasets.resize import ResizeRequest, check_resize, resize_source, source_sizes
 from itf.datasets.roots import list_ids, source_roots, split_id
 from itf.diagnostics import (
@@ -161,12 +162,29 @@ def _source_path(c: Context, source_id: str) -> Path:
     return candidate
 
 
+def _source_index(c: Context, ds: SourceDataset) -> SourceIndex:
+    """The offset index of a source, built on first use and then cached on disk.
+
+    Building it reads `labels.jsonl` whole (30 s on a 522 MB source), so this is
+    the one place allowed to pay that -- and it pays it once per version of the
+    file, not once per request.
+    """
+    return load_index(ds.labels_path, c.settings.sources_index_cache_root)
+
+
 def _sample(c: Context, source_id: str, index: int):
+    """One image. **One seek and one 26 KB parse**, not a pass over the file.
+
+    This used to iterate `ds.samples()` until it found the index, which parses
+    the entire source -- and it is called once per thumbnail, per predict and
+    per scrubber drag. On a 20 000-image source a single gallery was minutes of
+    CPU, which is why the screen looked dead rather than slow.
+    """
     ds = SourceDataset(_source_path(c, source_id))
-    for s in ds.samples():
-        if s.index == index:
-            return s
-    raise not_found("sample_not_found", f"la fuente '{source_id}' no tiene la imagen {index}")
+    entry = _source_index(c, ds).get(index)
+    if entry is None:
+        raise not_found("sample_not_found", f"la fuente '{source_id}' no tiene la imagen {index}")
+    return ds.sample_at(entry.offset)
 
 
 def register_sources(app: FastAPI) -> None:
@@ -176,13 +194,18 @@ def register_sources(app: FastAPI) -> None:
         out = []
         for source_id, path in list_ids(_source_roots(c)):
             ds = SourceDataset(path)
-            samples = ds.samples()
+            # The picker must stay cheap. Counting images is a scan for
+            # newlines (~1 s on 522 MB); knowing how many OVERLAP means parsing
+            # every line, so it is reported only when the index already exists.
+            # `null` and not `0`: absent is not zero (formatos.md §2) -- zero
+            # overlapping images is a fact about the data, and this is not it.
+            cached = peek_index(ds.labels_path, c.settings.sources_index_cache_root)
             out.append(
                 {
                     "id": source_id,
                     "source_id": ds.id,
-                    "num_samples": len(samples),
-                    "num_overlapping": sum(1 for s in samples if s.has_overlap),
+                    "num_samples": len(cached) if cached else count_lines(ds.labels_path),
+                    "num_overlapping": cached.num_overlapping if cached else None,
                     # Absent means an ORIGINAL, not "a derived one we lost track
                     # of" (formatos.md §4.6). The screen can say which parent and
                     # which scale instead of guessing from a name.
@@ -215,6 +238,9 @@ def register_sources(app: FastAPI) -> None:
                     "patch_dataset_not_found",
                     f"no existe el dataset de patches '{patch_dataset}'",
                 )
+        # From the index, not from `ds.samples()`: a listing needs five scalars
+        # per image and none of the geometry, and the geometry is 99 % of the
+        # bytes. `GET .../geometry` is where the quads are, one image at a time.
         return {
             "samples": [
                 {
@@ -222,10 +248,10 @@ def register_sources(app: FastAPI) -> None:
                     "width": s.width,
                     "height": s.height,
                     "has_overlap": s.has_overlap,
-                    "num_blocks": len(s.blocks),
+                    "num_blocks": s.num_blocks,
                     "split": split_of.get(s.index),
                 }
-                for s in ds.samples()
+                for s in _source_index(c, ds).entries
             ]
         }
 

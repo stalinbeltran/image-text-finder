@@ -101,7 +101,26 @@ class SourceDataset:
                     yield self._parse(json.loads(line))
 
     def samples(self) -> list[Sample]:
+        """Every image, geometry included. **Parses the whole file.**
+
+        On a large source that is 522 MB and 30 s (see `itf.datasets.index`), so
+        this is for the one consumer that genuinely needs every block --
+        `patches/extract.py`. To show or predict on *one* image, use
+        `sample_at` with an offset from the index.
+        """
         return list(self)
+
+    def sample_at(self, offset: int) -> Sample:
+        """The one image whose line starts at ``offset``. One seek, one parse.
+
+        The offset comes from `itf.datasets.index`, which keys its cache on the
+        file's size and mtime -- an offset into a *changed* file does not raise,
+        it decodes a different image, so the freshness check is not optional.
+        """
+        with self.labels_path.open("rb") as fh:
+            fh.seek(offset)
+            line = fh.readline()
+        return self._parse(json.loads(line.decode("utf-8")))
 
     def _parse(self, rec: dict) -> Sample:
         lab = rec["labels"]

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getWindow, sampleImageUrl, type WindowPrediction } from "../api";
-import { ErrorNote, Loading } from "../components/Async";
+import { ErrorNote, Loading, Working } from "../components/Async";
 import { Declares } from "../components/Declares";
 import { Meter } from "../components/Meter";
 import { cornerColors, CORNER_NAMES, type CornerName } from "../theme/palette";
@@ -105,6 +105,7 @@ export function Scrubber({ run, source, index }: { run: string; source: string; 
       </Declares>
 
       {loading && !data && <Loading what="la ventana" />}
+      {loading && data && <Working what="la ventana" />}
       {error && <ErrorNote problem={error} />}
 
       {data && (

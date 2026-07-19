@@ -86,7 +86,11 @@ export function Sources() {
                     </td>
                     <td className="table__num">{s.num_samples}</td>
                     <td className="table__num">
-                      {s.num_overlapping > 0 ? (
+                      {s.num_overlapping === null ? (
+                        <span title="aún sin contar: hay que recorrer la geometría entera. Se rellena al abrir la fuente.">
+                          sin contar
+                        </span>
+                      ) : s.num_overlapping > 0 ? (
                         <span title="bloques que se solapan de verdad; drop_overlap los descarta">
                           {s.num_overlapping}
                         </span>

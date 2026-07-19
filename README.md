@@ -567,4 +567,6 @@ docs/            # el diseño
 versiona la descripción** (configs, métricas, manifests, `spec.json`) — ver
 [docs/formatos.md](docs/formatos.md) §5.
 `data/cache/` es **derivado entero**: se recalcula exacto, así que ni se versiona ni se echa de
-menos.
+menos. Hoy guarda dos cosas: `diagnostics/` (la tabla por patch, D1) y `sources/` (el índice de
+offsets de cada `labels.jsonl`). Borrarlo no pierde nada; lo único que cuesta es que la primera
+visita a una fuente grande vuelva a tardar sus ~30 s en reconstruir el índice.

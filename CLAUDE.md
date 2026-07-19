@@ -113,6 +113,18 @@ Ver [README.md](README.md) para montar y correr.
 > investigación** (⑧), no una forma de ahorrar disco. Y la resolución de ids vive en
 > **`itf.datasets.roots`, una sola vez**: la usan `GET /sources`, `itf-extract` e `itf-resize`.
 
+> **Fuera de plan (2026-07-19): el índice de offsets de A.** Una fuente de 20 000 imágenes tiene un
+> `labels.jsonl` de **522 MB**, y todo lector de A lo parseaba entero (30 s) — por petición.
+> `itf.datasets.index` guarda, por imagen, **dónde empieza su línea** más los cinco escalares que
+> un listado necesita, en `data/cache/sources/`. Es un **caché como las tablas por patch (D1)**:
+> recomputable, borrable sin pérdida, y **con la fecha+tamaño del fichero en la clave** — un offset
+> contra un fichero cambiado no falla, decodifica **otra imagen**, que es el único fallo silencioso
+> que esto podía introducir (y por eso el resize, D19, lo invalida solo). Tres consecuencias:
+> `GET /sources` **no cuenta solapes** si no hay índice (devuelve `null`, no `0`: ausente ≠ cero) y
+> la pantalla dice «sin contar»; `_sample` es un `seek`; y `SourceDataset.samples()` queda para el
+> extractor, su único consumidor legítimo. Medido: `/samples` 30 s → **0,05 s**, 12 miniaturas
+> ~6 min → **0,13 s**.
+
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.
 
@@ -322,6 +334,19 @@ aparecieron por no elegir. Construir desde cero **no protege de ellas: las invit
   implícito, `log(0)` no existe y **Plot descarta todas las barras sin avisar**, dejando los ejes.
   Se caza contando marcas en el SVG, no mirando. Y dos series de `rect` sobre el mismo rango x **se
   tapan**, no se agrupan. *(Fase 5.)*
+- **Releer la fuente entera para mirar una imagen**: `SourceDataset.samples()` parsea el
+  `labels.jsonl` **completo**, y ahí dentro va toda la geometría anidada (`blocks[]`, `lines[]`,
+  `words[]`). En `dirty-paragraphs-80ancho` eso son **522 MB y 30 s**. `GET /sources`, `GET
+  /samples` y **`_sample()` —una vez por miniatura, por predicción y por arrastre del scrubber—**
+  lo hacían cada uno: una galería de 24 miniaturas eran ~12 minutos de CPU. **No fallaba: parecía
+  roto.** Lo arregla `itf.datasets.index` (offsets por imagen, cacheados en
+  `data/cache/sources/`), y la costumbre que lo sostiene es: **para mirar UNA imagen no se llama a
+  `samples()`** — se pide el offset al índice y se usa `sample_at`. `samples()` es para el único
+  consumidor que necesita todos los bloques, el extractor. *(2026-07-19.)*
+- **Una respuesta lenta sin acuse de recibo se lee como un clic perdido**: V11 y V5 dejan el
+  fotograma anterior en pantalla a propósito (atenuado) para que un slider en vivo no parpadee —
+  pero atenuar **no es un mensaje**, y a 30 s por respuesta la pantalla parecía ignorar el clic.
+  `Working` (components/Async.tsx) lo dice con palabras. *(2026-07-19.)*
 - **Un mapa moteado parece estructura**: el 40×40 de V7 con ~200 esquinas son 0,1 muestras por
   celda — **cierto e ilegible**, que es peor que ilegible. Enseña siempre cuántas muestras hay
   detrás de una celda. *(Fase 5.)*

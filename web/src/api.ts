@@ -61,7 +61,10 @@ export interface Source {
   id: string;
   source_id: string;
   num_samples: number;
-  num_overlapping: number;
+  /** `null` = not counted yet (the source has no index on disk), NOT zero.
+   *  Counting overlaps means parsing every block of every image, so the picker
+   *  refuses to pay it; opening the source builds the index and fills it in. */
+  num_overlapping: number | null;
   /** `null` means an ORIGINAL, not "a derived one we lost track of" (D19). */
   derived: Derived | null;
 }

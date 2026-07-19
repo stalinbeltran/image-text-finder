@@ -156,6 +156,39 @@ code {
   color: var(--itf-ink-muted);
 }
 
+/* "Received, still working" — the stale frame stays, but the dimming alone is
+   not a message. Colour and a spinner, so a 30 s answer never reads as a click
+   that was dropped. */
+.async--working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* No new colour: D12 says the palette lives in tokens.css and only there. */
+  color: var(--itf-ink-muted);
+  font-size: 0.9em;
+}
+
+.async__spinner {
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: itf-spin 0.8s linear infinite;
+}
+
+@keyframes itf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .async__spinner {
+    animation-duration: 3s;
+  }
+}
+
 .async--error {
   padding: 12px 14px;
   border-radius: 6px;

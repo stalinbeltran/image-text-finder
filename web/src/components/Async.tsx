@@ -34,6 +34,23 @@ export function Loading({ what }: { what: string }) {
   );
 }
 
+/** A request is in flight but the PREVIOUS answer is still on screen.
+ *
+ * Distinct from `Loading`, which replaces the content: V11 and V5 keep the last
+ * frame on purpose so a live slider or a drag reads as continuous instead of
+ * strobing a blank. But dimming the stale frame is all that said so, and dimming
+ * is invisible when the answer takes 30 s on a busy CPU -- the screen then looks
+ * like it ignored the click. A click that was received must SAY so, however
+ * long the answer takes. */
+export function Working({ what }: { what: string }) {
+  return (
+    <p className="async async--working" role="status">
+      <span className="async__spinner" aria-hidden="true" />
+      Calculando {what}… (lo que ves es la respuesta anterior)
+    </p>
+  );
+}
+
 export function ErrorNote({ problem }: { problem: ApiProblem | Error }) {
   if (!isApiProblem(problem)) {
     return (

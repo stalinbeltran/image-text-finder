@@ -39,6 +39,13 @@ class Settings:
     #: gitignored. It has a root of its own because it is the one directory in
     #: the project that is safe to throw away at any moment.
     diagnostics_cache_root: Path
+    #: The byte-offset index over each source's `labels.jsonl`
+    #: (`itf.datasets.index`). A CACHE for the same reason as the one above:
+    #: recomputable from the file it indexes, keyed by that file's size+mtime,
+    #: and safe to delete. It has to live under OUR root and not beside
+    #: `labels.jsonl` because `datasets_root` is the generator's and read-only.
+    #: Defaulted so existing fixtures need not pass it.
+    sources_index_cache_root: Path = REPO_ROOT / "data" / "cache" / "sources"
     #: H — the sweeps (`sweeps/<name>/spec.json` + optuna's SQLite). Like `runs/`,
     #: it is a RECORD: the spec is versioned (formatos.md §5), the `.db` is load
     #: and ignored. A root of its own so a test can point it at throwaway disk.
@@ -90,6 +97,7 @@ class Settings:
             # directory is derived, and D5's criterion is that what can be
             # recomputed is not kept.
             diagnostics_cache_root=data_root / "cache" / "diagnostics",
+            sources_index_cache_root=data_root / "cache" / "sources",
             sweeps_root=sweeps_root,
             jobs_root=data_root / "jobs",
             derived_sources_root=data_root / "sources",
