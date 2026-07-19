@@ -266,6 +266,14 @@ Elegir estrategia (`grid | random`), objetivo y presupuesto. Lanzar, ver, podar,
 
 ### Runs (E)
 
+**Son dos pantallas, no una** (2026-07-19): `/runs` es la **lista** —una fila por run: estado,
+procedencia por nombre, mejor valor del monitor, épocas, s/época— y `/runs/:name` el **detalle**
+—procedencia entera, ejecución (X), curvas (V14) y **todas** las épocas—. Con las curvas y la
+tabla desplegadas dentro de cada tarjeta, ver *qué runs hay* costaba una pantalla de scroll por
+run, y un barrido deja doce de golpe: la lista dejaba de responder la pregunta que es su razón de
+ser. La URL lleva el nombre, así que un run concreto se enlaza y se recarga — y renombrar **mueve
+la pantalla** (`navigate`), porque quedarse en la vieja da un 404 al siguiente refresco.
+
 Lo de hoy (listar, curvas en vivo, renombrar, borrar, re-entrenar) más:
 
 - **De qué B, C y D salió, por nombre** — hoy imposible: el run copia el valor y pierde la

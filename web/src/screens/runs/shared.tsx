@@ -1,66 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  ApiError,
-  deleteRun,
-  getRunMetrics,
-  listRuns,
-  renameRun,
-  stopRun,
-  type EpochRecord,
-  type Provenance,
-  type RunRow,
-} from "../api";
-import { ErrorNote, Empty, Loading, type ApiProblem } from "../components/Async";
-import { TrainingCurves } from "../components/TrainingCurves";
-import { useAsync } from "../useAsync";
-import { Link } from "react-router-dom";
+import { getRunMetrics, type EpochRecord, type Provenance, type RunState, type RunSummary } from "../../api";
+import { TrainingCurves } from "../../components/TrainingCurves";
 
-/** Runs (E) — the trained model: weights + metrics + provenance.
- *
- * ui.md §2. The one thing this screen has that the old `RunsPanel` could not
- * have: **where each run came from, by name** (contract ③). Before, a run copied
- * the VALUE of C and D and lost their identity, so "which runs used network X?"
- * meant diffing dictionaries by hand — and that is the question a sweep asks all
- * the time.
- *
- * The `lockArchitecture` toggle is gone and has nothing to replace it: with C and
- * D separated, "re-train the same network" is *choose another recipe with the
- * same C*, which is what it always was.
- */
-export function Runs() {
-  const runs = useAsync(listRuns, []);
-  const live = (runs.data?.runs ?? []).some((r) => r.state === "running" || r.state === "queued");
+/** What the list and the detail of a run share. Split in two screens (list =
+ *  qué runs hay + CRUD; detalle = qué pasó dentro de uno), so the pieces that
+ *  both need live here and not duplicated: duplicating `Progress` would be the
+ *  «definir un número dos veces» trap with a component instead of a metric. */
 
-  // A queued run becomes running, and a running one finishes, without anyone
-  // clicking. The per-epoch metrics have their own incremental poll (R5); this
-  // one is just the state, and it stops as soon as nothing is moving.
-  useEffect(() => {
-    if (!live) return;
-    const timer = setInterval(() => runs.reload(), 2000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live]);
-
-  return (
-    <section className="screen screen--wide">
-      <h1 className="screen__title">Runs</h1>
-      <p className="screen__lede">
-        Un modelo entrenado: pesos, métricas y <strong>procedencia</strong>. De qué dataset, qué red
-        y qué receta salió — <strong>por nombre</strong>, que es lo que permite agrupar y comparar.
-      </p>
-
-      {runs.loading && !runs.data && <Loading what="los runs" />}
-      {runs.error && <ErrorNote problem={runs.error} />}
-      {runs.data?.runs.length === 0 && (
-        <Empty>Todavía no hay ningún run. Lanza uno desde Entrenar.</Empty>
-      )}
-
-      {runs.data?.runs.map((run) => <RunCard key={run.name} run={run} onChange={runs.reload} />)}
-    </section>
-  );
-}
-
-const STATE_LABEL: Record<string, string> = {
+export const STATE_LABEL: Record<string, string> = {
   queued: "en cola",
   running: "corriendo",
   done: "terminado",
@@ -68,81 +15,7 @@ const STATE_LABEL: Record<string, string> = {
   cancelled: "cancelado",
 };
 
-function RunCard({ run, onChange }: { run: RunRow; onChange: () => void }) {
-  const [problem, setProblem] = useState<ApiProblem | null>(null);
-  const [renaming, setRenaming] = useState(false);
-  const [newName, setNewName] = useState(run.name);
-  const isLive = run.state === "running" || run.state === "queued";
-
-  /** Returns whether it worked, so a caller can tell "done" from "refused".
-   *  Swallowing that made the rename form close on a 409 and throw away what the
-   *  user had typed -- with the error showing, but the input gone. */
-  async function act(fn: () => Promise<unknown>): Promise<boolean> {
-    setProblem(null);
-    try {
-      await fn();
-      onChange();
-      return true;
-    } catch (err) {
-      setProblem(err instanceof ApiError ? err.problem : { code: "unknown", message: String(err) });
-      return false;
-    }
-  }
-
-  return (
-    <article className="card">
-      <header className="card__head">
-        <h2 className="card__title">
-          {run.name} <span className="run-state" data-state={run.state}>{STATE_LABEL[run.state] ?? run.state}</span>
-        </h2>
-        <div className="row-actions row-actions--tight">
-          {/* The entrance to Diagnóstico (ui.md §2). Only for a run that has
-              provenance: without it there is no B to measure against, and the
-              screen would only be able to refuse. */}
-          {run.provenance && !isLive && (
-            <Link className="button button--quiet" to="/diagnostics">
-              Diagnóstico
-            </Link>
-          )}
-          {isLive && (
-            <button className="button button--quiet" onClick={() => act(() => stopRun(run.name))}>
-              Parar
-            </button>
-          )}
-          <button className="button button--quiet" onClick={() => setRenaming((v) => !v)} disabled={isLive}>
-            Renombrar
-          </button>
-          <button className="button button--quiet" onClick={() => act(() => deleteRun(run.name))} disabled={isLive}>
-            Borrar
-          </button>
-        </div>
-      </header>
-
-      {problem && <ErrorNote problem={problem} />}
-
-      {renaming && (
-        <form
-          className="row-actions"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            // Only close if it actually happened. A 409 leaves the form open
-            // with the name still in it, which is what you need to fix it.
-            if (await act(() => renameRun(run.name, newName))) setRenaming(false);
-          }}
-        >
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} />
-          <button className="button" type="submit">
-            Guardar
-          </button>
-        </form>
-      )}
-
-      {run.error && <ErrorNote problem={{ code: "run_corrupt", message: run.error }} />}
-      {run.provenance ? <ProvenanceFacts provenance={run.provenance} /> : null}
-      <Progress run={run} />
-    </article>
-  );
-}
+export const isLiveState = (s: RunState) => s === "running" || s === "queued";
 
 /** Contract ③ on screen: the name to group, the value to reproduce.
  *
@@ -150,7 +23,7 @@ function RunCard({ run, onChange }: { run: RunRow; onChange: () => void }) {
  * a different B, and without the huella nothing would tell two runs apart that
  * "used the same dataset" (contract ⑧).
  */
-function ProvenanceFacts({ provenance: p }: { provenance: Provenance }) {
+export function ProvenanceFacts({ provenance: p }: { provenance: Provenance }) {
   return (
     <>
       <p className="card__section">
@@ -223,10 +96,23 @@ function ProvenanceFacts({ provenance: p }: { provenance: Provenance }) {
  * answers "where is this going", a table answers "what exactly was epoch 17" —
  * and it is the same R5 twin the maps have.
  */
-function Progress({ run }: { run: RunRow }) {
+export function Progress({
+  name,
+  state,
+  summary,
+  secondsPerEpoch,
+  epochsShown = 6,
+}: {
+  name: string;
+  state: RunState;
+  summary: RunSummary | null;
+  secondsPerEpoch: number | null;
+  /** The detail screen shows the whole history; the list does not use this at all. */
+  epochsShown?: number;
+}) {
   const [records, setRecords] = useState<EpochRecord[]>([]);
   const since = useRef(0);
-  const isLive = run.state === "running" || run.state === "queued";
+  const isLive = isLiveState(state);
 
   useEffect(() => {
     let alive = true;
@@ -236,7 +122,7 @@ function Progress({ run }: { run: RunRow }) {
         // `since` is what the last call handed back, so only new epochs travel.
         // Re-sending the history each time is what made watching a run cost more
         // the longer it ran.
-        const fresh = await getRunMetrics(run.name, since.current);
+        const fresh = await getRunMetrics(name, since.current);
         if (!alive || fresh.records.length === 0) return;
         since.current = fresh.next;
         setRecords((prev) => [...prev, ...fresh.records]);
@@ -256,7 +142,7 @@ function Progress({ run }: { run: RunRow }) {
       alive = false;
       if (timer !== undefined) clearInterval(timer);
     };
-  }, [run.name, isLive]);
+  }, [name, isLive]);
 
   if (records.length === 0) {
     return (
@@ -267,7 +153,8 @@ function Progress({ run }: { run: RunRow }) {
   }
 
   const last = records[records.length - 1];
-  const total = run.summary?.epochs_requested;
+  const total = summary?.epochs_requested;
+  const shown = epochsShown <= 0 ? records : records.slice(-epochsShown);
 
   return (
     <>
@@ -275,7 +162,7 @@ function Progress({ run }: { run: RunRow }) {
         Progreso{" "}
         <span className="card__hint">
           época {last.epoch}
-          {total ? ` de ${total}` : ""} · {run.seconds_per_epoch?.toFixed(1)} s/época de media
+          {total ? ` de ${total}` : ""} · {secondsPerEpoch?.toFixed(1)} s/época de media
         </span>
       </p>
       {/* V14. Three panels with the epoch axis aligned — never one plot with two
@@ -297,7 +184,7 @@ function Progress({ run }: { run: RunRow }) {
             </tr>
           </thead>
           <tbody>
-            {records.slice(-6).map((r) => (
+            {shown.map((r) => (
               <tr key={r.epoch}>
                 <td>{r.epoch}</td>
                 <td className="table__num">{r.train_loss.toFixed(4)}</td>
@@ -315,15 +202,15 @@ function Progress({ run }: { run: RunRow }) {
           </tbody>
         </table>
       </div>
-      {run.summary && (
+      {summary && (
         <p className="card__foot">
-          Mejor <code>{run.summary.monitor}</code>:{" "}
+          Mejor <code>{summary.monitor}</code>:{" "}
           {/* "sin medir", never a number: a monitor that never fired is an
               absence, and printing something there would invent a result. */}
-          <strong>{run.summary.best === null ? "sin medir" : run.summary.best.toFixed(4)}</strong> ·{" "}
-          {run.summary.epochs_run} de {run.summary.epochs_requested} épocas
-          {run.summary.stopped_early && " · cortado por patience"}
-          {run.summary.cancelled && " · parado a mano"}
+          <strong>{summary.best === null ? "sin medir" : summary.best.toFixed(4)}</strong> ·{" "}
+          {summary.epochs_run} de {summary.epochs_requested} épocas
+          {summary.stopped_early && " · cortado por patience"}
+          {summary.cancelled && " · parado a mano"}
         </p>
       )}
     </>

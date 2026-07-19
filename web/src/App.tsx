@@ -8,7 +8,8 @@ import { Networks } from "./screens/Networks";
 import { Patches } from "./screens/Patches";
 import { Predict } from "./screens/Predict";
 import { Recipes } from "./screens/Recipes";
-import { Runs } from "./screens/Runs";
+import { RunDetail } from "./screens/runs/RunDetail";
+import { Runs } from "./screens/runs/Runs";
 import { Sources } from "./screens/Sources";
 import { Sweeps } from "./screens/sweeps/Sweeps";
 import { Train } from "./screens/Train";
@@ -87,6 +88,9 @@ export function App() {
                 />
               );
             })}
+            {/* El detalle de un run cuelga de su lista: la URL lleva el nombre,
+                así que un run concreto se puede enlazar y recargar. */}
+            <Route path="/runs/:name" element={<RunDetail />} />
             <Route path="/kitchen" element={<Kitchen />} />
             <Route
               path="*"

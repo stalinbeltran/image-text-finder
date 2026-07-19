@@ -1125,6 +1125,13 @@ code {
   max-width: 44ch;
 }
 
+/* Un nombre de run partido en dos líneas ("dirty-10-lr-optim-" / "1-0004") se lee
+   como dos runs distintos al barrer la lista con la vista. La tabla ya vive
+   dentro de .table__scroll, así que no caber se resuelve desplazando. */
+.table__nowrap {
+  white-space: nowrap;
+}
+
 .table--dense th,
 .table--dense td {
   padding: 3px 6px;
