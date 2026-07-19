@@ -1,0 +1,124 @@
+{
+  "format_version": 1,
+  "network": {
+    "input_size": 10,
+    "in_channels": 1,
+    "backbone": [
+      {
+        "filters": 32,
+        "kernel": 3,
+        "stride": 1,
+        "batchnorm": true,
+        "activation": "relu",
+        "pool": 2,
+        "dropout": 0
+      },
+      {
+        "filters": 64,
+        "kernel": 3,
+        "stride": 1,
+        "batchnorm": true,
+        "activation": "relu",
+        "pool": 2,
+        "dropout": 0
+      }
+    ],
+    "head": {
+      "hidden": [
+        128
+      ],
+      "dropout": 0.3
+    },
+    "border_features": true
+  },
+  "recipe": {
+    "lr": 0.0012520653814999472,
+    "optimizer": "adam",
+    "momentum": 0.9,
+    "weight_decay": 0.0,
+    "batch_size": 64,
+    "grad_clip": 0.0,
+    "epochs": 10,
+    "scheduler": "none",
+    "warmup_epochs": 0,
+    "patience": 0,
+    "min_delta": 0.0,
+    "lambda_pos": 1.0,
+    "pos_weight": null,
+    "smooth_l1_beta": 0.05,
+    "monitor": "val_loss",
+    "seed": 1
+  },
+  "execution": {
+    "device": "cpu",
+    "num_workers": 0
+  },
+  "provenance": {
+    "patch_dataset": {
+      "name": "dirty-10",
+      "fingerprint": "sha256:1c590103395d337454724b45093c04c5b8b7b5574f4d7e0a83231c69b3e06feb"
+    },
+    "network": {
+      "name": "cnn-10",
+      "value": {
+        "input_size": 10,
+        "in_channels": 1,
+        "backbone": [
+          {
+            "filters": 32,
+            "kernel": 3,
+            "stride": 1,
+            "batchnorm": true,
+            "activation": "relu",
+            "pool": 2,
+            "dropout": 0
+          },
+          {
+            "filters": 64,
+            "kernel": 3,
+            "stride": 1,
+            "batchnorm": true,
+            "activation": "relu",
+            "pool": 2,
+            "dropout": 0
+          }
+        ],
+        "head": {
+          "hidden": [
+            128
+          ],
+          "dropout": 0.3
+        },
+        "border_features": true
+      }
+    },
+    "recipe": {
+      "name": "dirty-10-lr-optim-1",
+      "value": {
+        "lr": 0.0012520653814999472,
+        "optimizer": "adam",
+        "momentum": 0.9,
+        "weight_decay": 0.0,
+        "batch_size": 64,
+        "grad_clip": 0.0,
+        "epochs": 10,
+        "scheduler": "none",
+        "warmup_epochs": 0,
+        "patience": 0,
+        "min_delta": 0.0,
+        "lambda_pos": 1.0,
+        "pos_weight": null,
+        "smooth_l1_beta": 0.05,
+        "monitor": "val_loss",
+        "seed": 1
+      }
+    },
+    "sweep": "dirty-10-lr-optim-1",
+    "git_commit": "97318808c25bd086557cc2b1e8582fdcc4b6b5b8+sucio",
+    "environment": {
+      "python": "3.12.10",
+      "torch": "2.13.0+cpu",
+      "platform": "win32"
+    }
+  }
+}
