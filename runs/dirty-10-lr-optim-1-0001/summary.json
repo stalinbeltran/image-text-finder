@@ -1,0 +1,31 @@
+{
+  "run": "dirty-10-lr-optim-1-0001",
+  "epochs_run": 1,
+  "epochs_requested": 10,
+  "stopped_early": false,
+  "cancelled": true,
+  "monitor": "val_loss",
+  "best": 0.17674509944152275,
+  "final": {
+    "epoch": 1,
+    "train_loss": 0.25651299755289614,
+    "val": {
+      "loss": 0.17674509944152275,
+      "cls_loss": 0.08175128945178142,
+      "pos_loss": 0.09499381017807243,
+      "exists_acc": 0.9747955747955748,
+      "precision": 0.9212141595896746,
+      "recall": 0.5484856070087609,
+      "f1": 0.6875862934605247,
+      "pos_err_px": 1.4341107800345547
+    },
+    "lr": 0.0026938830192854116,
+    "seconds": 365.147
+  },
+  "corner_order": [
+    "TL",
+    "TR",
+    "BR",
+    "BL"
+  ]
+}
