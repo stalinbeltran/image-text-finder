@@ -37,6 +37,7 @@ o resultados de investigación que el barrido mismo contestará.
 | **D11** | ¿Backportear NIST a las librerías? | **No.** Funciona; su valor ya está cobrado como evidencia | librerias.md §4 |
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
 | **D20** | ¿La **maximización de activación** (V17) reabre D13? | Ver abajo — **es la única de §2 que contradice una decisión ya cerrada**, así que no se resuelve construyendo | ui.md §4.1 |
+| **D21** | ¿Merece la pena reanudar **dentro** de un trial? (reanudar el barrido **ya está hecho**) | **Esperar y medir**: cuesta cambiar el formato de `last.pt` y sostener una invariante nueva, para un ahorro que nadie ha medido | organizacion.md ⑪ |
 
 ---
 
@@ -53,6 +54,36 @@ de la baseline fija, para saber la curva "más datos → cuánto mejora" antes d
 presupuesto grande. Es una pregunta distinta a "qué receta es mejor", y mezclarlas multiplica el
 coste sin necesidad.
 **Dónde vivirá**: protocolo.md §3.
+
+### D21 — ¿Merece la pena reanudar **dentro** de un trial?
+
+*(Abierta 2026-07-19. Ojo al alcance: **reanudar el barrido ya está resuelto** —`POST
+/sweeps/{name}/resume` y el botón «Continuar»—. Esto es lo que queda: las épocas del trial que
+estaba en vuelo.)*
+
+**Cómo se llegó aquí**: el 19/07 se perdieron dos puntos de `dirty-20-lambda_pos_1` al morir el
+proceso, y el diagnóstico inicial fue «hay que poder reanudar». **Era medio cierto y el reparto
+importa**: reanudar el *barrido* ya existía y solo le faltaba una puerta (estaba cableado al
+`lifespan`, así que la única forma de continuar era reiniciar el backend). Lo que sigue perdiéndose
+son las épocas del trial en vuelo: `_reap_running` lo marca `FAIL` y **borra su run**.
+
+**En juego, y por qué no es gratis**: `last.pt` guarda hoy `{model, config, epoch}` y nada más.
+Reanudar desde ahí sin el estado del optimizador y del RNG produce un run con el mismo nombre y la
+misma procedencia que el no interrumpido y **pesos distintos**, en silencio — el contrato **⑪** lo
+desarrolla, y formatos.md §4.2.2 dice qué habría que guardar para que fuese bit-exacto. O sea que
+esto **no es "añadir un flag"**: es cambiar el formato de `last.pt` y sostener una invariante nueva.
+
+**Y hay un segundo problema, independiente**: la identidad del trial en optuna. Un trial `RUNNING`
+cuyo proceso murió no se continúa entre procesos; lo que hay es reencolar el punto
+(`study.enqueue_trial`), y el trial nuevo trae **otro número** — pero el run se llama
+`{sweep}-{trial.number:04d}`, así que continuar los pesos de `-0003` como `-0004` deja una
+procedencia que no se sostiene sola.
+
+**Recomiendo esperar y medir antes de construir.** Con poda activada la mayoría de los puntos mueren
+en la época 3, y el coste real de perder *un* trial en vuelo puede ser minutos. Es un trabajo caro
+(formato + invariante + optuna) para un ahorro que **nadie ha medido todavía**: la pregunta previa
+es *cuánto tiempo se pierde al año por esto*, y sale de mirar los barridos reales, no de razonar.
+**Dónde vivirá**: organizacion.md ⑪ y formatos.md §4.2.2 (ya escritos como diseño, **no construidos**).
 
 ### D20 — ¿La maximización de activación (V17) reabre D13?
 

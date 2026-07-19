@@ -891,6 +891,19 @@ export const stopSweep = (name: string) =>
     { method: "POST" }
   );
 
+/** The counterpart of `stopSweep`. Picks a stopped or interrupted sweep back up.
+ *
+ * The machinery predates the button: the API resumes unfinished sweeps on
+ * startup, so before this existed the only way to continue a stopped sweep was
+ * **restarting the backend** — which reads as "there is no way to continue".
+ * 409 if it already met its budget, or if it is already running.
+ */
+export const resumeSweep = (name: string) =>
+  request<{ name: string; job: string; resumed: boolean }>(
+    `/sweeps/${encodeURIComponent(name)}/resume`,
+    { method: "POST" }
+  );
+
 // ── X: jobs ──────────────────────────────────────────────────────────────────
 
 export interface Job {

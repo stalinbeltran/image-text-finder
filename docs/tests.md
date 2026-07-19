@@ -222,6 +222,28 @@ Debería pasar en cuanto exista el bucle (`manual_seed` + `num_workers=0` cubren
 > desde la UI y desde `itf-train` dio los mismos números hasta el último decimal (val loss
 > `0.8602307364344597`). Dos puertas, un resultado.
 
+### 5.1 La reanudación es un caso de reproducibilidad, no una utilidad
+
+> **El test de abajo no existe todavía porque lo que describe no está construido** *(2026-07-19)*:
+> reanudar el **barrido** sí está hecho y testeado (`test_resume_clears_the_stop_request`,
+> `test_resume_refuses_a_finished_sweep_with_a_reason`); reanudar **dentro de un trial** es D21.
+
+Reanudar un entrenamiento interrumpido **pretende ser X** —mismo resultado, menos tiempo perdido—,
+y la implementación ingenua lo convierte en D en silencio: sin el estado del optimizador y del RNG,
+el run reanudado tiene el mismo nombre y la misma procedencia que el no interrumpido, y **otros
+pesos**. Ver organizacion.md ⑪ y formatos.md §4.2.2.
+
+Por eso el test no pregunta «¿reanuda?» sino **si reanudar se nota**:
+
+> **N épocas de tirón == N−k épocas + reanudar las k que faltan**, hasta el último bit.
+
+Es la regla 1 de protocolo.md §7 aplicada a la interrupción, y **hereda su control**: con otra
+semilla los pesos deben diferir, o «son iguales» lo cumpliría también un bucle que no entrena.
+Conviene además afirmar los dos fallos silenciosos de al lado, porque ninguno rompe nada visible:
+que `metrics.jsonl` tenga **N líneas y no N+k** (si no, V14 dibuja una curva que retrocede), y que
+**`best.pt` no empeore** al reanudar (sin `best_monitor` la primera época de la segunda vuelta se
+cree la mejor y machaca un checkpoint superior).
+
 **Retrocompatibilidad: no hay ninguna que testear, y es una simplificación de D18.** Este
 documento pedía un test para leer `config.json` sin procedencia degradando; **D3 lo mató**: no
 queda ningún run viejo, así que todo run nace completo y un `config.json` sin procedencia es un

@@ -194,10 +194,43 @@ pierden, los datos siguen cargando y significan otra cosa.
 |---|---|
 | `config.json` | `format_version`, la receta (D), la red por valor (C) y la **procedencia** (§4.2.1). **`device` no está** *dentro de la receta*: es X (contrato ⑩), y va en `execution` |
 | `metrics.jsonl` | Una línea JSON por época: `{epoch, train_loss, val:{…}, lr, seconds}` |
-| `best.pt`, `last.pt` | `{"model": state_dict, "config": dict, "epoch": int}` |
+| `best.pt` | `{"model": state_dict, "config": dict, "epoch": int}` — es el **entregable**: lo que F carga (contrato ④) |
+| `last.pt` | Lo anterior **más el estado de reanudación** (§4.2.2): es el **punto de guardado**, no un entregable |
 | `summary.json` | `{run, epochs_run, epochs_requested, stopped_early, cancelled, monitor, best, final, corner_order}` |
 | `status.json` | El estado **explícito**: `queued \| running \| done \| error \| cancelled`. Sin él, un crash queda "running" para siempre |
 | `stop.json` | La **petición** de parada: `{requested_at, reason}`. Existe solo si alguien la pidió *(fase 4)* |
+
+#### 4.2.2 `last.pt` — el estado de reanudación
+
+> **Diseño, NO construido** *(2026-07-19)*. Hoy `last.pt` sigue siendo `{model, config, epoch}`, y
+> **la tabla de abajo es lo que haría falta** para reanudar dentro de un trial sin mentir. Está
+> escrito porque el camino barato —arrancar de `last.pt` tal cual— es el que sale natural y es el
+> que rompe el contrato ⑪. Decisión de si se hace: **D21**.
+
+**`best.pt` y `last.pt` dejan de tener el mismo formato, y es a propósito**: responden a preguntas
+distintas. `best.pt` es el **entregable** —lo que F carga, lo que contrato ④ exige que se describa
+solo— y **no cambia**: meterle estado de optimizador engordaría cada checkpoint que sirve inferencia
+con datos que la inferencia no mira. `last.pt` es el **punto de guardado**, y lleva todo lo que hace
+falta para que reanudar sea *bit-exacto*:
+
+| Clave | Qué | Por qué, si falta |
+|---|---|---|
+| `model` | Los pesos | — |
+| `config` | La red, como en `best.pt` (contrato ④) | — |
+| `epoch` | La última época **completada** | Se reanudaría desde 0 o se saltaría una |
+| `optimizer` | `optimizer.state_dict()` | Adam pierde sus momentos y SGD su inercia (`momentum=0.9`): la trayectoria **cambia** |
+| `scheduler` | `scheduler.state_dict()`, o `null` si `scheduler: "none"` | El lr reanudaría en el valor de la época 0 |
+| `rng` | `{torch, numpy}` — los estados de los generadores | Cambian el **barajado** y las **máscaras de dropout** de lo que queda |
+| `best_monitor` | El mejor valor de `monitor` visto | La 1ª época tras reanudar se cree la mejor y **machaca un `best.pt` superior** |
+
+**`null` en `scheduler` significa "esta receta no tiene", y es distinto de que falte la clave**
+(§2). Un `last.pt` **sin** las claves de reanudación es un checkpoint del formato viejo: no se
+reanuda desde él inventando un optimizador a cero —eso es exactamente el fallo silencioso del
+contrato ⑪—, se **empieza de nuevo** diciéndolo.
+
+**`metrics.jsonl` es append-only, así que reanudar lo trunca a `epoch` líneas antes de seguir.** Si
+no, las épocas de la primera vuelta que ya se habían escrito quedan **duplicadas** con las de la
+segunda, y V14 dibuja una curva que retrocede en el tiempo — cierta línea a línea, falsa como curva.
 
 > **`best` es `null` si el monitor no midió nunca — jamás `±inf`** *(fase 4)*. Un centinela infinito
 > no es una medición: es su ausencia (§2). Y no sobrevive al viaje: `json.dumps` escribe `Infinity`,

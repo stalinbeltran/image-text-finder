@@ -464,6 +464,53 @@ más rápido.
 `num_workers` sí es X puro: hoy 0 (Windows); con GPU habrá que subirlo para alimentarla.
 No cambia los pesos.
 
+### ⑪ X ↔ D — reanudar solo es X si es **bit-exacto**
+
+> **Esto es diseño, no código: NO está construido** *(2026-07-19)*. Se escribió al preguntarse por
+> la reanudación y descubrir que el problema real era otro: **reanudar un barrido ya existía**
+> (`POST /sweeps/{name}/resume` y el botón «Continuar»; antes solo lo disparaba el `lifespan`, así
+> que continuar exigía reiniciar el backend). Lo que sigue sin poder reanudarse son **las épocas de
+> un trial en vuelo**, y este contrato es la razón por la que eso no es un flag: ver **D21**, que
+> recomienda medir el ahorro antes de pagarlo.
+
+*(Abierto 2026-07-19, a raíz de perder dos puntos de `dirty-20-lambda_pos_1` al morir el proceso.)*
+
+Reanudar un entrenamiento interrumpido **pretende ser X**: la misma receta, el mismo resultado,
+menos tiempo perdido. Es la regla 3 del criterio de dominios ("¿solo cambia cuánto tarda? → X").
+**Pero la implementación ingenua lo convierte en D sin decirlo**, y ese es todo el contrato.
+
+Hoy `last.pt` guarda `{"model": state_dict, "config": dict, "epoch": int}` — **y nada más**.
+Arrancar de ahí reconstruye los pesos, pero **no** el resto del estado que decide la trayectoria:
+
+- **El optimizador.** Los tres (`adam`, `adamw`, `sgd`) tienen estado: Adam sus momentos, y SGD
+  corre a `momentum=0.9` (ver D §`momentum`, que ya fue una trampa una vez). Reanudar sin él
+  **reinicia la inercia** a mitad de curva.
+- **El RNG.** `train()` hace `torch.manual_seed(recipe.seed)` al empezar; reanudar volvería a
+  sembrarlo, así que el **orden de barajado** y las **máscaras de dropout** de las épocas
+  restantes no son las que habrían salido.
+- **El `scheduler`** (`recipe.scheduler`), por la misma razón.
+- **El mejor valor visto.** `best.pt` se elige contra el mejor `monitor` hasta ahora; si se
+  reanuda sin ese número, la primera época de la reanudación **cree que es la mejor** y machaca
+  un checkpoint superior.
+
+El resultado es un run con **el mismo nombre, el mismo `config.json` y la misma procedencia** que
+el que habrías obtenido sin la interrupción, y **pesos distintos**. Nada lo dice. Es exactamente la
+forma de fallo que este proyecto colecciona: no revienta, produce un artefacto bien formado que
+mide otra cosa.
+
+Y el daño no se queda en un run: rompe la premisa sobre la que se apoyan las cinco reglas de
+comparación de [protocolo.md](protocolo.md) §7 —«mismo seed + misma config ⇒ mismos pesos», que
+`tests/test_reproducibility.py` existe para sostener—. Pasaría a ser «⇒ mismos pesos, **salvo que
+te interrumpieran**», y dos puntos de un barrido dejarían de ser comparables **según cuándo murió
+el proceso**. Un barrido es justamente la máquina de comparar puntos.
+
+**La regla, entonces**: la reanudación es legítima **solo si el run reanudado es idéntico al no
+interrumpido**. Eso la mantiene en X. Y es **afirmable**, que es lo que la salva de ser una buena
+intención: *N épocas de tirón == N−k épocas + reanudar k* (tests.md). Si algún día no se puede
+hacer bit-exacta, la salida **no es reanudar igualmente y callarse**: es que el run lo **declare**
+en su procedencia (`resumed_at`), de forma que quien compare sepa que ese punto no es del mismo
+molde que los demás. Rellenar el hueco en silencio es formatos.md §2 otra vez: **ausente ≠ cero**.
+
 ### ④ E → F — el checkpoint se describe solo
 
 `load_model()` lee `ckpt["config"]["model"]` y reconstruye la red. F **nunca** necesita el

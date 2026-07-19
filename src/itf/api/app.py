@@ -1326,6 +1326,35 @@ def _submit_sweep_job(c: Context, spec: SweepSpec, resumed: bool = False):
     )
 
 
+def _why_not_resumable(c: Context, spec: SweepSpec) -> tuple[str, str] | None:
+    """`(code, message)` if there is nothing left to run, else `None`.
+
+    One question, two callers with deliberately different manners: the startup
+    resumer *skips* what this rejects, `POST /resume` *refuses out loud* with the
+    reason (R4). Asking it once is what stops the button and the restart from
+    drifting apart about what "unfinished" means.
+
+    **Two things are NOT asked here**, and both omissions are the point:
+
+    - **The stop request.** A restart must not undo an explicit "stop" -- you
+      asked for it, and the API coming back up is not you changing your mind. But
+      `POST /resume` **is** you changing your mind, so it clears the request.
+    - **Whether it is already running.** At startup nothing has been submitted
+      yet, and a sweep whose job record was lost reads as `queued` by default --
+      refusing on that would silently stop resuming it, which is the behaviour
+      this function exists to preserve. It is the endpoint's question, so the
+      endpoint asks it.
+    """
+    progress = _sweep_progress(c, spec)
+    if progress["completed"] >= spec.budget.points:
+        return (
+            "sweep_already_complete",
+            f"el barrido '{spec.name}' ya cumplió su presupuesto "
+            f"({progress['completed']}/{spec.budget.points} puntos): no queda nada que reanudar",
+        )
+    return None
+
+
 def resume_sweeps(c: Context) -> list[str]:
     """Re-enqueue every sweep that a restart left unfinished. Returns their names.
 
@@ -1341,10 +1370,10 @@ def resume_sweeps(c: Context) -> list[str]:
             spec = c.sweeps.spec(name)
         except (SweepNotFound, ValueError):
             continue
+        # A restart must not undo an explicit stop (see `_why_not_resumable`).
         if c.sweeps.stop_requested(name):
             continue
-        progress = _sweep_progress(c, spec)
-        if progress["completed"] >= spec.budget.points:
+        if _why_not_resumable(c, spec):
             continue
         _submit_sweep_job(c, spec, resumed=True)
         resumed.append(name)
@@ -1481,6 +1510,60 @@ def register_sweeps(app: FastAPI) -> None:
         spec = _spec_or_404(c, name)
         c.sweeps.request_stop(name)
         return {"name": spec.name, "stop_requested": True}
+
+    @app.post("/sweeps/{name}/resume", status_code=202)
+    def resume_sweep(name: str, c: Context = Depends(get_context)) -> dict:
+        """Pick a stopped or interrupted sweep back up. **The counterpart of `/stop`.**
+
+        The machinery already existed and had exactly one trigger: the `lifespan`,
+        which resumes unfinished sweeps when the API starts. So a stopped sweep
+        could only be continued by **restarting the backend** -- the capability was
+        real and unreachable, which reads to a user as "there is no way to
+        continue" (it did: 2026-07-19).
+
+        Nothing new happens here. It goes through `_submit_sweep_job`, the same
+        door `POST /sweeps` and the resumer use, because `run_sweep` cannot tell
+        "started" from "resumed": it counts the terminal trials in `optuna.db` and
+        runs the rest. **What is durable is on disk**, so resuming is submitting
+        the job again.
+
+        **It clears the stop request**, and that is the difference from the startup
+        resumer, which deliberately leaves stopped sweeps alone (see
+        `_why_not_resumable`). Without clearing it the job would start and stop
+        again at the first trial boundary -- a button that looks like it worked and
+        does nothing, which is worse than no button.
+        """
+        spec = _spec_or_404(c, name)
+
+        # **Ask the queue, not `_sweep_state`** (formatos.md §2: ausente ≠ cero).
+        # `_sweep_state` answers `queued` when it finds NO job for the sweep --
+        # a sensible default for a display, and a wrong premise for a decision:
+        # a stopped sweep whose job record is gone is exactly the case this
+        # endpoint exists for, and it would be refused for "already queued".
+        # Caught by `test_resume_clears_the_stop_request`.
+        live = next(
+            (
+                j
+                for j in c.jobs.list()
+                if j.kind == "sweep"
+                and j.detail.get("sweep") == name
+                and j.state in ("queued", "running")
+            ),
+            None,
+        )
+        if live is not None:
+            raise conflict(
+                "sweep_already_running",
+                f"el barrido '{spec.name}' ya está {live.state}",
+                "míralo en la tabla de puntos; si quieres pararlo, usa /stop",
+            )
+        if why := _why_not_resumable(c, spec):
+            code, message = why
+            raise conflict(code, message, "crea un barrido nuevo si quieres más puntos")
+
+        c.sweeps.clear_stop(name)
+        job = _submit_sweep_job(c, spec, resumed=True)
+        return {"name": spec.name, "job": job.id, "resumed": True}
 
 
 # ── X: /jobs ──────────────────────────────────────────────────────────────────

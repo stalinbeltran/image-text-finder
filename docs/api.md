@@ -341,10 +341,26 @@ POST /sweeps                → job   {name, patch_dataset, network, space, stra
 GET  /sweeps/{name}                 spec + progreso
 GET  /sweeps/{name}/trials          la tabla ordenada por objetivo (V12, V13)
 POST /sweeps/{name}/stop
+POST /sweeps/{name}/resume  → job   409 si ya cumplió su presupuesto, o si ya está corriendo
 ```
 
 `POST /sweeps` **rechaza con `400`** si `objective` es `loss` y `lambda_pos` está en `space`
 (contrato ⑨). No es un aviso: es un `400`.
+
+> **`/resume` es una puerta a un mecanismo que ya existía** *(2026-07-19)*. La reanudación se
+> construyó en la fase 7 y quedó con **un solo disparador: el `lifespan`**. Es decir que un barrido
+> parado solo podía continuarse **reiniciando el backend** — una capacidad real e inalcanzable, que
+> desde la pantalla se lee como «no se puede continuar», y así se reportó. No añade lógica: pasa por
+> `_submit_sweep_job`, la misma puerta que `POST /sweeps` y el resumer, porque `run_sweep` no
+> distingue «empezar» de «reanudar»: cuenta los trials terminados en `optuna.db` y corre el resto.
+>
+> Dos asimetrías deliberadas con el resumer del arranque: **`/resume` retira la petición de parada**
+> (reiniciar el API no debe deshacer un «para» explícito, pero pulsar el botón **es** cambiar de
+> opinión — sin retirarla el job arrancaría y se pararía en el primer trial, un botón que aparenta
+> funcionar), y **solo `/resume` mira si ya está corriendo**. Esa segunda comprobación pregunta a la
+> cola, **no** a `_sweep_state`, que contesta `queued` cuando **no encuentra job**: un barrido parado
+> cuyo registro de job se perdió es justo el caso del endpoint, y se le habría negado por «ya
+> encolado». `ausente ≠ cero` (formatos.md §2) con otro disfraz — lo cazó el test, no el diseño.
 
 ### `/runs/{name}/predict` (F)
 

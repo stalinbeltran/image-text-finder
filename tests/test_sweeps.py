@@ -9,6 +9,7 @@ re-running is a resume, not a restart (plan-ui.md fase 7 verification).
 from __future__ import annotations
 
 import json
+import time
 
 from itf.sweeps import SweepSpec, check_sweep
 from itf.sweeps.runner import run_sweep
@@ -204,6 +205,102 @@ def test_startup_resumes_an_unfinished_sweep_to_completion(layout):
         assert body is not None
         assert body["completed"] == 2, f"el resume debe completar el barrido, quedó en {body}"
         assert body["best"] is not None
+
+
+def _api(layout):
+    """A TestClient over a real on-disk layout. Shared by the resume tests."""
+    from fastapi.testclient import TestClient
+
+    from itf.api.app import create_app
+    from itf.settings import Settings
+
+    settings = Settings(
+        datasets_root=layout.datasets,
+        patch_datasets_root=layout.patch_datasets,
+        runs_root=layout.runs,
+        networks_root=layout.networks,
+        recipes_root=layout.recipes,
+        diagnostics_cache_root=layout.cache,
+        sweeps_root=layout.sweeps,
+        jobs_root=layout.jobs,
+        derived_sources_root=layout.derived_sources,
+        allowed_roots=(layout.datasets, layout.derived_sources),
+        cors_origins=("http://localhost:5173",),
+    )
+    return TestClient(create_app(settings))
+
+
+def test_resume_clears_the_stop_request(layout):
+    """`POST /resume` is the counterpart of `/stop`, and **clearing is the point**.
+
+    A stopped sweep has `stop.json` on disk, and `should_stop` reads it every trial
+    boundary. Resubmitting the job without removing it produces the worst possible
+    outcome: the job starts, the runner asks "should I stop?", the answer is still
+    yes, and it stops again -- a button that looks like it worked and did nothing.
+
+    So the assertion is not "a job was submitted" (that would pass with the bug),
+    it is that **the request is gone** afterwards.
+    """
+    stores = _stores(layout)
+    spec = SweepSpec.from_dict(
+        {
+            "name": "stopped",
+            "patch_dataset": "tiny-40",
+            "network": "cnn-a",
+            "recipe": "base",
+            "space": {"lr": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True}},
+            "objective": "f1",
+            "strategy": "random",
+            "budget": {"points": 2, "epochs": 1},
+        }
+    )
+    stores["sweeps"].create(spec)
+    stores["sweeps"].request_stop("stopped")
+    assert stores["sweeps"].stop_requested("stopped")
+
+    with _api(layout) as client:
+        response = client.post("/sweeps/stopped/resume")
+
+    assert response.status_code == 202, response.json()
+    assert response.json()["resumed"] is True
+    assert not stores["sweeps"].stop_requested("stopped"), "reanudar debe retirar la parada"
+
+
+def test_resume_refuses_a_finished_sweep_with_a_reason(layout):
+    """409 with the reason, not a silent no-op (R4).
+
+    Resubmitting a sweep that met its budget would enqueue a job that immediately
+    finds nothing to do and reports `done` -- indistinguishable, from the screen,
+    from having resumed something.
+    """
+    stores = _stores(layout)
+    spec = SweepSpec.from_dict(
+        {
+            "name": "finished",
+            "patch_dataset": "tiny-40",
+            "network": "cnn-a",
+            "recipe": "base",
+            "space": {"lr": {"type": "float", "low": 1e-4, "high": 1e-2, "log": True}},
+            "objective": "f1",
+            "strategy": "random",
+            "budget": {"points": 1, "epochs": 1},
+        }
+    )
+    stores["sweeps"].create(spec)
+
+    with _api(layout) as client:
+        # Run it to its budget first, through the same door the UI uses.
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            body = client.get("/sweeps/finished").json()
+            if body["completed"] >= 1 or body["state"] in {"done", "error"}:
+                break
+            time.sleep(0.1)
+
+        response = client.post("/sweeps/finished/resume")
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "sweep_already_complete"
 
 
 def test_read_progress_on_an_unstarted_sweep_is_empty(layout):

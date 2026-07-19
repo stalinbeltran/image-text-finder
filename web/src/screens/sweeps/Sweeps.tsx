@@ -7,6 +7,7 @@ import {
   listPatchDatasets,
   listRecipes,
   listSweeps,
+  resumeSweep,
   stopSweep,
   OBJECTIVE_DIRECTION,
   type Distribution,
@@ -485,6 +486,8 @@ const LIVE = new Set(["queued", "running"]);
 function SweepDetail({ name, onClose }: { name: string; onClose: () => void }) {
   const sweep = useAsync(() => getSweep(name), [name]);
   const [stopping, setStopping] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const [resumeError, setResumeError] = useState<ApiProblem | null>(null);
   const data = sweep.data;
 
   // Poll while the sweep is live: points land one at a time, and the snapshot the
@@ -505,6 +508,28 @@ function SweepDetail({ name, onClose }: { name: string; onClose: () => void }) {
     }
   }
 
+  async function resume() {
+    setResuming(true);
+    setResumeError(null);
+    try {
+      await resumeSweep(name);
+      sweep.reload();
+    } catch (e) {
+      // Shown, not swallowed: the two refusals (already complete, already
+      // running) are the answer to "why did nothing happen?" — and a button that
+      // fails silently is what sent someone looking for a button that was there.
+      setResumeError(e instanceof ApiError ? e.problem : null);
+    } finally {
+      setResuming(false);
+    }
+  }
+
+  // Everything left to run, and nothing running it. `completed` and `points` are
+  // the same numbers the table shows, so the button appears exactly when the
+  // screen already says the sweep is unfinished.
+  const canResume =
+    data != null && !LIVE.has(data.state) && data.completed < data.budget.points;
+
   return (
     <div>
       <div className="row-actions">
@@ -516,10 +541,23 @@ function SweepDetail({ name, onClose }: { name: string; onClose: () => void }) {
             {stopping ? "Parando…" : "Parar (entre trials)"}
           </button>
         )}
+        {canResume && (
+          <button className="button" onClick={resume} disabled={resuming}>
+            {resuming ? "Reanudando…" : `Continuar (faltan ${data.budget.points - data.completed})`}
+          </button>
+        )}
       </div>
+
+      {canResume && (
+        <p className="card__hint">
+          Reanudar <strong>no repite</strong> los puntos ya hechos: el estudio vive en disco
+          (`optuna.db`) y el barrido cuenta los trials terminados y corre el resto.
+        </p>
+      )}
 
       {sweep.loading && !data && <Loading what="el barrido" />}
       {sweep.error && <ErrorNote problem={sweep.error} />}
+      {resumeError && <ErrorNote problem={resumeError} />}
 
       {data && <SweepBody data={data} />}
     </div>
