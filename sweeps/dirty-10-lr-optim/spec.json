@@ -1,0 +1,22 @@
+{
+  "name": "dirty-10-lr-optim",
+  "patch_dataset": "dirty-10",
+  "network": "cnn-10",
+  "space": {
+    "lr": {
+      "type": "float",
+      "low": 0.0001,
+      "high": 0.01,
+      "log": true
+    }
+  },
+  "objective": "f1",
+  "strategy": "tpe",
+  "budget": {
+    "points": 12,
+    "epochs": 3,
+    "pruning": true
+  },
+  "recipe": "baseline",
+  "seed": 0
+}

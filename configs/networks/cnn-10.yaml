@@ -1,0 +1,23 @@
+format_version: 1
+input_size: 10
+in_channels: 1
+backbone:
+- filters: 32
+  kernel: 3
+  stride: 1
+  batchnorm: true
+  activation: relu
+  pool: 2
+  dropout: 0
+- filters: 64
+  kernel: 3
+  stride: 1
+  batchnorm: true
+  activation: relu
+  pool: 2
+  dropout: 0
+head:
+  hidden:
+  - 128
+  dropout: 0.3
+border_features: true
