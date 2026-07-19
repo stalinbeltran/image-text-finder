@@ -1,0 +1,124 @@
+{
+  "format_version": 1,
+  "network": {
+    "input_size": 20,
+    "in_channels": 1,
+    "backbone": [
+      {
+        "filters": 16,
+        "kernel": 5,
+        "stride": 1,
+        "batchnorm": true,
+        "activation": "relu",
+        "pool": 4,
+        "dropout": 0
+      },
+      {
+        "filters": 32,
+        "kernel": 5,
+        "stride": 1,
+        "batchnorm": true,
+        "activation": "relu",
+        "pool": 4,
+        "dropout": 0
+      }
+    ],
+    "head": {
+      "hidden": [
+        128
+      ],
+      "dropout": 0.3
+    },
+    "border_features": true
+  },
+  "recipe": {
+    "lr": 0.001,
+    "optimizer": "adam",
+    "momentum": 0.9,
+    "weight_decay": 0.0,
+    "batch_size": 64,
+    "grad_clip": 0.0,
+    "epochs": 5,
+    "scheduler": "none",
+    "warmup_epochs": 0,
+    "patience": 0,
+    "min_delta": 0.0,
+    "lambda_pos": 0.5488135039273248,
+    "pos_weight": null,
+    "smooth_l1_beta": 0.05,
+    "monitor": "val_loss",
+    "seed": 1
+  },
+  "execution": {
+    "device": "cpu",
+    "num_workers": 0
+  },
+  "provenance": {
+    "patch_dataset": {
+      "name": "dirty-20",
+      "fingerprint": "sha256:b47c1b79ae61b35c0ceaf74d0d2133d433b4f05f224fa754b00c8548d28fa41f"
+    },
+    "network": {
+      "name": "cnn-20-border",
+      "value": {
+        "input_size": 20,
+        "in_channels": 1,
+        "backbone": [
+          {
+            "filters": 16,
+            "kernel": 5,
+            "stride": 1,
+            "batchnorm": true,
+            "activation": "relu",
+            "pool": 4,
+            "dropout": 0
+          },
+          {
+            "filters": 32,
+            "kernel": 5,
+            "stride": 1,
+            "batchnorm": true,
+            "activation": "relu",
+            "pool": 4,
+            "dropout": 0
+          }
+        ],
+        "head": {
+          "hidden": [
+            128
+          ],
+          "dropout": 0.3
+        },
+        "border_features": true
+      }
+    },
+    "recipe": {
+      "name": "baseline",
+      "value": {
+        "lr": 0.001,
+        "optimizer": "adam",
+        "momentum": 0.9,
+        "weight_decay": 0.0,
+        "batch_size": 64,
+        "grad_clip": 0.0,
+        "epochs": 5,
+        "scheduler": "none",
+        "warmup_epochs": 0,
+        "patience": 0,
+        "min_delta": 0.0,
+        "lambda_pos": 0.5488135039273248,
+        "pos_weight": null,
+        "smooth_l1_beta": 0.05,
+        "monitor": "val_loss",
+        "seed": 1
+      }
+    },
+    "sweep": "dirty-20-lambda_pos_1",
+    "git_commit": "e641bb9365e46ea187f8f0ff57375c0a6907d12c+sucio",
+    "environment": {
+      "python": "3.12.10",
+      "torch": "2.13.0+cpu",
+      "platform": "win32"
+    }
+  }
+}
