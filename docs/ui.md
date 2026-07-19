@@ -412,6 +412,8 @@ Cada vista declara su control (regla 2). `€` = coste en CPU.
 | **V13** | Coordenadas paralelas | B, C | la receta (D) | el objetivo | líneas normalizadas | secuencial por objetivo | gratis |
 | **V14** | Curvas de entrenamiento | B, C, D | la época | loss y métricas | **small multiples** (R4) | categórica: train/val | gratis |
 | **V15** | Procedencia del patch | B | — | de qué imagen salió | overlay | 1 acento | gratis |
+| **V16** | Deconvolución | E, patch | el filtro | qué píxeles del patch lo activaron | grid de heatmaps | **según la variante** (ver abajo) | 1 fw + 1 bw |
+| **V17** | Maximización de activación | **E** | el filtro | qué entrada le gusta | grid de heatmaps | **secuencial** (es una imagen) | ~200 it/filtro |
 
 Nota sobre V12: **λ es magnitud continua, no identidad** → rampa secuencial, no 4 colores
 categóricos. Y sobre V3: 4 probabilidades contra un umbral son **meters** (razón contra un
@@ -480,6 +482,47 @@ capa 2 en adelante no hay proyección honesta** (32, 64, 128 canales de entrada)
 información está en los **feature maps** (V2), no en los pesos. Conclusión práctica: mostrar la
 capa 1 completa y **no invertir en vistas de kernels profundos**.
 
+**V16 y V17 — las dos formas de preguntarle a un filtro profundo.** Son la respuesta al hueco que
+deja el párrafo anterior: V1 se planta en la capa 1 y V2 enseña *qué hizo* un filtro sobre un patch
+concreto, pero ninguna dice **qué busca** el filtro 37 de la capa 3. Las dos lo atacan por lados
+opuestos, y por eso van juntas al catálogo y no una sola:
+
+- **V16 (deconvolución)** parte de un patch real y propaga hacia atrás la activación de un filtro
+  hasta el espacio de entrada: *de los píxeles que había, cuáles lo encendieron*. Es una
+  **atribución**, hermana de V4 (occlusion) — misma pregunta, distinto instrumento: V4 la contesta
+  tapando y remidiendo (caro, robusto, en distribución), V16 con un backward (barato, exacto
+  respecto al gradiente, y ciego a lo que pasa fuera del punto de operación). Tenerlas las dos es
+  útil precisamente cuando **discrepan**.
+- **V17 (maximización de activación)** no tiene patch: sintetiza por gradiente la entrada que más
+  activa al filtro, partiendo de ruido. Contesta *qué le gusta ver*, sin depender de que el dato
+  tuviera un ejemplo a mano.
+
+**El color de V16 depende de la variante, y por eso hay que declararlo** (R2/R3, api.md §3). Una
+deconvolución cruda es un gradiente: **tiene signo** — hay píxeles que empujan el filtro hacia abajo
+— y va **divergente ±0**, igual que un kernel. *Guided backprop* pone a cero las contribuciones
+negativas por construcción, así que el resultado es no-negativo y va **secuencial**. Deducirlo del
+dato (`min() < 0 ?`) es la trampa que `_job_for_activation` documenta: pintaría la misma vista de
+dos formas según el patch. La variante se elige una vez y el payload dice cuál es.
+
+**V17 se clampa al rango de píxel, y eso no es cosmética.** Una maximización sin restringir se va a
+valores que ninguna imagen puede tener, y lo que sale es un campo de números con forma de ruido
+saturado: cierto y **fuera de distribución**, el defecto que §5 le achaca al editor de píxeles. Con
+la entrada clampada a [0,1] cada iteración, lo que se dibuja **es un patch** — se mira con los
+mismos ojos que la galería de V6 y se compara con un patch real de un vistazo. Por eso su trabajo de
+color es secuencial: no es una atribución con signo, es una imagen en unidades de píxel.
+
+**El coste las separa en dos sitios distintos del sistema.** V16 es un forward y un backward: va
+síncrona, como V2 y V4. V17 son ~200 iteraciones **por filtro**, y una capa tiene 32 o 64 — eso es
+un **job** de la cola (api.md, síncrono vs. job), no una petición que se espera con la pantalla
+abierta. Y sus `n_steps`, `lr` y regularización **son parámetros de la vista, no de la receta**: no
+van al catálogo de hiperparámetros de organizacion.md §1-D, porque no cambian ningún peso — cambian
+lo que dibujas.
+
+> **Bloqueadas por D20.** V17 contradice a **D13** («kernels profundos: nada»), que se cerró
+> argumentando que de la capa 2 en adelante no hay proyección honesta a una matriz. V17 es
+> justamente la proyección que D13 no consideró: no proyecta los pesos, **sintetiza una entrada**.
+> Reabrirla o no es decisión abierta — ver [decisiones.md](decisiones.md) §2.
+
 ### Prioridad
 
 1. **V3, V8, V7, V6** — la tabla de §3 y lo que se lee de ella. Responden la pregunta del
@@ -487,6 +530,9 @@ capa 1 completa y **no invertir en vistas de kernels profundos**.
 2. **V2 + V1, V11, V9** — los mapas portados del proyecto hermano, y el diagnóstico del pipeline.
 3. **V12, V13** — cuando exista H.
 4. **V4, V5, V10, V15** — sondas finas; V5 es la más rentable de las cuatro.
+5. **V16, V17** — qué busca un filtro profundo. Van las últimas y en este orden: V16 es barata y
+   contrasta con V4 (que ya existe), así que se puede juzgar si aporta antes de pagar V17, que es la
+   cara y además está **bloqueada por D20**.
 
 ---
 

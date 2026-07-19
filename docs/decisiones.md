@@ -36,6 +36,7 @@ o resultados de investigación que el barrido mismo contestará.
 | **D10** | ¿Monorepo `claude-libs` o cuatro repos? | Monorepo: cuatro repos es más ceremonia que valor a esta escala. **Sigue abierta**: no se ha creado el repo (van cuatro candidatos sin extraer: `convspec`, `exp-registry`, `matrixview`, `jobq`) | librerias.md §4 |
 | **D11** | ¿Backportear NIST a las librerías? | **No.** Funciona; su valor ya está cobrado como evidencia | librerias.md §4 |
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
+| **D20** | ¿La **maximización de activación** (V17) reabre D13? | Ver abajo — **es la única de §2 que contradice una decisión ya cerrada**, así que no se resuelve construyendo | ui.md §4.1 |
 
 ---
 
@@ -52,6 +53,33 @@ de la baseline fija, para saber la curva "más datos → cuánto mejora" antes d
 presupuesto grande. Es una pregunta distinta a "qué receta es mejor", y mezclarlas multiplica el
 coste sin necesidad.
 **Dónde vivirá**: protocolo.md §3.
+
+### D20 — ¿La maximización de activación (V17) reabre D13?
+
+**En juego**: **D13 se cerró en «kernels profundos: nada»** (§4), y el argumento fue que de la capa
+2 en adelante no hay **proyección honesta** de un filtro (32, 64… canales) a una matriz, así que esa
+información vive en los feature maps (V2). El argumento sigue en pie para los **pesos**. V17 no
+toca los pesos: **sintetiza una entrada** que maximiza el filtro, y esa entrada sí es una matriz
+`n×n` en unidades de píxel, comparable con un patch real. Es decir, no es un contraejemplo a D13 —
+es un camino que D13 no evaluó.
+
+**Lo que hay que decidir no es «¿se puede?» sino «¿dice la verdad?»**. Una maximización es un
+**óptimo local del gradiente sobre ruido**: depende de la semilla, de la regularización y del número
+de pasos, y sale distinta cada vez. Enseñada como «esto es lo que le gusta al filtro 37» tiene la
+misma cara de vista honesta que tenía `weight[k, 0]` — el proyecto hermano ya se comió esa, y es
+literalmente el fallo que motivó D13. La pregunta real: **¿qué tendría que enseñar V17 al lado del
+resultado para que no se lea como un hecho?** (varias semillas en rejilla, la activación alcanzada,
+la receta de la optimización).
+
+**Recomiendo**: **V16 sí, V17 aparcada** hasta tener V16 en pantalla. V16 no toca D13 en absoluto —
+es una atribución sobre un patch real, misma familia que V4 — y contrastarla con V4 (que ya existe)
+dice gratis si estas vistas aportan algo sobre esta red. Si V16 no aporta, V17 tampoco lo hará, y
+sale mucho más cara. Y si D20 se cierra en «sí», **la condición mínima es la de arriba**: V17 no se
+sirve sin varias semillas y sin la activación alcanzada, o repite el error de D13 con mejor
+tipografía.
+
+**Dónde vivirá**: ui.md §4.1 (y, si se cierra en «sí», una nota en D13 diciendo qué parte de aquel
+«nada» sobrevive: los **pesos** profundos siguen sin proyección honesta).
 
 ---
 
