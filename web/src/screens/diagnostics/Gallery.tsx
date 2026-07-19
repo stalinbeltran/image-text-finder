@@ -5,6 +5,7 @@ import { Declares } from "../../components/Declares";
 import { useAsync } from "../../useAsync";
 import { BorderTest } from "./BorderTest";
 import { FeatureMaps } from "./FeatureMaps";
+import { Deconvolution } from "./Deconvolution";
 import { Occlusion } from "./Occlusion";
 import { PatchProvenance } from "./PatchProvenance";
 import { Prediction } from "./Prediction";
@@ -161,6 +162,10 @@ export function Gallery({
           {/* The probes (fase 8), all fixing this same run+patch (V4, V10) or the
               patch's B (V15) — so they open on the same click as V2/V3. */}
           <Occlusion run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
+          {/* V16 fija lo mismo que V4 y contesta la misma pregunta con otro
+              instrumento — V4 tapando y remidiendo, V16 con un backward — así que
+              van seguidas a propósito: lo que informa es cuándo *discrepan*. */}
+          <Deconvolution run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
           <BorderTest run={run} patchDataset={patchDataset} patchIdx={selected.patch_idx} />
           <PatchProvenance patchDataset={patchDataset} row={selected} />
         </>

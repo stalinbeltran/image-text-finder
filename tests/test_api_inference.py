@@ -372,6 +372,54 @@ def test_occlusion_of_the_wrong_size_is_a_400(itf_api):
     assert response.json()["detail"]["code"] == "patch_size_mismatch"
 
 
+def test_deconvolution_is_diverging_maps_in_patch_space(itf_api):
+    """V16 — same input shape as V2 (a patch by index), one map per filter."""
+    client, layout = itf_api
+    _trained(layout)
+
+    body = client.post(
+        "/runs/run-01/deconvolution", json={"patch_dataset": "tiny-40", "index": 0}
+    ).json()
+
+    n = body["input_size"]
+    assert body["layers"], "una red con backbone tiene capas que retropropagar"
+    for layer in body["layers"]:
+        assert layer["job"] == "diverging"  # a gradient is signed (R2)
+        # Patch space, not activation space: every layer overlays the same patch.
+        assert np.shape(layer["maps"][0]["matrix"]) == (n, n)
+
+
+def test_deconvolution_answers_a_border_network_without_flags(itf_api):
+    """Over HTTP: the body carries `border`, the view does not use it.
+
+    `_patch_from_body` is shared with V2/V4/V10, so the flags arrive either way.
+    What this pins is that the endpoint does not *require* them: the backbone is
+    all this probe touches, and `border_features` only reaches the head.
+    """
+    client, layout = itf_api
+    _border_network(layout, run="run-b", b="tiny-b")
+
+    response = client.post(
+        "/runs/run-b/deconvolution", json={"patch_dataset": "tiny-b", "index": 0}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["layers"]
+
+
+def test_deconvolution_of_the_wrong_size_is_a_400(itf_api):
+    """Contract ① reaching F, like the feature maps and the occlusion."""
+    client, layout = itf_api
+    _trained(layout)
+
+    response = client.post(
+        "/runs/run-01/deconvolution", json={"patch": np.zeros((60, 60)).tolist()}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "patch_size_mismatch"
+
+
 def test_border_test_over_a_border_network(itf_api):
     """V10 — one flip per flag, five forwards, over a network that uses the flags."""
     client, layout = itf_api

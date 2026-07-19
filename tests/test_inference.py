@@ -25,6 +25,7 @@ from itf.inference import (
     ModelCache,
     NotInspectable,
     border_test,
+    deconvolution,
     detect_corners,
     feature_maps,
     kernels,
@@ -472,6 +473,102 @@ def test_border_test_flips_exactly_one_flag_at_a_time(layout):
         flipped[b] = 1 - flipped[b]
         expected = feature_maps(model, patch, flipped)
         assert flip["scores"] == [c["score"] for c in expected["prediction"]["corners"]]
+
+
+# ── V16, la deconvolución ─────────────────────────────────────────────────────
+
+
+def test_deconvolution_peak_is_the_max_of_the_feature_map(layout):
+    """V16 — **the seam**: the peak it differentiates is the one V2 draws.
+
+    Same family as `test_occlusion_baseline_is_the_unoccluded_prediction`, and the
+    same reason. V16's map answers "what lit filter k up", and that sentence only
+    means something if the *up* is the activation the rest of the app shows for
+    filter k. Compute the peak some other way -- a mean, a different sample of the
+    batch, an off-by-one in the `h[idx, idx]` diagonal -- and the map is still a
+    plausible-looking attribution, of a number no other view reports.
+
+    The diagonal is the part that would fail silently: `h[i, j]` for i != j is a
+    real activation of the wrong filter, so the view would keep working and keep
+    being wrong. Checking the position too (not just the value) is what pins it.
+    """
+    run, data = _trained_run(layout)
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+
+    dec = deconvolution(model, patch)
+    fm = feature_maps(model, patch)
+
+    assert len(dec["layers"]) == len(fm["layers"])
+    for maps_layer, grad_layer in zip(fm["layers"], dec["layers"]):
+        assert grad_layer["count"] == maps_layer["count"]
+        for shown, peak in zip(maps_layer["maps"], grad_layer["peaks"]):
+            activation = np.asarray(shown["matrix"])
+            assert peak["activation"] == pytest.approx(activation.max(), abs=1e-3)
+            # ...and at that position, which is what catches a wrong diagonal.
+            assert activation[peak["y"], peak["x"]] == pytest.approx(
+                peak["activation"], abs=1e-3
+            )
+
+
+def test_deconvolution_is_signed_and_lives_in_patch_space(layout):
+    """Two invariants that decide whether the picture means anything.
+
+    **Diverging**: a gradient has sign -- pixels that push the filter down are half
+    the information -- so painting it sequential would put the neutral wherever the
+    minimum fell and erase that half (R2, the kernel bug the sibling shipped).
+
+    **Patch space**: the map is `n×n` for every layer, whatever the pools did to
+    the activation. That is what lets a layer-3 map be laid over the patch and
+    compared against a layer-1 map without rescaling either. A map that came back
+    at the activation's size would still render -- as a smaller square, silently
+    misaligned with the patch under it.
+    """
+    run, data = _trained_run(layout)
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+
+    dec = deconvolution(model, patch)
+    n = dec["input_size"]
+
+    signed = False
+    for layer in dec["layers"]:
+        assert layer["job"] == "diverging"
+        assert len(layer["peaks"]) == layer["count"]
+        assert 0 <= layer["silent"] <= layer["count"]
+        for m in layer["maps"]:
+            assert np.shape(m["matrix"]) == (n, n)
+            signed |= m["min"] < 0
+
+    # The control: `diverging` would be a wrong declaration over data that is
+    # never negative, so at least some map must actually go both ways.
+    assert signed, "un gradiente sin valores negativos no justificaría la paleta divergente"
+
+
+def test_deconvolution_does_not_demand_border_flags(layout):
+    """The deliberate asymmetry with V4, pinned so nobody "fixes" it.
+
+    `occlusion` refuses without the flags because it runs the head, and the head is
+    the only thing `border_features` touches. The deconvolution never leaves the
+    backbone, so the flags cannot change a single number in it -- and requiring
+    them would be demanding a datum the view does not read, which is how a probe
+    ends up refusing patches it could have answered.
+    """
+    network = {**NETWORK, "border_features": True}
+    run, data = _trained_run(layout, name="run-deconv-border", network=network)
+    model = load_model(run / "best.pt")
+    with np.load(data / "patches.npz") as arrays:
+        patch = arrays["X"][0, :, :, 0]
+
+    # The control first: this same network/patch DOES refuse the occlusion probe,
+    # so "it answered" below is about the backbone, not about a lax network.
+    with pytest.raises(NotInspectable):
+        occlusion(model, patch)
+
+    dec = deconvolution(model, patch)
+    assert len(dec["layers"]) == len(model.config.backbone)
 
 
 def test_the_scrubber_window_is_the_window_B_extracts(layout):

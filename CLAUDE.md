@@ -62,7 +62,7 @@ Ver [README.md](README.md) para montar y correr.
 > laxa es por la que entra el barrido** — y ya son tres, así que la regla dejó de ser hipotética.
 >
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *133 passed, 0 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *185 passed, 0 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
 > puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Ya no queda ningún
 > xfail**: los diez contratos están implementados.
@@ -124,6 +124,23 @@ Ver [README.md](README.md) para montar y correr.
 > la pantalla dice «sin contar»; `_sample` es un `seek`; y `SourceDataset.samples()` queda para el
 > extractor, su único consumidor legítimo. Medido: `/samples` 30 s → **0,05 s**, 12 miniaturas
 > ~6 min → **0,13 s**.
+
+> **Fuera de plan (2026-07-19): V16, la deconvolución.** Para cada filtro, el gradiente de su
+> activación respecto de la **entrada**: *de los píxeles que había, cuáles lo encendieron*. Vive en
+> `itf.inference.introspect.deconvolution`, cuelga del **mismo clic de la galería** que V2/V4/V10 y
+> **reusa `LayerMaps`** (un kernel, un feature map y una atribución se diferencian en qué significan
+> los números, no en qué son). Cuatro cosas que solo aparecieron al construirla:
+> **(1) guided backprop no es una opción aquí** — se define en el backward de la ReLU y `activation`
+> es un campo de config por bloque (`tanh`, `gelu`…), así que sobre media flota de redes estaría
+> *indefinida*: es gradiente puro, siempre **divergente ±0**, y el módulo sigue **sin un hook**;
+> **(2)** se deriva el **máximo** de la activación, no la suma —sumar mezcla todos los campos
+> receptivos y da una mancha cierta e ilegible, la familia del moteado de V7—;
+> **(3) en la capa 1 la vista es casi trivial** (un pico con kernel 3×3 ⇒ gradiente no-nulo en 3×3
+> píxeles): **se gana el puesto de la capa 2 en adelante**, o sea justo donde D13 dejó el hueco;
+> **(4)** un filtro que no dispara en ese patch da gradiente 0 y **mapa plano**, indistinguible de
+> «gradientes pequeños», así que el payload trae `silent` y la pantalla lo dice — **`silent`, no
+> «muerto»**: es un patch. **V17 (maximización de activación) NO está hecha y está bloqueada por
+> D20**, que pregunta si reabre D13; no la construyas sin cerrarla.
 
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.

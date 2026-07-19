@@ -61,6 +61,7 @@ from itf.inference import (
     ModelCache,
     NotInspectable,
     border_test,
+    deconvolution,
     feature_maps,
     kernels,
     occlusion,
@@ -1157,6 +1158,29 @@ def register_inference(app: FastAPI) -> None:
         patch, border = _patch_from_body(c, body)
         try:
             return occlusion(model, patch, border)
+        except NotInspectable as exc:
+            raise _inspect_problem(exc)
+
+    @app.post("/runs/{name}/deconvolution")
+    def post_deconvolution(
+        name: str,
+        body: FeatureMapsBody,
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V16 — deconvolución sobre UN PATCH (contrato ①).
+
+        Misma entrada que los feature maps —un patch, por índice o inline— y el
+        mismo sitio donde resolverlo. Síncrono (R3): un forward y un backward por
+        capa, del orden de V4.
+
+        `border` se acepta (el cuerpo es el mismo) pero **no se pasa**: la
+        deconvolución no sale del backbone y `border_features` solo toca la cabeza.
+        """
+        model = _model_of(c, name, checkpoint)
+        patch, _border = _patch_from_body(c, body)
+        try:
+            return deconvolution(model, patch)
         except NotInspectable as exc:
             raise _inspect_problem(exc)
 

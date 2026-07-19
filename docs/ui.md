@@ -412,7 +412,7 @@ Cada vista declara su control (regla 2). `€` = coste en CPU.
 | **V13** | Coordenadas paralelas | B, C | la receta (D) | el objetivo | líneas normalizadas | secuencial por objetivo | gratis |
 | **V14** | Curvas de entrenamiento | B, C, D | la época | loss y métricas | **small multiples** (R4) | categórica: train/val | gratis |
 | **V15** | Procedencia del patch | B | — | de qué imagen salió | overlay | 1 acento | gratis |
-| **V16** | Deconvolución | E, patch | el filtro | qué píxeles del patch lo activaron | grid de heatmaps | **según la variante** (ver abajo) | 1 fw + 1 bw |
+| **V16** | Deconvolución | E, patch | el filtro | qué píxeles del patch lo activaron | grid de heatmaps | **divergente ±0** (R2) | 1 fw + 1 bw **por capa** |
 | **V17** | Maximización de activación | **E** | el filtro | qué entrada le gusta | grid de heatmaps | **secuencial** (es una imagen) | ~200 it/filtro |
 
 Nota sobre V12: **λ es magnitud continua, no identidad** → rampa secuencial, no 4 colores
@@ -497,12 +497,33 @@ opuestos, y por eso van juntas al catálogo y no una sola:
   activa al filtro, partiendo de ruido. Contesta *qué le gusta ver*, sin depender de que el dato
   tuviera un ejemplo a mano.
 
-**El color de V16 depende de la variante, y por eso hay que declararlo** (R2/R3, api.md §3). Una
-deconvolución cruda es un gradiente: **tiene signo** — hay píxeles que empujan el filtro hacia abajo
-— y va **divergente ±0**, igual que un kernel. *Guided backprop* pone a cero las contribuciones
-negativas por construcción, así que el resultado es no-negativo y va **secuencial**. Deducirlo del
-dato (`min() < 0 ?`) es la trampa que `_job_for_activation` documenta: pintaría la misma vista de
-dos formas según el patch. La variante se elige una vez y el payload dice cuál es.
+> **Corrección al construirla (2026-07-19): la variante no era una elección.** Este documento decía
+> que el color de V16 dependía de si se usaba deconvolución cruda (con signo ⇒ divergente) o *guided
+> backprop* (no-negativa ⇒ secuencial), y **la segunda opción no existe aquí**: guided backprop se
+> define poniendo a cero las contribuciones negativas **en el backward de la ReLU**, y en este
+> proyecto `activation` es un campo de config **por bloque** (`tanh`, `leaky_relu`, `gelu`, `elu`).
+> Sobre una red `tanh` la variante está **indefinida**, y servirla igualmente sería una vista con
+> buena cara sobre una red donde no significa nada — que es literalmente D13. Así que V16 es
+> **gradiente puro y siempre divergente ±0**, y de paso el módulo sigue **sin un solo hook**.
+
+**Divergente ±0, y no es estética** (R2). Un gradiente negativo es un píxel que empuja al filtro
+*hacia abajo*: la mitad de la información. En rampa secuencial el neutro caería donde cayera el
+mínimo y esa mitad desaparecería — el fallo exacto que el hermano cometió con los kernels.
+
+**Se deriva el máximo de la activación, no su suma.** Sumar el mapa mezcla todos los campos
+receptivos y devuelve una mancha que cubre el patch entero: cierta e ilegible, la familia del
+moteado de V7. El máximo localiza el gradiente en **un** campo receptivo, y el dónde viaja en
+`peaks` porque «este filtro se activó» y «se activó ahí» se leen juntos.
+
+> **Lo que enseñó mirarla** *(2026-07-19)*. **En la capa 1, V16 es casi trivial**: derivar un solo
+> pico con un kernel 3×3 da un gradiente no-nulo en exactamente 3×3 píxeles, así que el mapa es una
+> manchita en la posición del pico — correcto, y poco más que V1 colocado en un sitio. **Donde la
+> vista se gana el puesto es de la capa 2 en adelante**, con campos receptivos grandes y estructura
+> real. Es decir: V16 vale precisamente **donde D13 dejó el hueco**, y eso no se sabía hasta
+> dibujarla. Y un dato del mismo sitio: **22 de 64 filtros de la capa 2 no dispararon** en ese
+> patch, así que su gradiente es 0 y su mapa sale plano — la vista lo **dice con palabras**
+> (`silent`), porque un cuadrado neutro es indistinguible de «gradientes pequeños». **`silent`, no
+> «muerto»**: es un patch, y otro puede despertarlos.
 
 **V17 se clampa al rango de píxel, y eso no es cosmética.** Una maximización sin restringir se va a
 valores que ninguna imagen puede tener, y lo que sale es un campo de números con forma de ruido
@@ -511,8 +532,9 @@ la entrada clampada a [0,1] cada iteración, lo que se dibuja **es un patch** �
 mismos ojos que la galería de V6 y se compara con un patch real de un vistazo. Por eso su trabajo de
 color es secuencial: no es una atribución con signo, es una imagen en unidades de píxel.
 
-**El coste las separa en dos sitios distintos del sistema.** V16 es un forward y un backward: va
-síncrona, como V2 y V4. V17 son ~200 iteraciones **por filtro**, y una capa tiene 32 o 64 — eso es
+**El coste las separa en dos sitios distintos del sistema.** V16 es un forward y un backward **por
+capa**, con el batch replicado a tantas copias como filtros: **medido, 0,03 s** sobre las redes de
+`dirty-10`/`dirty-20`, así que va síncrona como V2 y V4. V17 son ~200 iteraciones **por filtro**, y una capa tiene 32 o 64 — eso es
 un **job** de la cola (api.md, síncrono vs. job), no una petición que se espera con la pantalla
 abierta. Y sus `n_steps`, `lr` y regularización **son parámetros de la vista, no de la receta**: no
 van al catálogo de hiperparámetros de organizacion.md §1-D, porque no cambian ningún peso — cambian
@@ -530,9 +552,9 @@ lo que dibujas.
 2. **V2 + V1, V11, V9** — los mapas portados del proyecto hermano, y el diagnóstico del pipeline.
 3. **V12, V13** — cuando exista H.
 4. **V4, V5, V10, V15** — sondas finas; V5 es la más rentable de las cuatro.
-5. **V16, V17** — qué busca un filtro profundo. Van las últimas y en este orden: V16 es barata y
-   contrasta con V4 (que ya existe), así que se puede juzgar si aporta antes de pagar V17, que es la
-   cara y además está **bloqueada por D20**.
+5. **V16** *(hecha, 2026-07-19)* **y V17** — qué busca un filtro profundo. V16 primero porque es
+   barata y contrasta con V4; V17 sigue **bloqueada por D20**, y lo que V16 enseñó al dibujarse (la
+   capa 1 no aporta, la 2 sí) es justamente el argumento a favor de responderla.
 
 ---
 

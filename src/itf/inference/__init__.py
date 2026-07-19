@@ -20,6 +20,7 @@ from itf.inference.checkpoint import load_model
 from itf.inference.introspect import (
     NotInspectable,
     border_test,
+    deconvolution,
     feature_maps,
     kernels,
     occlusion,
@@ -44,6 +45,7 @@ __all__ = [
     "ModelCache",
     "NotInspectable",
     "border_test",
+    "deconvolution",
     "default_stride",
     "detect_corners",
     "feature_maps",

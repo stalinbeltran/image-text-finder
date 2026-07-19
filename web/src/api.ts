@@ -691,6 +691,34 @@ export interface Occlusion {
   job: "sequential" | "diverging";
 }
 
+/** V16 — one map per filter: the gradient of its peak activation w.r.t. the input.
+ *
+ * Same `(K, H, W)` shape as V1/V2, so `LayerMaps` renders it unchanged — a kernel,
+ * a feature map and an attribution differ in what the numbers mean, not in what
+ * they are. Two fields are V16's own: `peaks` (which activation was
+ * differentiated, and where) and `silent` (filters that never fired on this
+ * patch, so their gradient is 0 everywhere and their map is a flat neutral
+ * square — correct, and indistinguishable from "tiny gradients" unless said).
+ */
+export interface DeconvLayer extends LayerPayload {
+  peaks: { filter: number; activation: number; y: number; x: number }[];
+  /** Of `count`, how many said nothing **on this patch**. Not "dead": one patch. */
+  silent: number;
+}
+
+export interface Deconvolution {
+  input_size: number;
+  layers: DeconvLayer[];
+}
+
+/** V16 — deconvolución. `border` is accepted by the endpoint but unused: the
+ *  gradient never leaves the backbone, and `border_features` only touches the head. */
+export const getDeconvolution = (run: string, ref: PatchRef) =>
+  request<Deconvolution>(`/runs/${encodeURIComponent(run)}/deconvolution`, {
+    method: "POST",
+    body: JSON.stringify(ref),
+  });
+
 export const getOcclusion = (run: string, ref: PatchRef) =>
   request<Occlusion>(`/runs/${encodeURIComponent(run)}/occlusion`, {
     method: "POST",

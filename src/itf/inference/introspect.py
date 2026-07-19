@@ -366,6 +366,127 @@ def occlusion(
     }
 
 
+def deconvolution(
+    model: ConfigurableCNN,
+    patch: np.ndarray,
+    *,
+    device: str = "cpu",
+    max_maps: int = MAX_MAPS_PER_LAYER,
+) -> dict:
+    """V16 — deconvolución. **Fija E y el patch, varía el filtro.**
+
+    Para cada filtro de cada capa: el gradiente de su activación respecto de la
+    **entrada**. Contesta *de los píxeles que había, cuáles encendieron a este
+    filtro* — la pregunta que V1 no puede contestar de la capa 2 en adelante (D13)
+    y que V2 contesta a medias (V2 enseña *qué hizo* el filtro, no *qué miraba*).
+
+    **Gradiente puro, no guided backprop, y no es una preferencia estética.**
+    *Guided backprop* se define poniendo a cero las contribuciones negativas **en
+    el backward de la ReLU**, así que solo existe en redes de ReLU. Aquí
+    `activation` es un campo de config **por bloque** (`_make_activation`: hay
+    `tanh`, `leaky_relu`, `gelu`, `elu`), de modo que la variante «bonita» estaría
+    indefinida en la mitad de las redes que este proyecto sabe construir — y la
+    forma de fallar sería servir una vista con buena cara sobre una red donde no
+    significa nada, que es exactamente D13. El gradiente está definido para todas.
+    De paso, mantiene cierta la frase del módulo: **no hay hooks en ninguna parte**.
+
+    **Con signo ⇒ divergente ±0** (R2). Un gradiente negativo es un píxel que
+    empuja al filtro *hacia abajo*, y eso es la mitad de la información: pintarlo
+    secuencial pondría el neutro donde cayera el mínimo y borraría el signo, el
+    mismo fallo que el hermano cometió con los kernels.
+
+    **Se deriva el máximo de la activación, no su suma.** Sumar el mapa mezcla
+    todos los campos receptivos a la vez y devuelve una mancha que cubre el patch
+    entero: cierta e ilegible, la familia del moteado de V7. El máximo localiza el
+    gradiente en **un** campo receptivo, que es lo que hace la vista legible — y el
+    dónde viaja en `peaks`, porque «este filtro se activó» y «se activó ahí» se
+    leen juntos.
+
+    **El resultado vive en el espacio del patch**, no en el de la capa: todos los
+    mapas salen `n×n` pase lo que pase con los `pool`, así que se superponen
+    directamente sobre el patch y las capas se comparan entre sí sin reescalar.
+
+    **`border` no entra**: `border_features` solo toca la cabeza y esto no sale del
+    backbone. Pedirlo sería exigir un dato que no se usa (formatos.md §2 al revés:
+    no inventes el dato, pero tampoco lo reclames si no lo miras).
+
+    Coste: **un forward y un backward por capa**, con el batch replicado a tantas
+    copias como filtros — del orden de V4, así que síncrono.
+    """
+    if not model.config.backbone:
+        raise NotInspectable(
+            "network_has_no_conv_layers",
+            "esta red no tiene ninguna capa convolucional, así que no hay nada que retropropagar",
+        )
+
+    x0 = _prepare_patch(model, patch).to(device)  # (1, 1, n, n)
+    n = model.config.input_size
+
+    layers = []
+    for li, spec in enumerate(model.config.backbone):
+        k = int(spec["filters"])
+        # One copy of the patch per filter, so a single backward yields every
+        # filter's gradient: sample i's scalar depends only on sample i's input.
+        x = x0.repeat(k, 1, 1, 1).detach().requires_grad_(True)  # (k, 1, n, n)
+
+        h = x
+        for b in range(li + 1):
+            h = model.backbone[b](h)  # (k, K, H, W)
+
+        idx = torch.arange(k, device=h.device)
+        own = h[idx, idx]  # (k, H, W) -- sample i keeps filter i
+        peak = own.reshape(k, -1).max(dim=1)
+        peak_values = peak.values.detach()
+        # Sum over samples: the gradient of the sum is, per sample, the gradient
+        # of its own peak, because no sample's scalar touches another's input.
+        grad = torch.autograd.grad(peak.values.sum(), x)[0]  # (k, 1, n, n)
+
+        height, width = int(own.shape[1]), int(own.shape[2])
+        peaks = [
+            {
+                "filter": i,
+                "activation": round(float(peak_values[i]), 4),
+                "y": int(peak.indices[i]) // width,
+                "x": int(peak.indices[i]) % width,
+            }
+            for i in range(k)
+        ]
+
+        # A filter whose peak is 0 never fired ON THIS PATCH, so its gradient is
+        # 0 everywhere and its map paints as a flat neutral square -- which for a
+        # diverging ramp is *correct* (no attribution) and therefore
+        # indistinguishable from "very small gradients". Said out loud instead:
+        # over the first run it was 18 of 48 maps, which reads as a broken view
+        # if nothing explains it.
+        #
+        # **`silent`, not `dead`**: this is one patch. A filter that says nothing
+        # here may be the one that fires on the next patch, and calling it dead
+        # would be a claim about the network drawn from a single sample -- the
+        # same overreach V9 makes without its control.
+        silent = int((peak_values <= 0).sum())
+
+        layers.append(
+            layer_payload(
+                layer=li + 1,
+                maps=grad[:, 0].detach().cpu().numpy(),  # (k, n, n) -- patch space
+                # A gradient is signed, always. Unlike V2 this does not depend on
+                # the activation: d(act)/d(input) goes both ways even out of a ReLU.
+                job="diverging",
+                max_maps=max_maps,
+                # The map is n×n; the ACTIVATION it came from lived at this size.
+                # Both are said so `peaks` (in activation coords) is readable.
+                height=height,
+                width=width,
+                spec=dict(spec),
+                peaks=peaks,
+                # How many of `count` said nothing on this patch (see above).
+                silent=silent,
+            )
+        )
+
+    return {"input_size": n, "layers": layers}
+
+
 @torch.no_grad()
 def border_test(
     model: ConfigurableCNN,
