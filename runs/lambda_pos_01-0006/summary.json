@@ -1,0 +1,31 @@
+{
+  "run": "lambda_pos_01-0006",
+  "epochs_run": 1,
+  "epochs_requested": 10,
+  "stopped_early": false,
+  "cancelled": true,
+  "monitor": "val_loss",
+  "best": 0.11703274118619605,
+  "final": {
+    "epoch": 1,
+    "train_loss": 0.1564500953088853,
+    "val": {
+      "loss": 0.11703274118619605,
+      "cls_loss": 0.07643714921918837,
+      "pos_loss": 0.09277143349314343,
+      "exists_acc": 0.9769056479582795,
+      "precision": 0.9194527113206817,
+      "recall": 0.5954693366708386,
+      "f1": 0.7228172523282135,
+      "pos_err_px": 1.406919667387337
+    },
+    "lr": 0.001,
+    "seconds": 352.113
+  },
+  "corner_order": [
+    "TL",
+    "TR",
+    "BR",
+    "BL"
+  ]
+}
