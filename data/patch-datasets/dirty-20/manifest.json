@@ -1,0 +1,57 @@
+{
+  "format_version": 1,
+  "fingerprint": "sha256:b47c1b79ae61b35c0ceaf74d0d2133d433b4f05f224fa754b00c8548d28fa41f",
+  "has_border": true,
+  "source_id": "dirty-paragraphs-80ancho",
+  "config": {
+    "source": "C:\\Desarrollo\\image-text-finder\\data\\sources\\dirty-paragraphs-80ancho",
+    "out": "C:\\Desarrollo\\image-text-finder\\data\\patch-datasets\\dirty-20",
+    "patch_size": 20,
+    "stride": 3,
+    "target_kinds": [
+      "paragraph"
+    ],
+    "drop_overlap": true,
+    "split": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    },
+    "seed": 1
+  },
+  "num_samples": 19948,
+  "num_patches": 6283620,
+  "patch_shape": [
+    20,
+    20,
+    1
+  ],
+  "label_shape": [
+    4,
+    3
+  ],
+  "corner_order": [
+    "TL",
+    "TR",
+    "BR",
+    "BL"
+  ],
+  "border_order": [
+    "top",
+    "right",
+    "bottom",
+    "left"
+  ],
+  "patches_per_split": {
+    "train": 5026770,
+    "val": 628425,
+    "test": 628425
+  },
+  "positives_per_corner": {
+    "TL": 1233685,
+    "TR": 1234089,
+    "BR": 1361084,
+    "BL": 1362887
+  },
+  "warnings": []
+}

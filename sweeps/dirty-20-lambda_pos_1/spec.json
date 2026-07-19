@@ -1,0 +1,21 @@
+{
+  "name": "dirty-20-lambda_pos_1",
+  "patch_dataset": "dirty-20",
+  "network": "cnn-20-border",
+  "space": {
+    "lambda_pos": {
+      "type": "float",
+      "low": 0,
+      "high": 1
+    }
+  },
+  "objective": "f1",
+  "strategy": "tpe",
+  "budget": {
+    "points": 8,
+    "epochs": 5,
+    "pruning": true
+  },
+  "recipe": "baseline",
+  "seed": 0
+}
