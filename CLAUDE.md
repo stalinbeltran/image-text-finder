@@ -192,7 +192,9 @@ Ver [README.md](README.md) para montar y correr.
 > **La cola de análisis pendientes vive en [protocolo.md §9](docs/protocolo.md).** Es lo que hay que
 > mirar para empezar en frío sin recordar nada: **P1** la ablación de la pérdida de posición en las
 > esquinas ciegas (lo único que contesta si distorsionan de verdad), **P2** confirmar el
-> no-sobreajuste con N semillas, **P3** barrer las **formas** de la red (C). P3 arrastra una
+> no-sobreajuste con N semillas, **P3** barrer las **formas** de la red (C), **P4** darle **visión
+> periférica** (contexto más allá del patch — ataca la *causa* de las esquinas ciegas, y su baseline
+> a batir es «subir `patch_size` y ya»). P3 arrastra una
 > decisión estructural — **D22** en [decisiones.md](docs/decisiones.md): hoy H *está definido* como
 > «espacio de D con B y C fijos», así que barrer C no es un parámetro más, y tomarla escribiendo el
 > `runner` es cómo se toma sola.

@@ -501,3 +501,49 @@ es capacidad — y la capacidad vive en **C**, que hoy nadie ha barrido.
 - **Comparabilidad**: dos C con capacidad distinta sobre el mismo B son comparables por `f1`, pero
   el coste por época **no** es constante, así que la poda por tiempo favorece a las pequeñas sin
   decirlo. Decidir si el presupuesto se cuenta en épocas o en segundos.
+
+### P4 — Darle **visión periférica** a la red
+
+*(Los detalles se discuten al abordarlo. Esto fija la pregunta, la conexión con lo ya medido y lo
+que se sabe que estorba.)*
+
+**De dónde sale**: es la respuesta natural a §5.5. Una esquina es *ciega* precisamente porque su
+párrafo cae **fuera de la ventana** — y hoy la red ve exactamente el patch que se etiqueta, ni un
+píxel más. Darle contexto alrededor es atacar la causa en vez de la métrica. Y lo ya medido dice
+que hay algo que ganar y también **dónde**: la detección de las ciegas ya generaliza (0,62 de
+score, leyendo contexto indirecto), así que **lo que la periferia tendría que mejorar es la
+posición**, que es donde está el 31 % del error.
+
+**Criterio de éxito, fijado de antemano** (o se racionaliza después): que **baje el `err_px` de la
+banda ciega** de V18, sin empeorar el de las visibles. Es una comparación que el instrumento ya
+sabe hacer.
+
+**Formas posibles, de menos a más invasiva** — el «de alguna manera» está abierto a propósito:
+
+1. **Subir `patch_size` y ya.** Es el **baseline que hay que batir**, y es una línea de config.
+   Cualquier maquinaria de periferia que no lo supere no vale lo que cuesta. Empezar por aquí.
+2. **Convoluciones dilatadas** — más campo receptivo sin más entrada. Solo toca C.
+3. **Corte mayor, predicción sobre el centro**: la red ve `n+2m`, responde por el `n×n` interior.
+4. **Dos flujos**: el patch a resolución completa + un contexto ancho **submuestreado**. Es la
+   «visión periférica» literal —nítido en el centro, borroso alrededor— y la que mejor relación
+   coste/campo tiene, porque el área crece sin que crezcan los píxeles.
+
+**Lo que ya se sabe que estorba:**
+
+- **El contrato ① deja de significar lo mismo.** Hoy es `patch_size` (B) == `input_size` (C). Con
+  periferia hay **dos** tamaños: lo que se etiqueta y lo que se mira. El contrato no desaparece —
+  se **desdobla**, y hay que decidir cómo antes de escribir el `.npz`. Si P4 avanza, esto abre una
+  decisión formal; hoy no bloquea nada, por eso no tiene número todavía.
+- **Cambia B, y por tanto la huella.** El `.npz` guarda `X` como `(N, n, n, 1)`; cualquiera de las
+  formas 3–4 guarda más píxeles por patch. Eso invalida la comparación con **todo** lo entrenado
+  hasta hoy (contrato ⑧), así que P4 se mide contra runs nuevos, no contra los que hay.
+- **El coste crece con el área, no con el lado.** Un anillo de 20 px sobre un patch de 20 son
+  60×60 = **9×** los píxeles. Es la razón por la que la forma 4 (contexto submuestreado) es la
+  candidata seria y la 3 la cara.
+- **Los bordes de la imagen necesitan relleno, y con qué se rellena es una decisión.** Ceros son
+  «papel blanco», que es una mentira plausible: la red aprendería que fuera de la imagen no hay
+  texto. Se cruza con el contrato ⑤ y con los flags de borde, que existen justo para esto.
+- **`corner_evidence` habría que redefinirla.** Hoy mide la evidencia **contra el patch**; con
+  periferia, patch y campo de visión dejan de ser lo mismo, así que la medida necesita decir
+  contra cuál de los dos. Sin eso, V18 seguiría marcando ciegas unas esquinas que la red **sí** ve
+  — y el criterio de éxito de arriba se volvería ilegible justo en el experimento que lo usa.
