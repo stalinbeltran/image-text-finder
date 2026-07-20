@@ -125,6 +125,18 @@ Ver [README.md](README.md) para montar y correr.
 > extractor, su único consumidor legítimo. Medido: `/samples` 30 s → **0,05 s**, 12 miniaturas
 > ~6 min → **0,13 s**.
 
+> **Fuera de plan (2026-07-20): las filas de B, memmapeadas.** Clicar un patch en la galería
+> colgaba la app: leer **un** patch descomprimía los 2,5 GB de `X`, y las cuatro sondas del mismo
+> clic lo hacían a la vez. `itf.patches.rows` guarda una copia sin comprimir en
+> `data/cache/patch-rows/` y la memmapea — **tercer caché** del proyecto, con las tres propiedades
+> de D1 (recomputable, borrable, con la huella del `.npz` en la clave). Medido: las cuatro sondas
+> **28 s → 0,09 s**, y los payloads son idénticos byte a byte a los del código anterior. Dos cosas
+> que solo aparecieron al correrlo: **(1)** la huella tiene que ir en el **nombre del directorio**,
+> porque en Windows un fichero memmapeado no se puede borrar mientras haya un mapeo vivo y el
+> rebuild reventaría justo en el caso que importa (un B reconstruido, D19); **(2)** el `_BUILD_LOCK`
+> no es una optimización — sin él las cuatro sondas construyen el caché cuatro veces y reproducen el
+> blow-up que el módulo viene a quitar. Cuesta **2,8 GB por B** y ~23 s la primera vez.
+>
 > **Fuera de plan (2026-07-19): V16, la deconvolución.** Para cada filtro, el gradiente de su
 > activación respecto de la **entrada**: *de los píxeles que había, cuáles lo encendieron*. Vive en
 > `itf.inference.introspect.deconvolution`, cuelga del **mismo clic de la galería** que V2/V4/V10 y
@@ -386,6 +398,18 @@ aparecieron por no elegir. Construir desde cero **no protege de ellas: las invit
   `data/cache/sources/`), y la costumbre que lo sostiene es: **para mirar UNA imagen no se llama a
   `samples()`** — se pide el offset al índice y se usa `sample_at`. `samples()` es para el único
   consumidor que necesita todos los bloques, el extractor. *(2026-07-19.)*
+- **Descomprimir 2,5 GB para mirar un patch de 400 bytes**: `patches.npz` es `savez_compressed`, o
+  sea deflate, y un stream deflate **no tiene posiciones**. `np.load` sí es perezoso —el comentario
+  de `store.py` decía justo eso, y era cierto y engañoso—, pero **indexar no lo es**: `data["X"][i]`
+  descomprime el miembro **entero**. En `dirty-20` (6,28 M de patches) eso son **6,5 s y 2,5 GB de
+  RAM por lectura**. Y un clic en la galería peor-primero abre V2, V4, V10 y V16 **a la vez** (la
+  costumbre deliberada de `Gallery.tsx`), cada una resolviendo su patch: **cuatro hilos × 2,5 GB ≈
+  10 GB**, swap, y **la pantalla colgada**. No fallaba y **no salía en el log** — los últimos `200
+  OK` que se veían eran de antes del clic, lo cual apunta al front, que es donde no estaba. Lo
+  arregla `itf.patches.rows` (copia sin comprimir memmapeada en `data/cache/patch-rows/`, formatos.md
+  §4.7): 6,5 s → **0,1 ms**. La costumbre que lo sostiene: **para leer UNA fila no se llama a
+  `arrays()`** — `arrays()` es del único consumidor que las quiere todas (el join de
+  `diagnostics/service.py`), igual que `samples()` es del extractor. *(2026-07-20.)*
 - **Una respuesta lenta sin acuse de recibo se lee como un clic perdido**: V11 y V5 dejan el
   fotograma anterior en pantalla a propósito (atenuado) para que un slider en vivo no parpadee —
   pero atenuar **no es un mensaje**, y a 30 s por respuesta la pantalla parecía ignorar el clic.

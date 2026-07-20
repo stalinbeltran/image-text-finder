@@ -77,6 +77,10 @@ class Layout:
     #: `data/cache/sources/`, so a test that forgot to override it would write
     #: index files for its tmp sources into the repo.
     sources_index_cache: Path
+    #: The memmap copy of each B's rows (`itf.patches.rows`). Overridden for the
+    #: same reason as the two above -- and with more force: the default is the
+    #: real `data/cache/patch-rows/`, and a stray build there is GIGABYTES.
+    patch_rows_cache: Path
     #: H — the sweeps (fase 7). Throwaway so a test never writes `sweeps/` in the
     #: real repo, and so optuna's SQLite lands in tmp.
     sweeps: Path
@@ -174,6 +178,7 @@ def layout(tmp_path: Path) -> Layout:
         recipes=tmp_path / "configs" / "recipes",
         cache=tmp_path / "cache" / "diagnostics",
         sources_index_cache=tmp_path / "cache" / "sources",
+        patch_rows_cache=tmp_path / "cache" / "patch-rows",
         sweeps=tmp_path / "sweeps",
         jobs=tmp_path / "jobs",
         derived_sources=tmp_path / "derived-sources",
@@ -204,6 +209,7 @@ def itf_api(layout: Layout):
         recipes_root=layout.recipes,
         diagnostics_cache_root=layout.cache,
         sources_index_cache_root=layout.sources_index_cache,
+        patch_rows_cache_root=layout.patch_rows_cache,
         sweeps_root=layout.sweeps,
         jobs_root=layout.jobs,
         derived_sources_root=layout.derived_sources,

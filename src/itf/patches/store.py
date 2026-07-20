@@ -62,12 +62,25 @@ class PatchDatasetStore:
             for index in indices
         }
 
-    def arrays(self, name: str) -> NpzFile:
-        """The `.npz`, lazily. `np.load` does not read until you index it."""
+    def npz_path(self, name: str) -> Path:
+        """Where this B's arrays live. What `itf.patches.rows` takes."""
         path = self.path(name) / "patches.npz"
         if not path.exists():
             raise PatchDatasetNotFound(name)
-        return np.load(path)
+        return path
+
+    def arrays(self, name: str) -> NpzFile:
+        """The `.npz`. **For consumers that want every row** -- see the warning.
+
+        `np.load` itself is lazy, but indexing is NOT: the file is written with
+        `savez_compressed`, so `data["X"][i]` inflates the entire 2,5 GB member
+        to hand back 400 bytes (6,5 s, and that much RAM). Reading a *single*
+        patch through here is the bug `itf.patches.rows` was written to remove --
+        use `load_rows` for that. This stays for the bulk join in
+        `diagnostics/service.py`, where one inflate genuinely beats millions of
+        random page faults.
+        """
+        return np.load(self.npz_path(name))
 
     def delete(self, name: str) -> None:
         path = self.path(name)

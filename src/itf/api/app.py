@@ -78,6 +78,7 @@ from itf.models import (
     spatial_trace,
 )
 from itf.patches import SPLIT_NAMES, PatchExtractConfig, SplitConfig, extract_dataset
+from itf.patches.rows import load_rows
 from itf.patches.store import PatchDatasetNotFound, PatchDatasetStore
 from itf.settings import Settings
 from itf.sweeps import (
@@ -441,24 +442,24 @@ def register_patch_datasets(app: FastAPI) -> None:
         """
         try:
             manifest = c.patch_datasets.manifest(name)
-            data = c.patch_datasets.arrays(name)
+            rows = load_rows(c.patch_datasets.npz_path(name), c.settings.patch_rows_cache_root)
         except (PatchDatasetNotFound, ValueError):
             raise not_found("patch_dataset_not_found", f"no existe el dataset de patches '{name}'")
-        with data:
-            total = int(data["X"].shape[0])
-            if not 0 <= index < total:
-                raise not_found("patch_not_found", f"'{name}' tiene {total} patches; pediste el {index}")
-            return {
-                "index": index,
-                "patch": data["X"][index, :, :, 0].astype(int).tolist(),
-                "label": data["y"][index].tolist(),
-                "border": data["border"][index].astype(int).tolist(),
-                "sample_idx": int(data["sample_idx"][index]),
-                "patch_xy": data["patch_xy"][index].astype(int).tolist(),
-                "split": SPLIT_NAMES[int(data["split"][index])],
-                "corner_order": manifest["corner_order"],
-                "border_order": manifest["border_order"],
-            }
+        total = len(rows)
+        if not 0 <= index < total:
+            raise not_found("patch_not_found", f"'{name}' tiene {total} patches; pediste el {index}")
+        row = rows.row(index)
+        return {
+            "index": index,
+            "patch": row["X"][:, :, 0].astype(int).tolist(),
+            "label": row["y"].tolist(),
+            "border": row["border"].astype(int).tolist(),
+            "sample_idx": int(row["sample_idx"]),
+            "patch_xy": row["patch_xy"].astype(int).tolist(),
+            "split": SPLIT_NAMES[int(row["split"])],
+            "corner_order": manifest["corner_order"],
+            "border_order": manifest["border_order"],
+        }
 
 
 # ── C: /networks ──────────────────────────────────────────────────────────────
@@ -1069,21 +1070,23 @@ def _patch_from_body(c: Context, body: FeatureMapsBody) -> tuple[np.ndarray, lis
                 "la entrada de esta vista es un patch, no una imagen (contrato ①)",
             )
         try:
-            data = c.patch_datasets.arrays(body.patch_dataset)
+            rows = load_rows(
+                c.patch_datasets.npz_path(body.patch_dataset), c.settings.patch_rows_cache_root
+            )
         except (PatchDatasetNotFound, ValueError):
             raise not_found(
                 "patch_dataset_not_found",
                 f"no existe el dataset de patches '{body.patch_dataset}'",
             )
-        with data:
-            total = int(data["X"].shape[0])
-            if not 0 <= body.index < total:
-                raise not_found(
-                    "patch_not_found",
-                    f"'{body.patch_dataset}' tiene {total} patches; pediste el {body.index}",
-                )
-            patch = data["X"][body.index, :, :, 0].tolist()
-            border = data["border"][body.index].astype(int).tolist()
+        total = len(rows)
+        if not 0 <= body.index < total:
+            raise not_found(
+                "patch_not_found",
+                f"'{body.patch_dataset}' tiene {total} patches; pediste el {body.index}",
+            )
+        row = rows.row(body.index)
+        patch = row["X"][:, :, 0].tolist()
+        border = row["border"].astype(int).tolist()
     elif body.patch_dataset or body.index is not None:
         raise bad_request(
             "patch_ambiguous",

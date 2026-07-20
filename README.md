@@ -567,6 +567,12 @@ docs/            # el diseño
 versiona la descripción** (configs, métricas, manifests, `spec.json`) — ver
 [docs/formatos.md](docs/formatos.md) §5.
 `data/cache/` es **derivado entero**: se recalcula exacto, así que ni se versiona ni se echa de
-menos. Hoy guarda dos cosas: `diagnostics/` (la tabla por patch, D1) y `sources/` (el índice de
-offsets de cada `labels.jsonl`). Borrarlo no pierde nada; lo único que cuesta es que la primera
-visita a una fuente grande vuelva a tardar sus ~30 s en reconstruir el índice.
+menos. Hoy guarda tres cosas: `diagnostics/` (la tabla por patch, D1), `sources/` (el índice de
+offsets de cada `labels.jsonl`) y `patch-rows/` (la copia sin comprimir y memmapeable de cada B).
+Borrarlo no pierde nada; lo único que cuesta es que la primera visita a una fuente grande vuelva a
+tardar sus ~30 s en reconstruir el índice, y la primera a un B grande sus ~23 s.
+
+`patch-rows/` es el único que **pesa**: 2,8 GB para `dirty-20`, contra los 134 MB del `.npz`. Es el
+precio de poder leer un patch suelto sin descomprimir los 2,5 GB del array entero — ver
+[docs/formatos.md](docs/formatos.md) §4.7. Si te falta disco, se borra: la app lo reconstruye
+sola la próxima vez que abras ese dataset.

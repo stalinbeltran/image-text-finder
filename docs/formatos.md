@@ -467,6 +467,41 @@ El bloque propio, y es el único añadido:
 
 ---
 
+### 4.7 `data/cache/patch-rows/` — las filas de B, memmapeables. **Un caché**
+
+*(2026-07-20, fuera de plan.)* Copia sin comprimir de los seis arrays por-fila de un B
+(`X, y, border, sample_idx, patch_xy, split`), para poder leer **un** patch sin descomprimir el
+array entero. Tercer caché del proyecto, por el mismo criterio de §4.4: función pura del `.npz`,
+recomputable exacto, borrable sin pérdida.
+
+- **Por qué existe**: `patches.npz` se escribe con `np.savez_compressed`, o sea un zip de miembros
+  deflate. Un stream deflate **no tiene posiciones**: `data["X"][i]` descomprime el miembro
+  completo y luego indexa. Medido en `dirty-20` (6 283 620 patches, `X` = 2,5 GB en crudo):
+  `np.load` **0,001 s**, `data["X"][i]` **6,5 s y 2,5 GB de RAM** — para devolver 400 bytes.
+- **Clave**: `<slug del path>/<size>-<mtime_ns>` del `.npz`. **La huella va en el nombre del
+  directorio**, no solo en un `fingerprint.json` dentro: en Windows un fichero memmapeado no se
+  puede borrar ni reemplazar mientras haya un mapeo vivo, y tras reconstruir un B los nuestros lo
+  están. Con la huella en la ruta, una versión nueva es un directorio nuevo y no hay nada que
+  borrar en el camino; las versiones viejas se barren *best effort* en el build siguiente.
+- **Ubicación**: `data/cache/patch-rows/`, gitignoreado.
+- **Coste**: 2,8 GB por B (contra 134 MB comprimido) y **~23 s** de construcción, una vez. Después,
+  abrirlo es un `mmap` y leer un patch es **~0,1 ms**.
+- **Qué NO reemplaza**: `PatchDatasetStore.arrays()`, que sigue siendo lo correcto para el único
+  consumidor que quiere **todas** las filas (el join de la verdad en `diagnostics/service.py`). Un
+  solo descomprimido gana a millones de fallos de página aleatorios. La regla es la que ya tenía
+  `samples()` en A: *el bulto va por el `.npz`, una fila va por aquí.*
+
+> **Lo que esto costó, y que no se ve en el número** *(2026-07-20)*. Un clic en la galería
+> peor-primero abre V2, V4, V10 y V16 **a la vez** — es la costumbre deliberada de «un solo clic»
+> de `Gallery.tsx` — y cada sonda resolvía su patch por su cuenta. Cuatro hilos descomprimiendo
+> 2,5 GB cada uno son ~10 GB vivos: la máquina se iba a swap y **la pantalla se colgaba**. No
+> fallaba, no daba error, no aparecía en el log del servidor (los 200 OK son de *antes*). Es la
+> trampa del `labels.jsonl` de A con otro disfraz, y por eso el `_BUILD_LOCK` no es una
+> optimización: sin él, esos mismos cuatro hilos construyen el caché cuatro veces y reproducen
+> exactamente el problema que el módulo viene a quitar.
+
+---
+
 ## 5. Qué se versiona en git — una decisión pendiente
 
 `.gitignore` tiene `/data/` y `/runs/` **enteros**. Consecuencia medida: `git ls-files runs`

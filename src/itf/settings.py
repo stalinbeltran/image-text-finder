@@ -46,6 +46,13 @@ class Settings:
     #: `labels.jsonl` because `datasets_root` is the generator's and read-only.
     #: Defaulted so existing fixtures need not pass it.
     sources_index_cache_root: Path = REPO_ROOT / "data" / "cache" / "sources"
+    #: The uncompressed, memory-mappable copy of each B's per-row arrays
+    #: (`itf.patches.rows`). A CACHE, same three properties: recomputable from
+    #: `patches.npz`, keyed by its size+mtime, safe to delete. It exists because
+    #: `patches.npz` is deflated, so reading ONE patch inflated the whole 2,5 GB
+    #: array -- and the four probes of one gallery click did it four times over.
+    #: Defaulted so existing fixtures need not pass it.
+    patch_rows_cache_root: Path = REPO_ROOT / "data" / "cache" / "patch-rows"
     #: H — the sweeps (`sweeps/<name>/spec.json` + optuna's SQLite). Like `runs/`,
     #: it is a RECORD: the spec is versioned (formatos.md §5), the `.db` is load
     #: and ignored. A root of its own so a test can point it at throwaway disk.
@@ -98,6 +105,7 @@ class Settings:
             # recomputed is not kept.
             diagnostics_cache_root=data_root / "cache" / "diagnostics",
             sources_index_cache_root=data_root / "cache" / "sources",
+            patch_rows_cache_root=data_root / "cache" / "patch-rows",
             sweeps_root=sweeps_root,
             jobs_root=data_root / "jobs",
             derived_sources_root=data_root / "sources",
