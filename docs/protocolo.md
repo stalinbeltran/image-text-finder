@@ -439,3 +439,65 @@ los resultados: medir la baseline antes sería medirla dos veces.
 
 Los pasos 0–2 cuestan **menos de un día** entre todos, y son los que deciden si la noche de
 barrido significa algo. Es la mejor relación coste/valor que hay ahora mismo en el proyecto.
+
+---
+
+## 9. Análisis pendientes — la cola
+
+**Para empezar en frío.** Cada entrada trae la pregunta, por qué está sin contestar, cómo se
+contesta y con qué se rompe. No es una lista de deseos: son análisis concretos que salieron de
+mediciones ya hechas y que quedaron a medias por presupuesto, no por indecisión.
+
+Al cerrarse uno, su resultado se escribe arriba (§5.5 y vecinos) y aquí queda tachado o borrado.
+
+### P1 — Ablación: ¿la pérdida de posición de las esquinas ciegas perjudica a las visibles?
+
+**La pregunta que §5.5 dejó abierta.** Allí quedó refutado que las etiquetas ciegas distorsionen
+la **clasificación** (hueco train↔val de 0,002). Lo que **no** se midió es si su contribución a la
+pérdida de *posición* —el 31 % del error, sobre casos irreducibles— roba capacidad o gradiente a
+las esquinas que sí se ven. El contraste train↔val **no lo contesta**: eso detecta memorización,
+y esto es contaminación de una población sobre otra.
+
+**Cómo se contesta**: dos runs idénticos salvo enmascarar (o atenuar) la pérdida de posición donde
+`corner_evidence < 0.05`, con N semillas (§4), y **comparados sobre las esquinas visibles**. Es
+dominio **D**, no B: se pondera en el dataloader con `itf.metrics.corner_evidence`, que no toca la
+huella de B, así que no invalida nada de lo ya entrenado.
+
+**La trampa que hay que evitar** (y que confundiría el resultado): al bajar el peso de las ciegas,
+el modelo dejará de predecirlas y la métrica **global** empeorará aunque el modelo sea mejor. Hay
+que fijar **antes** cuál es el número que manda — el de las visibles — o la caída se lee como un
+fracaso del pesado.
+
+**Empezar por `dirty-10`**, que es 4× más barato que `dirty-20` y basta para ver el signo.
+
+### P2 — Confirmar el no-sobreajuste con N semillas
+
+**Por qué importa más que su tamaño**: si es real, reordena el espacio de búsqueda entero
+(§5.5, hallazgo colateral). El hueco train↔val salió ~0 en *todas* las poblaciones con 5,03 M de
+patches y 5 épocas ⇒ **capacidad y épocas están infraexplorados**, y dropout/weight decay atacan
+un problema que hoy no existe.
+
+**Por qué no está confirmado**: es **un run** (`dirty-20-lambda_pos_1-0005`). Y no vale mirar los
+otros ocho: los nueve llevan `seed: 1`, solo varía `lambda_pos`. Hacen falta runs con semillas
+distintas, que **no existen todavía**.
+
+Se mide con el instrumento ya montado: V18 y el diagnóstico sobre `train` y `val` del mismo run.
+
+### P3 — Barrer las **formas** de la red (dominio C)
+
+*(Los detalles se discuten al abordarlo; esto fija la pregunta y lo que ya se sabe que estorba.)*
+
+**Por qué está en la cola**: es la consecuencia directa de P2. Si no hay sobreajuste, lo que falta
+es capacidad — y la capacidad vive en **C**, que hoy nadie ha barrido.
+
+**Lo que hay que resolver antes de escribir código**, porque no es un barrido más:
+
+- **H está definido como «espacio de D con **B y C fijos**»** (organizacion.md §1). Barrer C es un
+  objeto **distinto**, no un parámetro nuevo. O se extiende la definición de H o nace otro
+  sustantivo — y esa elección es de organizacion.md, no del código. Ver **D22**.
+- **El contrato ① lo acota**: `patch_size` (B) == `input_size` (C). Un espacio de C que muestree
+  `input_size` genera puntos inválidos contra un B dado, y `check_run` tiene que rechazarlos
+  **antes de reservar el nombre** — es la cuarta puerta de entrenar.
+- **Comparabilidad**: dos C con capacidad distinta sobre el mismo B son comparables por `f1`, pero
+  el coste por época **no** es constante, así que la poda por tiempo favorece a las pequeñas sin
+  decirlo. Decidir si el presupuesto se cuenta en épocas o en segundos.

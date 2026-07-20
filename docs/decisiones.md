@@ -38,6 +38,7 @@ o resultados de investigación que el barrido mismo contestará.
 | **D14** | ¿Editor de patches? | No: V4 (occlusion) y V5 (scrubber) lo cubren mejor y en distribución | ui.md §5 |
 | **D20** | ¿La **maximización de activación** (V17) reabre D13? | Ver abajo — **es la única de §2 que contradice una decisión ya cerrada**, así que no se resuelve construyendo | ui.md §4.1 |
 | **D21** | ¿Merece la pena reanudar **dentro** de un trial? (reanudar el barrido **ya está hecho**) | **Esperar y medir**: cuesta cambiar el formato de `last.pt` y sostener una invariante nueva, para un ahorro que nadie ha medido | organizacion.md ⑪ |
+| **D22** | Barrer las **formas de la red** (C): ¿se extiende H, o nace otro sustantivo? | Ver abajo — **no se resuelve construyendo**: hoy H *está definido* como «espacio de D con B y C fijos», así que barrer C no es un parámetro más | organizacion.md §1-H, protocolo.md §9 (P3) |
 
 ---
 
@@ -111,6 +112,43 @@ tipografía.
 
 **Dónde vivirá**: ui.md §4.1 (y, si se cierra en «sí», una nota en D13 diciendo qué parte de aquel
 «nada» sobrevive: los **pesos** profundos siguen sin proyección honesta).
+
+---
+
+### D22 — Barrer las **formas** de la red: ¿se extiende H, o nace otro sustantivo?
+
+**Por qué aparece ahora**: al medir V18 salió de rebote que **este modelo no sobreajusta en
+absoluto** — hueco train↔val ~0 en todas las poblaciones, con 5,03 M de patches y 5 épocas
+(protocolo.md §5.5). Si se confirma con semillas (P2), lo que falta no es regularización sino
+**capacidad**, y la capacidad vive en **C**, que nadie ha barrido nunca.
+
+**En juego**: H está definido hoy como «**espacio de D** con **B y C fijos**» (organizacion.md
+§1). Eso no es una casualidad de redacción — es lo que hace que un barrido tenga una `network`
+en su `spec.json` y que cada trial reserve un run comparable con los demás. Un espacio que
+muestrea **C** produce otra cosa: puntos que no comparten arquitectura, y por tanto ni coste por
+época ni número de parámetros. **O se extiende la definición de H, o el barrido de C es un
+sustantivo nuevo con su propio almacén.** La elección es de organizacion.md, no del código, y
+tomarla escribiendo el `runner` es exactamente cómo se toma sola.
+
+**Lo que ya se sabe que estorba**, y que hay que resolver dentro de esa decisión:
+
+- **Contrato ①** — `patch_size` (B) == `input_size` (C). Un espacio de C que muestree
+  `input_size` genera puntos **inválidos contra el B del barrido**. `check_run` tiene que
+  rechazarlos **antes de reservar el nombre**: sería la cuarta puerta de entrenar, y la regla que
+  sostiene ① es justamente que ninguna se la salte.
+- **El presupuesto deja de ser neutral.** Dos C con capacidad distinta no cuestan lo mismo por
+  época, así que **podar por tiempo favorece a las pequeñas sin decirlo** — un sesgo silencioso
+  del mismo género que el contrato ⑨. Hay que decidir si el presupuesto se cuenta en **épocas** o
+  en **segundos**, y decirlo en el `spec.json`.
+- **Y ⑩ vuelve**: `batch_size` es D. Si una C grande no cabe en memoria con el `batch_size` del
+  barrido, la tentación es bajarlo *para ese punto* — y eso cambia la receta, así que el punto
+  deja de ser comparable con el resto.
+
+**Los detalles de qué se barre** (profundidad, filtros por bloque, kernel, `head.hidden`,
+`activation`, `border_features`) **se discuten al abordarlo**: esta entrada fija la pregunta
+estructural, no el espacio.
+
+**Dónde vivirá**: organizacion.md §1-H, y el espacio en sí en protocolo.md §9 (P3).
 
 ---
 

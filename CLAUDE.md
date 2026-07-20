@@ -189,6 +189,14 @@ Ver [README.md](README.md) para montar y correr.
 > significa que **capacidad y épocas están infraexplorados** y que dropout/weight decay atacan un
 > problema que hoy no existe.
 
+> **La cola de análisis pendientes vive en [protocolo.md §9](docs/protocolo.md).** Es lo que hay que
+> mirar para empezar en frío sin recordar nada: **P1** la ablación de la pérdida de posición en las
+> esquinas ciegas (lo único que contesta si distorsionan de verdad), **P2** confirmar el
+> no-sobreajuste con N semillas, **P3** barrer las **formas** de la red (C). P3 arrastra una
+> decisión estructural — **D22** en [decisiones.md](docs/decisiones.md): hoy H *está definido* como
+> «espacio de D con B y C fijos», así que barrer C no es un parámetro más, y tomarla escribiendo el
+> `runner` es cómo se toma sola.
+
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.
 
