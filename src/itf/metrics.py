@@ -65,6 +65,63 @@ def position_error_px(pred_xy: torch.Tensor, true_xy: torch.Tensor, patch_size: 
     return (pred_xy - true_xy).abs().sum(-1) * patch_size
 
 
+#: Below this fraction of the patch, a corner is **blind**: there is essentially
+#: nothing of its paragraph inside the window to look at.
+#:
+#: 0.05 is a judgement and it is written here so it is made once. It was picked
+#: off the measured curve, not off a hunch: the error per band rises monotonically
+#: as evidence falls, and `[0, 0.05)` is where it breaks away (5.2 px vs 2.0 px on
+#: a 20 px patch, `dirty-20`). Callers can pass their own cut -- the bands are a
+#: reading aid, the function below is the definition.
+BLIND_EVIDENCE = 0.05
+
+#: Per corner, which way the paragraph's body extends from the corner point, as
+#: `(towards_x0, towards_y0)` flags in `CORNER_NAMES` order (TL, TR, BR, BL).
+#:
+#: A TL sits at the paragraph's top-left, so the body runs right and down: the
+#: visible part is the rectangle from the point to the patch's far corner, i.e.
+#: `(1-fx)·(1-fy)`. Hence `1` means "measure towards the far edge".
+#:
+#: **This module imports nothing from `itf`** (see the header), so the order is
+#: restated here rather than imported -- and `tests/test_metrics.py` pins it
+#: against `itf.geometry.CORNER_NAMES`, which is the seam that keeps the two
+#: honest. Same reasoning as contract ⑤: don't duplicate silently, test the join.
+_EVIDENCE_TOWARDS = ((1, 1), (0, 1), (0, 0), (1, 0))
+
+
+def corner_evidence(xy):
+    """How much of the patch the corner's paragraph *can* occupy. Shape `(..., 4)`.
+
+    **The question it answers**: when the label says "there is a TL here", is there
+    anything of that paragraph inside the patch to see? A TL whose point falls near
+    the patch's bottom-right has its whole paragraph *outside* the window -- the
+    pixels are blank (or full of some other paragraph) and the label is asking for
+    something the patch does not show.
+
+    Purely geometric: it takes the normalised `(fx, fy)` within the patch and
+    nothing else. No pixels, no model, no extra field in the `.npz` -- which is
+    what makes it computable both here (over the diagnostics table) and in a
+    dataloader, without either one owning it.
+
+    It is an **upper bound**: it assumes the paragraph is at least as large as the
+    patch, so a small paragraph gets credited more evidence than it has. That is
+    the safe direction -- what this flags as blind *is* blind; there may be more
+    blind corners it does not flag.
+
+    Works on numpy arrays and torch tensors alike: only arithmetic and slice
+    assignment, no library-specific calls. Position (`xy`) is meaningless where no
+    corner exists, so the caller masks with `exists` -- this returns a number for
+    every slot rather than deciding what "absent" looks like (formatos.md §2).
+    """
+    fx, fy = xy[..., 0], xy[..., 1]
+    evidence = fx * 0
+    for index, (towards_x0, towards_y0) in enumerate(_EVIDENCE_TOWARDS):
+        dx = (1 - fx[..., index]) if towards_x0 else fx[..., index]
+        dy = (1 - fy[..., index]) if towards_y0 else fy[..., index]
+        evidence[..., index] = dx * dy
+    return evidence
+
+
 def prf1(tp: int, fp: int, fn: int) -> dict[str, float]:
     """Precision, recall and F1 from counts, with the empty cases pinned to 0.
 

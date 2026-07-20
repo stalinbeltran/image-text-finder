@@ -297,6 +297,89 @@ Cualquiera de las dos respuestas vale su coste. Y es la única forma de saber cu
 
 ---
 
+## 5.5 Medido — la evidencia disponible por esquina *(2026-07-20)*
+
+**Resultado de investigación, no invariante.** Los tests afirman que la medida significa una
+cosa; los números de aquí son de este dato y estos runs, y envejecen. V18 los recalcula.
+
+### El fenómeno
+
+La ventana deslizante etiqueta un patch con toda esquina cuyo **punto** cae dentro, y no dice
+nada de si el **párrafo** de esa esquina cae dentro. Una TL cerca del borde inferior-derecho del
+patch tiene su párrafo *fuera*: la etiqueta pide algo que los píxeles no enseñan.
+
+La medida (`itf.metrics.corner_evidence`) es la fracción del patch que el cuerpo del párrafo
+*puede* ocupar: `(1-fx)(1-fy)` para TL, y sus tres simétricas. Geométrica, sin píxeles ni modelo,
+y **cota superior** — lo que marca como ciego lo está.
+
+### Cuántas son
+
+Fracción de esquinas positivas con evidencia < 0,05:
+
+| B | patch | positivos | <0,01 | **<0,05** | <0,10 | mediana |
+|---|---|---|---|---|---|---|
+| `fase3-red` | 40 | 8 088 | 4,6 % | **16,2 %** | 27,9 % | 0,226 |
+| `dirty-10` | 10 | 395 866 | 4,5 % | **16,7 %** | 28,5 % | 0,221 |
+| `dirty-20` | 20 | 5 191 745 | 3,7 % | **14,4 %** | 25,2 % | 0,247 |
+
+**No es una anomalía del extractor.** Con esquinas repartidas uniformemente dentro del patch lo
+esperado sería 20,0 % bajo 0,05 y mediana 0,186; sale algo **mejor** que uniforme, lo cual encaja
+con que `extract.py` desempata por cercanía al centro. Es el precio estructural de una ventana
+deslizante, y por eso **no depende del `stride`** (ver ui.md, V7).
+
+### Qué le hacen al modelo
+
+`dirty-20-lambda_pos_1-0005`, sobre los **tres** splits (5,03 M / 628 k / 628 k patches):
+
+| | train | val | test |
+|---|---|---|---|
+| score medio, ciegas | 0,623 | 0,621 | 0,619 |
+| score medio, visibles | 0,882 | 0,881 | 0,881 |
+| score medio, negativos | 0,037 | 0,037 | 0,037 |
+| cuota del error de posición, ciegas | 30,9 % | 30,7 % | — |
+| err_px ciegas / visibles | 5,23 / 1,97 | 5,26 / 1,98 | — |
+
+Y la banda entera, en val: el error por banda sube **monótonamente** según baja la evidencia
+(1,76 → 1,64 → 2,14 → 2,91 → **5,26** px), o sea dosis-respuesta, no un artefacto del corte.
+
+### Las dos conclusiones, que van en direcciones opuestas
+
+**1. En clasificación no hay nada roto.** El hueco train↔val de las ciegas es **0,002**, el de las
+visibles **0,001**. Cero memorización. Score alto en val es generalización por definición, y el
+control que lo cierra es que los **negativos se quedan en 0,037**: el modelo *distingue* una
+esquina ciega de un patch sin esquina, luego hay señal visual real (contexto, y la brizna del
+párrafo que sí entra). La hipótesis natural —«etiquetar sin ver el párrafo enseña ruido»— **queda
+refutada** para la cabeza de detección.
+
+**2. En posición sí hay un coste, y es grande.** El 14 % de las esquinas se lleva el **31 %** del
+error, con 5,3 px contra 2,0 px sobre un patch de 20 (26 % del patch frente al 10 %). Y como es
+**idéntico en train y en val**, no es distorsión: es dificultad genuina. Localizar el píxel exacto
+de una esquina que no se ve no se puede hacer, y el modelo tampoco lo hace donde entrenó.
+
+**Consecuencia para la métrica**: un `pos_err_px` global promedia lo posible con lo imposible y
+**esconde cuánto margen queda de verdad**. Por eso V18 reporta detección y posición por separado,
+en vez de un número.
+
+### Lo que NO se ha medido — no lo cites como si sí
+
+- **Si quitar las ciegas de la pérdida de posición mejoraría las visibles.** Eso es contaminación
+  de una población sobre otra, y el contraste train↔val no lo contesta. Hace falta una **ablación**:
+  dos runs idénticos, uno enmascarando la pérdida de posición donde la evidencia es baja,
+  comparados **sobre las visibles**. Con las N semillas de §7, que aquí no hay.
+- **Varianza de semilla.** Los nueve runs de `dirty-20-lambda_pos_1-*` llevan `seed: 1`; solo varía
+  `lambda_pos`, y en una banda estrecha (0,545–0,715). Dos de ellos dan cuota 30,4 % y 30,7 %, lo
+  cual es estabilidad frente a λ, **no** frente a semilla.
+
+### Hallazgo colateral, y probablemente el más accionable
+
+**Este modelo no sobreajusta en absoluto.** El hueco train↔val es ~0 en *todas* las poblaciones,
+no solo en las ciegas, con 5,03 M de patches y 5 épocas. Para el barrido eso significa que
+**capacidad y épocas están infraexplorados**, y que la regularización (dropout, weight decay)
+ataca un problema que hoy no existe. Merece comprobarse con más semillas antes de construir sobre
+ello, pero es el tipo de cosa que reordena un espacio de búsqueda.
+
+---
+
 ## 6. Paso 3 — Quitar los sesgos antes de barrer
 
 Barrer antes de esto es **medir el bug** (todos están en organizacion.md §3):

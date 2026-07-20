@@ -20,7 +20,7 @@ import numpy as np
 
 from itf.diagnostics.table import NotMeasurable, PatchTable
 from itf.geometry import CORNER_NAMES
-from itf.metrics import DEFAULT_THRESHOLD, prf1
+from itf.metrics import BLIND_EVIDENCE, DEFAULT_THRESHOLD, corner_evidence, prf1
 
 #: Points of the PR curve. 101 is a threshold every 0.01 -- enough to pick one by
 #: eye, small enough to ship, and it is an aggregate so its cost is the server's.
@@ -78,6 +78,17 @@ class Diagnostics:
     def xy_true(self) -> np.ndarray:
         """(M, 4, 2) — the real position, normalised within the patch."""
         return self.truth[:, :, 1:3]
+
+    @property
+    def evidence(self) -> np.ndarray:
+        """(M, 4) — how much of the patch this corner's paragraph can occupy.
+
+        NaN where there is no corner, exactly like `err_px`: "no corner" is not
+        "no evidence", and letting a 0 stand in for an absence is the one thing
+        formatos.md §2 forbids. Definition in `itf.metrics`, unmasked, so a
+        dataloader can call the same function without inheriting this convention.
+        """
+        return np.where(self.exists, corner_evidence(self.xy_true), np.nan)
 
 
 def corner_index(corner: str | None) -> int | None:
@@ -301,6 +312,107 @@ def coactivation(diag: Diagnostics, threshold: float = DEFAULT_THRESHOLD) -> dic
     }
 
 
+#: Bands of `corner_evidence`, as edges. Uneven on purpose: the interesting
+#: structure is all near zero (half of all corners sit under 0.25), so equal
+#: bands would put five sixths of the population in one bucket and resolve
+#: nothing -- the same reason V7's map is not 40×40.
+EVIDENCE_BANDS = (0.0, 0.05, 0.10, 0.25, 0.50, 1.0001)
+
+
+def evidence_split(
+    diag: Diagnostics,
+    corner: str | None = None,
+    threshold: float = DEFAULT_THRESHOLD,
+    blind: float = BLIND_EVIDENCE,
+) -> dict:
+    """V18 — the same numbers, split by how much there was to look at.
+
+    **Fixes** the run, the split and the threshold; **varies** the evidence
+    available to the corner; **measures** detection and position error (ui.md §3).
+
+    Why it exists: a corner whose paragraph falls outside the patch is a label the
+    pixels cannot fully support, and those corners are neither rare nor evenly
+    bad. Measured on `dirty-20`, 14 % of corners carry 31 % of the position error.
+    A single global `pos_err_px` averages the possible and the impossible together
+    and hides how much headroom is actually left.
+
+    What it does **not** claim: that these corners are unlearnable. They are not --
+    detection on them generalises (identical scores on train, val and test), so
+    the model is reading real context, not memorising. The gap is in *position*.
+    That distinction is the whole point of splitting the two measurements here
+    instead of reporting one number.
+
+    Free, like every other re-reading of the table: the scores and errors are
+    stored, so `threshold` and `blind` cost a comparison, not a forward pass.
+    """
+    index = corner_index(corner)
+    evidence = _select(diag.evidence, index)
+    err = _select(diag.table.err_px, index)
+    score = _select(diag.table.score, index)
+    positive = _select(diag.exists, index)
+
+    total_corners = int(positive.sum())
+    if not total_corners:
+        raise NotMeasurable(
+            "no_corners",
+            f"no hay ninguna esquina real de tipo '{corner or 'any'}' en este split",
+            "elige otra esquina, u otro split",
+        )
+    total_error = float(np.nansum(np.where(positive, err, np.nan)))
+
+    bands = []
+    for low, high in zip(EVIDENCE_BANDS, EVIDENCE_BANDS[1:]):
+        mask = positive & (evidence >= low) & (evidence < high)
+        count = int(mask.sum())
+        if not count:
+            continue
+        band_error = float(np.nansum(err[mask]))
+        bands.append(
+            {
+                "low": round(low, 4),
+                "high": round(min(high, 1.0), 4),
+                "corners": count,
+                "corner_share": count / total_corners,
+                "err_px": float(np.nanmean(err[mask])),
+                # The number that makes the case: a band's slice of the total
+                # error, next to its slice of the population. Equal shares mean
+                # the band is unremarkable; this one is not.
+                "error_share": (band_error / total_error) if total_error else None,
+                "recall": float((score[mask] >= threshold).mean()),
+                "score_mean": float(score[mask].mean()),
+            }
+        )
+
+    is_blind = positive & (evidence < blind)
+    seen = positive & (evidence >= blind)
+    return {
+        "corner": corner or "all",
+        "threshold": threshold,
+        "blind_cut": blind,
+        "corners": total_corners,
+        "patch_size": diag.patch_size,
+        "bands": bands,
+        "blind": _population(err, score, is_blind, total_error, total_corners, threshold),
+        "seen": _population(err, score, seen, total_error, total_corners, threshold),
+    }
+
+
+def _population(err, score, mask, total_error, total_corners, threshold) -> dict:
+    """One side of the blind/seen cut. Empty is `None`, never a zero (formatos §2)."""
+    count = int(mask.sum())
+    if not count:
+        return {"corners": 0, "corner_share": 0.0, "err_px": None,
+                "error_share": None, "recall": None, "score_mean": None}
+    return {
+        "corners": count,
+        "corner_share": count / total_corners,
+        "err_px": float(np.nanmean(err[mask])),
+        "error_share": (float(np.nansum(err[mask])) / total_error) if total_error else None,
+        "recall": float((score[mask] >= threshold).mean()),
+        "score_mean": float(score[mask].mean()),
+    }
+
+
 def _order_key(diag: Diagnostics, corner: int | None, order: str) -> np.ndarray:
     """The sort key, descending. NaN sinks: "no corner" is not "no error"."""
     if order == "patch":
@@ -352,6 +464,8 @@ def rows(
     outcome: str = "all",
     order: str = "error",
     threshold: float = DEFAULT_THRESHOLD,
+    max_evidence: float | None = None,
+    min_evidence: float | None = None,
     offset: int = 0,
     limit: int = 24,
 ) -> dict:
@@ -364,7 +478,18 @@ def rows(
     patch 37 looks like.
     """
     index = corner_index(corner)
-    selected = np.nonzero(_outcome_mask(diag, index, outcome, threshold))[0]
+    mask = _outcome_mask(diag, index, outcome, threshold)
+    if max_evidence is not None or min_evidence is not None:
+        # Evidence is NaN where no corner exists, and every comparison against
+        # NaN is False -- so filtering by it drops the empty slots for free,
+        # which is the behaviour we want: "blind corners" is a question about
+        # corners that are there.
+        evidence = _select(diag.evidence, index)
+        if max_evidence is not None:
+            mask &= (evidence < max_evidence).any(axis=1)
+        if min_evidence is not None:
+            mask &= (evidence >= min_evidence).any(axis=1)
+    selected = np.nonzero(mask)[0]
 
     key = _order_key(diag, index, order)[selected]
     # Stable, so a tie between two patches with identical error does not shuffle
@@ -387,6 +512,9 @@ def rows(
                 "xy_true": [_nan_to_none(p) for p in diag.xy_true[i]],
                 "exists": [bool(v) for v in diag.exists[i]],
                 "err_px": _nan_to_none(diag.table.err_px[i]),
+                # So a thumbnail that looks like a plain miss can be read as what
+                # it usually is: a corner whose paragraph is outside the window.
+                "evidence": _nan_to_none(diag.evidence[i]),
             }
             for i in page
         ],

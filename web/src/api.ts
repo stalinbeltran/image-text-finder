@@ -442,6 +442,10 @@ export interface PatchRow {
   exists: boolean[];
   /** `null` where there is no real corner: nothing to localise, not zero error. */
   err_px: (number | null)[];
+  /** V18 — how much of this corner's paragraph fits in the patch. `null` where
+   *  there is no corner. A miss at ~0 is a corner whose paragraph is outside the
+   *  window: the pixels do not show what the label asks for. */
+  evidence: (number | null)[];
 }
 
 export interface PatchPage {
@@ -481,6 +485,9 @@ export const getDiagnosticPatches = (
     outcome?: Outcome;
     order?: string;
     threshold?: number;
+    /** V18's filters. `max_evidence=0.05` is "the corners nobody could see". */
+    max_evidence?: number;
+    min_evidence?: number;
     offset?: number;
     limit?: number;
   }
@@ -509,6 +516,68 @@ export interface Coactivation {
   counts: number[];
   job: "sequential" | "diverging";
 }
+
+/** V18 — the same measurements, split by how much of the corner's paragraph was
+ *  actually inside the patch.
+ *
+ * A corner whose point falls near the far edge has its paragraph *outside* the
+ * window: the label asks for something the pixels do not show. Measured on
+ * `dirty-20`, those are 14 % of corners and carry 31 % of the position error.
+ *
+ * **What it does not say**: that they are unlearnable. Detection on them
+ * generalises — identical scores on train, val and test — so the model is reading
+ * real context, not memorising. The gap is in *position*, which is why detection
+ * and error are reported side by side rather than folded into one number. */
+export interface EvidenceSplit {
+  corner: string;
+  threshold: number;
+  blind_cut: number;
+  corners: number;
+  patch_size: number;
+  bands: EvidenceBand[];
+  blind: EvidencePopulation;
+  seen: EvidencePopulation;
+}
+
+export interface EvidencePopulation {
+  corners: number;
+  corner_share: number;
+  /** `null` when the population is empty: not measured, and 0 would read as one. */
+  err_px: number | null;
+  /** Its slice of the TOTAL error. Next to `corner_share`, this is the finding:
+   *  equal shares mean the band is unremarkable, and the blind one is not. */
+  error_share: number | null;
+  recall: number | null;
+  score_mean: number | null;
+}
+
+export interface EvidenceBand extends EvidencePopulation {
+  low: number;
+  high: number;
+}
+
+/** Default cut for "blind". Mirrors `itf.metrics.BLIND_EVIDENCE`.
+ *
+ * It is restated here rather than fetched because the gallery filters by it
+ * *before* V18 has answered, and a filter that has to wait for another view is a
+ * filter that flickers. The value the backend actually used always rides back in
+ * `EvidenceSplit.blind_cut`, and V18 renders that one — so if these two ever
+ * drift, the screen shows the drift instead of hiding it. */
+export const BLIND_EVIDENCE = 0.05;
+
+export const getEvidenceSplit = (
+  run: string,
+  split: Split,
+  corner?: string,
+  threshold?: number
+) =>
+  request<EvidenceSplit>(
+    `/runs/${encodeURIComponent(run)}/diagnostics/evidence?${query({
+      split,
+      corner,
+      threshold,
+    })}`
+  );
 
 export const getCoactivation = (run: string, split: Split, threshold: number) =>
   request<Coactivation>(

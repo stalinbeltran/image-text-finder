@@ -53,10 +53,12 @@ from itf.diagnostics import (
     TableCache,
     coactivation,
     error_map,
+    evidence_split,
     open_diagnostics,
     pr,
     rows,
 )
+from itf.metrics import BLIND_EVIDENCE
 from itf.inference import (
     ModelCache,
     NotInspectable,
@@ -874,6 +876,9 @@ _DIAGNOSTIC_STATUS: dict[str, int] = {
     "unknown_corner": 400,
     "unknown_outcome": 400,
     "unknown_order": 400,
+    # 409, by the default rule: the request is fine, this split simply holds no
+    # corner of that type to split by evidence. State, not a malformed ask.
+    "no_corners": 409,
 }
 
 
@@ -957,6 +962,8 @@ def register_diagnostics(app: FastAPI) -> None:
         outcome: str = "all",
         order: str = "error",
         threshold: float = Query(default=0.5, ge=0.0, le=1.0),
+        max_evidence: float | None = Query(default=None, ge=0.0, le=1.0),
+        min_evidence: float | None = Query(default=None, ge=0.0, le=1.0),
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=24, ge=1, le=200),
         checkpoint: str = DEFAULT_CHECKPOINT,
@@ -967,6 +974,11 @@ def register_diagnostics(app: FastAPI) -> None:
         `limit` is capped rather than trusted: this is the one diagnostics route
         that serves rows, and an unbounded one would happily ship the whole 10⁵-row
         table -- which is the exact thing R6 exists to prevent.
+
+        `max_evidence` / `min_evidence` are what make the gallery readable next to
+        V18: `max_evidence=0.05` shows the blind corners, `min_evidence=0.05` the
+        ones the model had a fair shot at. Both re-filter the stored table, so
+        they cost a comparison rather than a pass.
         """
         diag = _diagnostics(c, name, split, checkpoint)
         try:
@@ -976,9 +988,33 @@ def register_diagnostics(app: FastAPI) -> None:
                 outcome=outcome,
                 order=order,
                 threshold=threshold,
+                max_evidence=max_evidence,
+                min_evidence=min_evidence,
                 offset=offset,
                 limit=limit,
             )
+        except NotMeasurable as exc:
+            raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
+
+    @app.get("/runs/{name}/diagnostics/evidence")
+    def diagnostics_evidence(
+        name: str,
+        split: str = "val",
+        corner: str | None = None,
+        threshold: float = Query(default=0.5, ge=0.0, le=1.0),
+        blind: float = Query(default=BLIND_EVIDENCE, ge=0.0, le=1.0),
+        checkpoint: str = DEFAULT_CHECKPOINT,
+        c: Context = Depends(get_context),
+    ) -> dict:
+        """V18 — detection and position error split by available evidence.
+
+        Neither `threshold` nor `blind` belongs to the table's key: both re-read
+        stored columns, so this is the same free sweep as V8 and V9. Aggregated
+        here and not in the browser (R6) -- it reduces ~10⁶ corners to six bands.
+        """
+        diag = _diagnostics(c, name, split, checkpoint)
+        try:
+            return evidence_split(diag, corner, threshold, blind)
         except NotMeasurable as exc:
             raise problem(_DIAGNOSTIC_STATUS.get(exc.code, 409), exc.code, str(exc), exc.hint)
 

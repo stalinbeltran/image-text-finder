@@ -1581,3 +1581,102 @@ code {
   stroke-width: 1.5;
   vector-effect: non-scaling-stroke;
 }
+
+/* ── V18: evidencia disponible ─────────────────────────────────────────────── */
+
+.evidence__headline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.evidence__card {
+  flex: 1 1 240px;
+  padding: 12px 14px;
+  border: 1px solid var(--itf-grid);
+  border-radius: 8px;
+  background: var(--itf-plane);
+}
+
+/* The blind population is the finding, so it is the one that carries emphasis —
+   colour here says "read this first", not "this is bad". */
+.evidence__card--accent {
+  border-color: var(--itf-seq-3);
+}
+
+.evidence__card-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.evidence__stats {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.evidence__stats > div {
+  display: contents;
+}
+
+.evidence__stats dt {
+  color: var(--itf-ink-secondary);
+}
+
+.evidence__stats dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.evidence__bar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 190px;
+}
+
+.evidence__bar-label {
+  font-size: 10px;
+  color: var(--itf-ink-muted);
+  width: 20px;
+  flex: none;
+}
+
+.evidence__track {
+  position: relative;
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--itf-grid);
+  overflow: hidden;
+}
+
+.evidence__fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+}
+
+/* Two hues, because the two bars answer different questions and R1 says the same
+   quantity keeps its colour everywhere. Population is neutral; the error share is
+   the one that carries the finding. */
+.evidence__fill--population { background: var(--itf-seq-2); }
+.evidence__fill--error { background: var(--itf-div-pos); }
+
+.evidence__bar-value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--itf-ink-secondary);
+  width: 44px;
+  text-align: right;
+  flex: none;
+}
+
+.evidence__row--blind {
+  background: color-mix(in srgb, var(--itf-seq-3) 7%, transparent);
+}

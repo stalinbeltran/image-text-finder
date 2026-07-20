@@ -154,6 +154,41 @@ Ver [README.md](README.md) para montar y correr.
 > «muerto»**: es un patch. **V17 (maximización de activación) NO está hecha y está bloqueada por
 > D20**, que pregunta si reabre D13; no la construyas sin cerrarla.
 
+> **Fuera de plan (2026-07-20): V18, la evidencia disponible.** La ventana deslizante etiqueta un
+> patch con toda esquina cuyo **punto** cae dentro, y no dice nada de si el **párrafo** cae dentro:
+> una TL cerca del borde inferior-derecha tiene su párrafo **fuera**, y la etiqueta pide algo que
+> los píxeles no enseñan. `itf.metrics.corner_evidence` lo mide —`(1-fx)(1-fy)` para TL y sus tres
+> simétricas—, `itf.diagnostics.evidence_split` lo agrega, `GET /runs/{n}/diagnostics/evidence` lo
+> sirve y la galería gana un filtro (`max_evidence`/`min_evidence`). Es **geométrico**: ni píxeles
+> ni modelo, así que **no añade un campo al `.npz`** y el mismo `corner_evidence` vale en un
+> dataloader (está escrito con aritmética a secas — mismo resultado en numpy y en torch, y hay test).
+> Cinco cosas que solo aparecieron al medirlo:
+> **(1)** «cerca del borde» es el criterio **equivocado** — una TL pegada al borde *izquierdo* está
+> perfectamente, su párrafo va hacia dentro. El criterio es **direccional por tipo de esquina**, y
+> confundirlo se equivoca en la mitad de los casos;
+> **(2)** la **densidad de tinta no sirve** de proxy, y lo dice el dato: los patches ciegos tienen
+> *más* tinta (0,177 vs 0,103) porque están llenos de **otros párrafos** — el 58 % son casi vacíos y
+> el resto están llenos de tinta ajena;
+> **(3)** la fracción ciega es ~**14–17 % en los tres B** (patches de 10, 20 y 40 px, strides
+> distintos), o sea **no depende del `stride`** — ui.md decía que el efecto borde de V7 se arreglaba
+> bajándolo y **eso está medido como falso**; la copia de V7 en pantalla lo decía también y se
+> corrigió;
+> **(4)** en **clasificación no hay nada roto**: hueco train↔val de **0,002** en las ciegas (score
+> 0,623/0,621/0,619 en train/val/test) con los negativos clavados en 0,037 — el modelo *distingue*
+> una esquina ciega de un patch sin esquina, luego lee contexto real, no memoriza. La hipótesis
+> «etiquetar sin ver el párrafo enseña ruido» **queda refutada** para la cabeza de detección;
+> **(5)** en **posición sí**: el 14 % de las esquinas se lleva el **31 %** del error (5,3 px vs
+> 2,0 px sobre un patch de 20), e **idéntico en train y val** ⇒ no es distorsión, es dificultad
+> genuina. Por eso V18 reporta detección y posición **por separado** y no un número.
+> **Lo NO medido, no lo cites**: si enmascarar la pérdida de posición en las ciegas mejoraría las
+> visibles (hace falta una **ablación**, no este contraste), y la varianza de semilla (los nueve
+> runs de `dirty-20-lambda_pos_1-*` llevan `seed: 1`). Todo en protocolo.md §5.5.
+>
+> **Y el hallazgo colateral, probablemente el más accionable: este modelo NO sobreajusta.** El hueco
+> train↔val es ~0 en *todas* las poblaciones, con 5,03 M de patches y 5 épocas. Para el barrido eso
+> significa que **capacidad y épocas están infraexplorados** y que dropout/weight decay atacan un
+> problema que hoy no existe.
+
 **Al terminar una fase, actualiza estas líneas.** Es lo único que le dice a la siguiente sesión
 dónde está.
 

@@ -155,3 +155,5 @@ Para fijarlos, porque son del dominio y no se traducen:
 | **huella / fingerprint** | Hash del contenido de un B. Distingue un dataset reconstruido bajo el mismo nombre (contrato ⑧) |
 | **knob barato** | Parámetro de F ajustable **post-hoc sin reentrenar**: `threshold`, stride de inferencia, radio de NMS, `min_size` |
 | **suelo de ruido** | La diferencia mínima creíble, medida con N semillas. Por debajo, empate (protocolo.md §4) |
+| **evidencia** | Fracción del patch que el párrafo de **esa** esquina puede ocupar: `(1-fx)(1-fy)` para TL y sus simétricas. Geométrica, sin píxeles. **Direccional** — no es «distancia al borde», que confunde el caso bueno con el malo |
+| **esquina ciega** | Esquina con evidencia < 0,05: su párrafo cae **fuera** del patch. **No** significa que el modelo no la detecte (las detecta, y generaliza) ni que sea «basura»: significa que su **posición** no es deducible de esos píxeles (protocolo.md §5.5) |

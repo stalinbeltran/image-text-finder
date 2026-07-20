@@ -414,6 +414,7 @@ Cada vista declara su control (regla 2). `€` = coste en CPU.
 | **V15** | Procedencia del patch | B | — | de qué imagen salió | overlay | 1 acento | gratis |
 | **V16** | Deconvolución | E, patch | el filtro | qué píxeles del patch lo activaron | grid de heatmaps | **divergente ±0** (R2) | 1 fw + 1 bw **por capa** |
 | **V17** | Maximización de activación | **E** | el filtro | qué entrada le gusta | grid de heatmaps | **secuencial** (es una imagen) | ~200 it/filtro |
+| **V18** | Evidencia disponible | E, split, umbral | cuánto del párrafo cabe en el patch | recall y error de posición | tabla con barras pareadas | 2 tintas: población / error | gratis |
 
 Nota sobre V12: **λ es magnitud continua, no identidad** → rampa secuencial, no 4 colores
 categóricos. Y sobre V3: 4 probabilidades contra un umbral son **meters** (razón contra un
@@ -439,6 +440,17 @@ proyecto — y **lo fue la primera vez que se miró**: sobre `fase4-ui`, **16,4 
 > patch_size` sigue dando exactamente el mapa de aquí. Lo que sí es regla: la vista **enseña cuántas
 > esquinas hay detrás de cada celda**, porque una celda de 2 muestras y una de 200 se pintan igual.
 > Y el ratio ~2× sale idéntico a 10×10 y a 40×40 ⇒ es real, no un artefacto del binning.
+
+> **La causa del efecto borde, y por qué «bajar el `stride`» no la arregla** *(2026-07-20)*. El
+> párrafo de arriba acierta el diagnóstico —son esquinas medio visibles— y **falla el arreglo**.
+> Lo que hay debajo lo mide V18: una TL cuyo punto cae cerca de la esquina **inferior-derecha** del
+> patch tiene su párrafo *fuera* de la ventana. Bajar el `stride` **no cambia esa fracción**: mete
+> más ventanas, y las nuevas se reparten igual entre bien centradas y ciegas. Medido, la fracción
+> ciega es ~**14–17 % en los tres B**, con patch de 10, 20 y 40 px y strides distintos — es el
+> precio estructural de una ventana deslizante, no un ajuste mal puesto. Lo que sí gana el stride
+> bajo es que **cada esquina aparece en más ventanas**, así que alguna la ve bien: por eso el efecto
+> se diluye en la recomposición de F y no en la métrica por patch. **Leer V7 sin V18 manda el arreglo
+> al dominio equivocado**, que es exactamente lo que este párrafo existía para evitar.
 
 **V8 — histograma de scores + curva PR.** Separabilidad de positivos vs negativos, por tipo de
 esquina. El desbalance es de **3,9:1** (20,5 % de positivos en `clear-paragraphs-02`): bastante

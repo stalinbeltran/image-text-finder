@@ -5,6 +5,7 @@ import { CORNER_NAMES } from "../../theme/palette";
 import { useAsync } from "../../useAsync";
 import { Coactivation } from "./Coactivation";
 import { ErrorByPosition } from "./ErrorByPosition";
+import { EvidenceSplit } from "./EvidenceSplit";
 import { Gallery } from "./Gallery";
 import { Kernels } from "./Kernels";
 import { ScoresPr } from "./ScoresPr";
@@ -119,6 +120,17 @@ export function Diagnostics() {
             onThreshold={setThreshold}
           />
           <ErrorByPosition run={selected.name} split={split} corner={corner} />
+          {/* V18 goes right after V7 because it answers the question V7 raises.
+              V7 shows the edges of the patch are worse; this says why — a corner
+              near the far edge has its paragraph outside the window — and how
+              much of the total error that accounts for. Read the other way round,
+              V7's edge effect looks like a bug in the model. */}
+          <EvidenceSplit
+            run={selected.name}
+            split={split}
+            corner={corner}
+            threshold={threshold}
+          />
           {/* V9 reads the same cached table as V7/V8: given the truth, which
               heads fired. It fixes the run and the split, not a corner — it is
               about all four at once — so it sits with the split-level views. */}

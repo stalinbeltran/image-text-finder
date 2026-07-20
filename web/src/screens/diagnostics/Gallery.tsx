@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import { getDiagnosticPatches, type Outcome, type PatchRow, type Split } from "../../api";
+import {
+  BLIND_EVIDENCE as BLIND_CUT,
+  getDiagnosticPatches,
+  type Outcome,
+  type PatchRow,
+  type Split,
+} from "../../api";
 import { Empty, ErrorNote, Loading } from "../../components/Async";
 import { Declares } from "../../components/Declares";
 import { useAsync } from "../../useAsync";
@@ -20,6 +26,24 @@ const OUTCOMES: { value: Outcome; label: string; hint: string }[] = [
 ];
 
 const PAGE = 12;
+
+/** V18's cut, as a filter on the gallery. **This is what makes a false negative
+ *  readable**: a miss on a blind corner and a miss on a visible one look identical
+ *  as thumbnails and mean opposite things — one is the paragraph being outside the
+ *  window, the other is the model failing at something it could see. */
+const EVIDENCE: { value: string; label: string; hint: string }[] = [
+  { value: "any", label: "toda", hint: "sin filtrar por evidencia" },
+  {
+    value: "blind",
+    label: "solo ciegas",
+    hint: "el párrafo de la esquina cae fuera del patch: los píxeles no lo enseñan",
+  },
+  {
+    value: "seen",
+    label: "solo visibles",
+    hint: "había algo del párrafo dentro del patch que mirar",
+  },
+];
 
 /** V6 — the worst-first gallery. The failures, in order of how bad they are.
  *
@@ -46,13 +70,14 @@ export function Gallery({
   threshold: number;
 }) {
   const [outcome, setOutcome] = useState<Outcome>("all");
+  const [evidence, setEvidence] = useState("any");
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<PatchRow | null>(null);
 
   // Any change of question restarts the paging. Without this, narrowing to 3
   // false positives while sitting on page 4 shows an empty grid -- which reads
   // as "no failures", the most misleading answer possible.
-  useEffect(() => setOffset(0), [run, split, corner, outcome, threshold]);
+  useEffect(() => setOffset(0), [run, split, corner, outcome, threshold, evidence]);
 
   const page = useAsync(
     () =>
@@ -62,10 +87,12 @@ export function Gallery({
         outcome,
         order: "error",
         threshold,
+        max_evidence: evidence === "blind" ? BLIND_CUT : undefined,
+        min_evidence: evidence === "seen" ? BLIND_CUT : undefined,
         offset,
         limit: PAGE,
       }),
-    [run, split, corner, outcome, threshold, offset]
+    [run, split, corner, outcome, threshold, evidence, offset]
   );
   const data = page.data;
 
@@ -93,9 +120,27 @@ export function Gallery({
             ))}
           </select>
         </label>
+        <label className="field field--inline">
+          <span
+            className="field__label"
+            title="cuánto del párrafo de esa esquina cae dentro del patch (V18)"
+          >
+            Evidencia
+          </span>
+          <select value={evidence} onChange={(e) => setEvidence(e.target.value)}>
+            {EVIDENCE.map((o) => (
+              <option key={o.value} value={o.value} title={o.hint}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <span className="card__hint">
           {OUTCOMES.find((o) => o.value === outcome)?.hint}
           {outcome !== "all" && <> · con threshold {threshold.toFixed(2)}</>}
+          {evidence !== "any" && (
+            <> · {EVIDENCE.find((o) => o.value === evidence)?.hint}</>
+          )}
         </span>
       </div>
 

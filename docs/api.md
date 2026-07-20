@@ -293,7 +293,15 @@ GET /runs/{name}/diagnostics/pr           curva PR + histograma      (V8)   ✅ 
 GET /runs/{name}/diagnostics/error-map    mapa del patch             (V7)   ✅ fase 5
       ?split=val&corner=TL&bins=10
 GET /runs/{name}/diagnostics/coactivation matriz 4×4 + truth_rate    (V9)   ✅ fase 6
+GET /runs/{name}/diagnostics/evidence     bandas por evidencia       (V18)  ✅ 2026-07-20
+      ?split=val&corner=TL&threshold=0.5&blind=0.05
 ```
+
+`/evidence` reparte las mismas esquinas por **cuánto de su párrafo cabe en el patch**, y
+`/patches` gana `max_evidence` / `min_evidence` para mirar cada mitad en la galería. Ni
+`threshold` ni `blind` entran en la clave del caché: **releen columnas guardadas**, así que son
+el mismo barrido gratis que V8 y V9 (R6 — el agregado se hace aquí, no en el navegador: reduce
+~10⁶ esquinas a seis bandas).
 
 - **Síncronos** (R3): una pasada sobre val son ~10⁴ forwards por lotes, segundos. El primer GET
   paga; los demás leen el caché. **Medido**: 1,0 s / 0,025 s / 0,014 s (formatos.md §4.4). El día

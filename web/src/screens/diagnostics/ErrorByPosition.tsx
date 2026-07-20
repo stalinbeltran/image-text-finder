@@ -9,10 +9,18 @@ import { useAsync } from "../../useAsync";
  *
  * **The view that says which domain to fix**, and the most valuable in the
  * catalogue for this project's actual question (ui.md §4.1): if the error piles
- * up at the patch's edges — corners only half visible — the answer is to lower
- * B's `stride`, not to add filters to C. Without this map that diagnosis is
- * systematically misread as "the network is too small", and the fix goes into the
- * wrong domain.
+ * up at the patch's edges, the problem is not C's capacity. Without this map that
+ * diagnosis is systematically misread as "the network is too small", and the fix
+ * goes into the wrong domain.
+ *
+ * **What the edges actually are, measured** *(2026-07-20)*: corners whose
+ * paragraph falls *outside* the window — a TL near the bottom-right has its body
+ * out of the patch. This file used to say the fix was lowering B's `stride`, and
+ * that is wrong: the blind fraction is ~14–17 % across three B's with patches of
+ * 10, 20 and 40 px and different strides, because it is the geometry of a sliding
+ * window, not a setting. A lower stride puts each corner in *more* windows, which
+ * helps F's recomposition and not this map. V18 quantifies it, and sits directly
+ * below for that reason.
  *
  * **The resolution is a control, and that is what made the view work.** ui.md
  * says 40×40; measured on real data, ~200 corners over 1600 cells is 0.1 samples
@@ -56,8 +64,10 @@ export function ErrorByPosition({
         measures="error en px"
       >
         Es la vista que dice <strong>qué dominio arreglar</strong>. Si el error se concentra en
-        los bordes del patch —esquinas medio visibles— la respuesta es bajar el{" "}
-        <code>stride</code> de B, no meter filtros en C.
+        los bordes del patch, lo que falla no es la capacidad de C:{" "}
+        <strong>son esquinas cuyo párrafo cae fuera de la ventana</strong>. Cuántas son y cuánto
+        error se llevan lo dice <strong>V18</strong>, justo debajo — y bajar el <code>stride</code>{" "}
+        <em>no</em> reduce esa fracción, solo reparte cada esquina entre más ventanas.
       </Declares>
 
       <div className="row-actions">
@@ -140,9 +150,9 @@ export function ErrorByPosition({
 /** The diagnosis V7 exists for, computed rather than left to the eye.
  *
  * The map shows it; this says it. If the outer ring is clearly worse than the
- * middle, the corners that hurt are the half-visible ones — and that is B's
- * `stride`, not C's capacity. Reported as two numbers with their n, never as a
- * verdict: it is evidence for a decision, not the decision.
+ * middle, the corners that hurt are the ones whose paragraph left the window —
+ * see V18, which measures exactly that population. Reported as two numbers with
+ * their n, never as a verdict: it is evidence for a decision, not the decision.
  */
 function EdgeVsCentre({ map }: { map: ErrorMap }) {
   const n = map.bins;
@@ -160,7 +170,7 @@ function EdgeVsCentre({ map }: { map: ErrorMap }) {
   if (!ring.length || !middle.length) return null;
   const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
   return (
-    <span title="si el borde es claramente peor que el centro, lo que falla son las esquinas medio visibles: eso se arregla en B (bajando el stride), no en C">
+    <span title="si el borde es claramente peor que el centro, lo que falla son esquinas cuyo párrafo cae fuera de la ventana: V18 dice cuántas son. No se arregla con el stride — es geometría de la ventana deslizante">
       borde <strong>{mean(ring).toFixed(1)}</strong> px vs centro{" "}
       <strong>{mean(middle).toFixed(1)}</strong> px
     </span>
