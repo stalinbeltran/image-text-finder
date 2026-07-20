@@ -483,6 +483,27 @@ distintas, que **no existen todavía**.
 
 Se mide con el instrumento ya montado: V18 y el diagnóstico sobre `train` y `val` del mismo run.
 
+**Armado y listo para correr *(2026-07-20)*.** Falta solo el tiempo de CPU:
+
+- **Lanzar**: `.\scripts\p2-seeds.ps1` — cuatro runs `p2-noover-seed{2..5}` sobre `dirty-20` +
+  `cnn-20-border`, **secuenciales** (en CPU el límite de workers es 1). El run de seed 1 entra
+  como la 5ª réplica, así que solo se pagan cuatro.
+- **Analizar**: `.\.venv\Scripts\python.exe scripts\p2_analyze.py` — media ± sd del hueco
+  train↔val por población (global, ciegas, visibles). El diagnóstico se cachea: la 2ª pasada es
+  gratis.
+- **Las recetas `p2-seed{2..5}` se generaron copiando el `config.json` del run 0005**, no a mano,
+  y se verificó que el roundtrip solo difiere en `seed`. Retecleadas, un decimal de
+  `lambda_pos` (0.5488135039273248) convertiría la réplica en otro punto del espacio y el
+  "hueco" mediría dos recetas distintas.
+
+**Coste medido, no estimado** — el de §4 (6,7 min/run) es del dataset viejo y se queda corto por
+14×: `dirty-20` va a **~1.150 s/época × 5 épocas ≈ 96 min/run**, o sea **~6,4 h** las cuatro.
+(`dirty-10` son ~330 s/época ≈ 28 min/run, si hiciera falta una señal barata primero.)
+
+**El criterio de lectura, fijado antes de mirar** (§7): el hueco es creíblemente ~0 si su media
+queda **por debajo de la sd entre semillas**. Y el resultado que P2 *puede* devolver y que
+corregiría §5.5: hueco en `blind_*` pero no en `seen_*` ⇒ las etiquetas ciegas sí se memorizan.
+
 ### P3 — Barrer las **formas** de la red (dominio C)
 
 *(Los detalles se discuten al abordarlo; esto fija la pregunta y lo que ya se sabe que estorba.)*

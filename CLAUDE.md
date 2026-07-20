@@ -62,7 +62,7 @@ Ver [README.md](README.md) para montar y correr.
 > laxa es por la que entra el barrido** — y ya son tres, así que la regla dejó de ser hipotética.
 >
 > **`tests/` es la barra de progreso del plan**: un test por contrato, los que faltan en
-> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *185 passed, 0 xfailed*, en verde.
+> `xfail(strict=True)`. `.\.venv\Scripts\python -m pytest -q` → *210 passed, 0 xfailed*, en verde.
 > **Cada fase debe quitar los suyos** (§3 de [tests.md](docs/tests.md) dice cuáles); si los deja
 > puestos, el XPASS estricto pone la suite en rojo y la fase no está terminada. **Ya no queda ningún
 > xfail**: los diez contratos están implementados.

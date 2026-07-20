@@ -1,0 +1,17 @@
+format_version: 1
+lr: 0.001
+optimizer: adam
+momentum: 0.9
+weight_decay: 0.0
+batch_size: 64
+grad_clip: 0.0
+epochs: 5
+scheduler: none
+warmup_epochs: 0
+patience: 0
+min_delta: 0.0
+lambda_pos: 0.5488135039273248
+pos_weight: null
+smooth_l1_beta: 0.05
+monitor: val_loss
+seed: 5
