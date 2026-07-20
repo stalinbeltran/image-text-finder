@@ -43,7 +43,7 @@
     "warmup_epochs": 0,
     "patience": 0,
     "min_delta": 0.0,
-    "lambda_pos": 0.5488135039273248,
+    "lambda_pos": 0.7151893663724195,
     "pos_weight": null,
     "smooth_l1_beta": 0.05,
     "monitor": "val_loss",
@@ -106,7 +106,7 @@
         "warmup_epochs": 0,
         "patience": 0,
         "min_delta": 0.0,
-        "lambda_pos": 0.5488135039273248,
+        "lambda_pos": 0.7151893663724195,
         "pos_weight": null,
         "smooth_l1_beta": 0.05,
         "monitor": "val_loss",
@@ -114,7 +114,7 @@
       }
     },
     "sweep": "dirty-20-lambda_pos_1",
-    "git_commit": "a65afc68ad7c6b607ee5d2aef952ec0c52b81009+sucio",
+    "git_commit": "7c7ab5493eb74a9a140b919412d4a4b0663aafa6+sucio",
     "environment": {
       "python": "3.12.10",
       "torch": "2.13.0+cpu",
